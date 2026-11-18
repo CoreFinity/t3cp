@@ -106,6 +106,8 @@
   };
   const lastPt = M => { for (let j = M.n - 1; j >= 0; j--) if (M.pts[j]) return M.pts[j]; return null; };
   const relAt = (M, j) => M.rel.find(r => r.tag === M.stepTags[j]) || null;
+  // A fork-head value with no neighbour on the fork line: drawn as a dot, or it would not show.
+  const lone = (M, j) => M.ht[j] && M.step[j] != null && M.step[j - 1] == null && M.step[j + 1] == null;
   const lastRel = M => { for (let k = M.rel.length - 1; k >= 0; k--) if (M.rel[k].v != null) return M.rel[k]; return null; };
   T.lastPt = lastPt;
 
@@ -260,6 +262,7 @@
       const fl = r.vpv === 'bad' || r.vpv === 'good';
       marks.push({ i: r.j, dx: r.dx, v, kind: fl ? r.vpv : 'rel', up: fl ? r.vpd > 0 : undefined, label: r.short, force: r === lr, below: r.vb != null && r.vb < 0 === (m.better !== 'higher'), href: relHref(r.tag), title: 'Open release ' + r.tag });
     });
+    M.step.forEach((v, j) => { if (lone(M, j)) marks.push({ i: j, v, kind: 'rel' }); });
     const W0 = o.w || 960;
     return {
       h: o.h || 320, n: M.n, label: `${m.name}, ${o.plat || ''}, ${lvLabel(M.L)}, last ${M.n} nightlies. Use the arrow keys to read each record; Enter on a release date opens its post.`,
@@ -333,6 +336,7 @@
     const x = i => r1(4 + (n === 1 ? 0.5 : i / (n - 1)) * (W - 8)), y = v => r1(5 + (1 - (v - dom[0]) / (dom[1] - dom[0])) * (H - 10));
     let h = `<svg viewBox="0 0 ${W} ${H}" aria-hidden="true">` + paths(c, x, y);
     M.pts.forEach((p, j) => { if (p && (p.verdict === 'bad' || p.verdict === 'good')) h += mark(p.verdict, x(j), y(p.v), 2.2, p.dir > 0); else if (p && (j === n - 1 || (!M.pts[j - 1] && !M.pts[j + 1]))) h += mark('last', x(j), y(p.v), 2.6); });
+    M.step.forEach((v, j) => { if (lone(M, j)) h += mark('rel', x(j), y(v), 2.4); });
     M.rel.forEach(r => { const v = r.v != null ? r.v : M.step[r.j]; if (r.j >= 0 && v != null) h += `<a href="${relHref(r.tag)}" tabindex="-1"><title>Open release ${esc(r.tag)}</title>${mark(r.vpv === 'bad' || r.vpv === 'good' ? r.vpv : 'rel', r1(x(r.j) + r.dx * 0.6), y(v), 2.4, r.vp > 0)}</a>`; });
     el.innerHTML = h + '<g class="hv"></g></svg>';
     const svg = $('svg', el), hv = $('.hv', el), vEl = $('.card-v', card), dEl = $('.card-d', card), v0 = vEl.innerHTML, d0 = dEl.innerHTML, m = M.meta;
