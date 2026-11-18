@@ -57,3 +57,14 @@ test('without fork-head nights nothing changes: the held step, "Nightly", no "sa
   assert.match(tip, /100 Nightly/);
   assert.doesNotMatch(tip, /Upstream nightly|same night/);
 });
+
+// From the review: a fork-head value with no neighbour on the fork line (no release record, gaps either side) gets a dot.
+test('a lone fork-head value is drawn as a dot', () => {
+  const f = forkOf(10, []);
+  f.head_tags = f.step_tags.map((_, i) => (i === 5 ? TAG : null));
+  f.levels['100'].step = f.step_tags.map((_, i) => (i === 5 ? 80 : null));
+  f.levels['100'].head_note = f.step_tags.map(() => null);
+  const M = T.model(shard('elu', { 100: level(Array(10).fill(100)) }, { n: 10, fork: f }), meta, '100', 0, null);
+  const marks = T.tsChart(M, { w: 960 }).marks.filter(k => k.i === 5 && k.v === 80);
+  assert.equal(marks.length, 1, 'one dot at the lone value');
+});
