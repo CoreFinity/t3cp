@@ -181,3 +181,49 @@ test("a fork-head night whose count was not measured on a saturated attempt says
   assert.equal(s.fork.levels["100"].head_note[2], "saturated");
   assert.equal(s.fork.levels["100"].step[2], null);
 });
+
+// The fork-head and nightly D run on separate machines: the fork-head can publish before nightly D does, and nightly D
+// can end partial or not be published for days. Only a published nightly D of another build is a refused pairing.
+test("nightly D not published (yet): the build passes; the fork-head is listed, not drawn, never compared", () => {
+  const early = nightlies.slice(0, 3); // 14 to 16 Nov; 17 Nov's nightly is not published
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "t3cp-agg-forkhead-early-"));
+  temps.push(dir);
+  const put = (rel, value) => { fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true }); fs.writeFileSync(path.join(dir, rel), `${JSON.stringify(value)}\n`); };
+  for (const r of early) put(`records/linux-x64/${r.release.date}.${r.release.tag}.json`, r);
+  put(`fork/${TAG}.linux-x64.json`, release);
+  for (const h of heads) put(`fork-nightly/linux-x64/${h.paired_nightly.date}.${TAG}.json`, h);
+  put("bands.json", BANDS);
+  let files;
+  assert.doesNotThrow(() => (files = build(dir)), "a fork-head ahead of its nightly fails nothing");
+  const ri = read(files, "records-index.json");
+  assert.deepEqual(ri.fork_heads.map((e) => [e.date, e.paired_tag]), heads.map((h) => [h.paired_nightly.date, h.paired_nightly.tag]), "listed with its paired tag");
+  const s = read(files, "series/linux-x64/turn_p50_ms.all.json");
+  assert.deepEqual(s.dates, DATES.slice(0, 3), "the chart's nights are the published nightlies'");
+  assert.deepEqual(s.fork.head_tags, [null, null, TAG], "17 Nov is not drawn: it has no nightly to stand beside");
+  const index = read(files, "index.json");
+  assert.ok(index.compare.some((p) => p.includes("__head-2026-11-16.")), "16 Nov is compared with its nightly");
+  assert.ok(!index.compare.some((p) => p.includes("__head-2026-11-17.")), "17 Nov is compared with nothing");
+  assert.ok(![...files.keys()].some((p) => p.includes("__head-2026-11-17.")));
+});
+
+test("nightly D partial (a level with no valid attempt): the build passes and both lines read as measured", async () => {
+  const { loadApp } = await import("./lib/app-vm.mjs");
+  const partial = merged(fakeIdentity({ date: "2026-11-16" }), { invalid: ["100"] });
+  assert.equal(partial.status, "partial");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "t3cp-agg-forkhead-partial-"));
+  temps.push(dir);
+  const put = (rel, value) => { fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true }); fs.writeFileSync(path.join(dir, rel), `${JSON.stringify(value)}\n`); };
+  for (const r of [nightlies[0], nightlies[1], partial, nightlies[3]]) put(`records/linux-x64/${r.release.date}.${r.release.tag}.json`, r);
+  put(`fork/${TAG}.linux-x64.json`, release);
+  for (const h of heads) put(`fork-nightly/linux-x64/${h.paired_nightly.date}.${TAG}.json`, h);
+  put("bands.json", BANDS);
+  let files;
+  assert.doesNotThrow(() => (files = build(dir)));
+  const s = read(files, "series/linux-x64/turn_p50_ms.all.json"), served = read(files, "series/linux-x64/agents_served.all.json");
+  const index = read(files, "index.json"), cat = Object.fromEntries(index.catalogue.map((m) => [m.id, m]));
+  const T = loadApp(), M = T.model(s, cat.turn_p50_ms, "100", 0, served), j = M.dates.indexOf("2026-11-16");
+  const tip = T.tipHTML(M, j).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  assert.match(tip, /failed: no valid attempt/, "the nightly's failure, in the measured-failure wording");
+  assert.match(tip, new RegExp(`Fork ${T.short(TAG)}, measured the same night`), "the fork's value that night");
+  assert.doesNotMatch(tip, /crash|driver/i);
+});
