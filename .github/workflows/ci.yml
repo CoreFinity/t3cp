@@ -58,6 +58,11 @@ jobs:
           else
             node tools/audit/audit-public-tree.mjs --messages "$PUSH_AFTER" --each "$PUSH_AFTER"
           fi
+      - name: "release budget: every release on the committed data, report only"
+        if: ${{ !cancelled() }}
+        # A release over its 48 KB budget is built charts-only and printed as a ::warning:: annotation; the step
+        # still passes. tools/audit/pre-push.sh leaves this alert to CI.
+        run: node site/build/release-build.mjs --in data/v1 --out "$RUNNER_TEMP/releases"
       - name: actionlint (pinned, sha256-verified)
         if: ${{ !cancelled() }}
         run: tools/audit/actionlint.sh

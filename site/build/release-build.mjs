@@ -6,7 +6,8 @@
 // still passes, otherwise the charts-only form with its reason (checker_failed, stale, no_text_yet), or no comparison
 // at all (pending: a record is not complete; no_base: the base is from another era of the benchmark).
 // Deterministic; fails closed (throws, exit 2) on a missing scanner, a source that does not validate, a source
-// for a tag with no fork record, a synthetic source outside a dev build, a scan hit or a file over budget.
+// for a tag with no fork record, a synthetic source outside a dev build or a scan hit. A release over its byte budget
+// is built charts-only with its headline rows (over_budget) and the CLI prints a GitHub warning for it.
 //
 // CLI: node site/build/release-build.mjs --in <input data/v1> --out <dist/data/v1/releases> [--posts news/posts]
 //        [--dev]
@@ -18,7 +19,7 @@ import { parseArgs } from 'node:util';
 import { loadScanner } from '../../news/check.mjs';
 import { isMain } from '../../tools/t3cp/lib/repo.mjs';
 import { buildPostBundle, loadSource, pendingBundle, recordSet } from './release-bundle.mjs';
-import { readSource, renderRelease, serialiseRelease, writeAtomic } from './release-post.mjs';
+import { BUDGET_BYTES, BudgetError, readSource, renderRelease, serialiseRelease, writeAtomic } from './release-post.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -36,7 +37,7 @@ async function forkTags(inDir, platform, dev) {
  *   catalogue?: object, platform?: string, tags?: string[]|null, log?: Function}} args tags builds only those
  * @returns {Promise<Array<{tag: string, file: string, charts_only_reason: string|null}>>}
  */
-export async function buildReleases({ inDir, outDir, postsDir = path.join(ROOT, 'news', 'posts'), dev = false, scanText, catalogue, platform = 'linux-x64', tags: only = null, log = () => {} }) {
+export async function buildReleases({ inDir, outDir, postsDir = path.join(ROOT, 'news', 'posts'), dev = false, scanText, catalogue, platform = 'linux-x64', tags: only = null, log = () => {}, budgetBytes = BUDGET_BYTES }) {
   if (typeof scanText !== 'function') throw new Error('release-build: the internal-name scanner (tools/t3cp/lib/scan.mjs) did not load');
   const cat = catalogue ?? (await import(pathToFileURL(path.join(ROOT, 'site', 'build', 'aggregate.mjs')).href)).loadCatalogue();
   const all = await forkTags(inDir, platform, dev);
@@ -80,26 +81,40 @@ export async function buildReleases({ inDir, outDir, postsDir = path.join(ROOT, 
       bundle = pendingBundle({ forkRecord, catalogue: cat, changelog, platform });
       log(`release-build: ${tag} pending: ${e.message}`);
     }
-    // src: the page's saturated line quotes agents_served, which the post bundle may leave out.
-    const rec = renderRelease({ bundle, source, scanText, src });
+    // A release over its budget never stops the build: it ships charts only with its headline rows, and the CLI
+    // warns. Any other failure (schema, scan) still throws. src: the page's saturated line quotes agents_served,
+    // which the post bundle may leave out.
+    let rec;
+    let over = null;
+    try {
+      rec = renderRelease({ bundle, source, scanText, src, budgetBytes });
+    } catch (e) {
+      if (!(e instanceof BudgetError)) throw e;
+      over = e.bytes;
+      log(`release-build: ${tag} over_budget: ${over} bytes`);
+      rec = renderRelease({ bundle, source, scanText, src, budgetBytes, overBudget: true });
+    }
     const file = path.join(outDir, `${tag}.json`);
     writeAtomic(file, serialiseRelease(rec));
-    out.push({ tag, file, charts_only_reason: rec.charts_only_reason, ...(errors.has(tag) ? { error: errors.get(tag) } : {}) });
+    out.push({ tag, file, charts_only_reason: rec.charts_only_reason, ...(over !== null ? { over_budget_bytes: over } : {}), ...(errors.has(tag) ? { error: errors.get(tag) } : {}) });
   }
   return out;
 }
 
 async function main(argv) {
-  const { values: args } = parseArgs({ args: argv, options: { in: { type: 'string' }, out: { type: 'string' }, posts: { type: 'string' }, dev: { type: 'boolean' }, platform: { type: 'string' } } });
-  if (!args.in || !args.out) {
-    process.stderr.write('usage: node site/build/release-build.mjs --in <input data/v1> --out <dist/data/v1/releases> [--posts news/posts] [--dev]\n');
+  const { values: args } = parseArgs({ args: argv, options: { in: { type: 'string' }, out: { type: 'string' }, posts: { type: 'string' }, dev: { type: 'boolean' }, platform: { type: 'string' }, 'budget-bytes': { type: 'string' } } });
+  const budget = args['budget-bytes'] === undefined ? BUDGET_BYTES : Number(args['budget-bytes']);
+  if (!args.in || !args.out || !Number.isSafeInteger(budget) || budget < 1) {
+    process.stderr.write('usage: node site/build/release-build.mjs --in <input data/v1> --out <dist/data/v1/releases> [--posts news/posts] [--dev] [--budget-bytes <n>, tests only]\n');
     return 2;
   }
   const res = await buildReleases({
     inDir: args.in, outDir: args.out, postsDir: args.posts ?? path.join(ROOT, 'news', 'posts'), dev: args.dev === true,
-    scanText: await loadScanner(ROOT), platform: args.platform ?? 'linux-x64', log: (line) => process.stderr.write(`${line}\n`),
+    scanText: await loadScanner(ROOT), platform: args.platform ?? 'linux-x64', log: (line) => process.stderr.write(`${line}\n`), budgetBytes: budget,
   });
   for (const r of res) process.stderr.write(`release-build: ${r.tag} ${r.charts_only_reason ? `charts only (${r.charts_only_reason})` : 'text'}${r.error ? `; ${r.error}` : ''}\n`);
+  // Report only: a GitHub warning annotation per release over its budget (CI and the deploy show it); exit 0.
+  for (const r of res) if (r.over_budget_bytes !== undefined) process.stdout.write(`::warning::release ${r.tag} over budget: ${r.over_budget_bytes} bytes\n`);
   return 0;
 }
 

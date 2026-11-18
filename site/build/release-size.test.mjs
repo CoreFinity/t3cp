@@ -161,3 +161,18 @@ test('over budget: the size check throws a BudgetError with its bytes, and the o
   // A schema or scan failure is never a BudgetError: it still stops the build.
   assert.throws(() => renderRelease({ bundle: b, source: null, scanText: () => [{ id: 'x' }] }), (e) => !(e instanceof post.BudgetError));
 });
+
+test('over budget, on the page: the footer says why, the headline table stays, no other row but the saturated line\'s', () => {
+  const T = loadApp();
+  const rel = renderRelease({ bundle: wide(), source: null, scanText: clean, overBudget: true });
+  for (const level of ['1', '50', '100', '250']) {
+    const ctx = { catalogue: catalogue.metrics, headlines: catalogue.headlines['linux-x64'], platform: 'linux-x64', level };
+    const html = releaseHTML(T, rel, ctx).html;
+    assert.match(html, /Charts only: the full comparison is over this page&#39;s size budget, so only the headline metrics are listed\./);
+    const others = (/<h3 class="mt3">Other metrics beyond noise<\/h3>(.*?)<\/table>/s.exec(html) || ['', ''])[1];
+    const listed = [...others.matchAll(/<tr><td><a href="\/metrics\/([^/]+)\//g)].map((m) => m[1]);
+    // agents_served stays at the saturated level (250 here), for the saturated line; render-post lists it there.
+    assert.deepEqual(listed, level === '250' ? ['agents_served'] : [], `level ${level}`);
+    assert.match(html, /<table class="dt">/, `level ${level}: the headline table`);
+  }
+});

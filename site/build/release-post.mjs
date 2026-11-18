@@ -42,6 +42,17 @@ export const serialiseRelease = (x) => `${JSON.stringify(x)}\n`;
 export { bundleSha256 };
 
 export const BUDGET_BYTES = 48 * 1024;
+
+/**
+ * A release file over its byte budget. release-build catches only this error and builds that release over_budget
+ * (charts only, its headline rows); a schema or scan failure is a plain Error and still stops the build.
+ */
+export class BudgetError extends Error {
+  constructor(tag, bytes, budget) {
+    super(`release ${tag}: ${bytes} bytes, over the ${budget}-byte budget`);
+    Object.assign(this, { tag, bytes, budget });
+  }
+}
 export const MAX_ATTEMPTS = 2;
 // Failed posts seen in this process, by source file and bundle: their hashes are never written.
 const FAILED_IN_RUN = new Map();
@@ -59,6 +70,7 @@ const FOOTER = {
   checker_failed: (r) => `Charts only: the written text did not pass the checker (${r.findings.length} findings).`,
   stale: (r) => `Charts only: the text no longer matches the measured record (${r.findings.length} findings).`,
   no_text_yet: () => 'Charts only: no text has been written for this release yet.',
+  over_budget: () => "Charts only: the full comparison is over this page's size budget, so only the headline metrics are listed.",
 };
 
 /** The pending (and no_base) form: tag, date, changelog and the charts that exist, with no claim (no number). */
@@ -116,7 +128,9 @@ function record(bundle, { post, reason, result, attempts, provenance = {} }) {
   // reads. The whole table is in the records; the comparison with the previous release is in the series files.
   const beyond = (r) => ['improved', 'regressed'].includes(verdictOf(r, 'base'));
   const servedLine = (r) => r.id === 'agents_served' && (r.saturated.fork === true || r.saturated.base === true);
-  const deltas = bundle.metrics.filter((r) => r.headline != null || beyond(r) || servedLine(r)).map(deltaRow);
+  // Over budget: the headline rows (and the saturated line's agents_served) only, a fixed bound.
+  const listed = reason === 'over_budget' ? (r) => r.headline != null || servedLine(r) : (r) => r.headline != null || beyond(r) || servedLine(r);
+  const deltas = bundle.metrics.filter(listed).map(deltaRow);
   const chartsOnly = reason !== null;
   // A release never carries findings: the footer gives their number only.
   const findingCount = chartsOnly ? (result.findings || []).length : 0;
@@ -157,17 +171,20 @@ function record(bundle, { post, reason, result, attempts, provenance = {} }) {
 /**
  * Render the published release file from a source (or null) and the bundle rebuilt from data. Re-runs the
  * checker on stored text; validates, scans and sizes the result, throwing on any failure (fail closed).
- * @param {{bundle: object, source: object|null, scanText: Function, budgetBytes?: number, src?: object|null}} args src:
- *   the aggregator's release source the bundle was built from, for the rows the page needs that the bundle leaves out
+ * @param {{bundle: object, source: object|null, scanText: Function, budgetBytes?: number, src?: object|null,
+ *   overBudget?: boolean}} args src: the aggregator's release source the bundle was built from, for the rows the page
+ *   needs that the bundle leaves out; overBudget: the over_budget form (release-build, after a BudgetError)
  * @returns {object} a `t3cp/release/1` object
  */
-export function renderRelease({ bundle, source = null, scanText, scanValues, budgetBytes = BUDGET_BYTES, src = null }) {
+export function renderRelease({ bundle, source = null, scanText, scanValues, budgetBytes = BUDGET_BYTES, src = null, overBudget = false }) {
   if (typeof scanText !== 'function') throw new Error('release: the internal-name scanner (tools/t3cp/lib/scan.mjs) did not load');
   const empty = { numbers_checked: 0, charts: 0, findings: [] };
   let rec;
   const provenance = provenanceOf(source && source.checker);
   if (bundle.pending) {
     rec = record(bundle, { reason: bundle.pending_reason === 'no_base' ? 'no_base' : 'pending', result: empty, attempts: 0 });
+  } else if (overBudget) {
+    rec = record(bundle, { reason: 'over_budget', result: empty, attempts: 0 });
   } else if (!source || source.status === 'retry') {
     rec = record(bundle, { reason: 'no_text_yet', result: empty, attempts: 0 });
   } else if (source.status === 'charts_only' && source.checker.bundle_sha256 !== bundleSha256(bundle)) {
@@ -185,7 +202,7 @@ export function renderRelease({ bundle, source = null, scanText, scanValues, bud
   const errors = schemaErrors(schema('schema/release-1.json'), rec);
   if (errors.length) throw new Error(`release ${bundle.release.tag}: does not validate against t3cp/release/1: ${formatSafeErrors(errors, schema('schema/release-1.json'), 3)}`);
   const text = serialiseRelease(rec);
-  if (Buffer.byteLength(text) > budgetBytes) throw new Error(`release ${bundle.release.tag}: ${Buffer.byteLength(text)} bytes, over the ${budgetBytes}-byte budget`);
+  if (Buffer.byteLength(text) > budgetBytes) throw new BudgetError(bundle.release.tag, Buffer.byteLength(text), budgetBytes);
   // Keys and string leaves (the bundle's numbers masked only for a values list passed in); number leaves are measured data.
   if (scanJson(rec, scanText, bundle, { scanValues }).length) throw new Error(`release ${bundle.release.tag}: fails the internal-name scan`);
   return rec;
