@@ -1,0 +1,91 @@
+{
+  "schema": "t3cp/post-source/1",
+  "tag": "v0.1.9-perf.7",
+  "status": "charts_only",
+  "post": null,
+  "changelog": [
+    "Upstream 0.1.9, Node 26.13.1 and a round of correctness fixes",
+    "Upstream T3 Code 0.1.9; Node 26.13.1.",
+    "Migrations: the fork's migration chain follows upstream migration 85; upstream's message-ordinal index migration is a no-op on a database that already has the fork's.",
+    "Database: reader transactions are not folded into one BEGIN/COMMIT.",
+    "Worker path parity with in-thread provider sessions: hook matchers (onFailure included), MCP servers in the query options and SDK error fields reach the worker; a failed worker session stops its Claude CLI.",
+    "Spawner process: shell commands refuse separate arguments, no process-group signal for an exited child, a failing stdin source fails the command, upstream's hung-mount guard applies, commands are found as execvp finds them, and a stopped spawner's cleanup ends only what was sent to it.",
+    "Checkpoints: baselines and checkpoints are taken at the scope's real path; a refused workspace lookup records an error checkpoint and completes the run; a later workspace's full-thread diff starts at its own first baseline.",
+    "Steering: follow-ups of an archived or deleted thread are dropped; Stop and steer delivery fixes.",
+    "Claude descendant processes share one poll (upstream #34505); pull request sync backs off; Codex and ACP output offload match in-thread behaviour; Codex's line framer flushes its decoder at end of input.",
+    "Bench parameters in tools/server-bench set to chosen defaults."
+  ],
+  "checker": {
+    "n": 2,
+    "version": "2",
+    "prompt_sha256": "616730d64fb37d824cfa6782628127ec2ba5bb948325ce37d794521b00b8e5bb",
+    "model": "claude-opus-5-5",
+    "usage": {
+      "input_tokens": 81557,
+      "output_tokens": 1513
+    },
+    "bundle_sha256": "73e0a5dc182fe80de54e577e62c41fe655eea14104e7715b09a5ec2bf3aeaecf",
+    "passed": false,
+    "numbers_checked": 44,
+    "charts": 8,
+    "findings": [
+      {
+        "rule": "summary-binding",
+        "field": "summary"
+      },
+      {
+        "rule": "summary-binding",
+        "field": "summary"
+      }
+    ],
+    "checked_at": "2026-11-18T21:19:30.205Z"
+  },
+  "attempts": [
+    {
+      "n": 1,
+      "version": "2",
+      "prompt_sha256": "616730d64fb37d824cfa6782628127ec2ba5bb948325ce37d794521b00b8e5bb",
+      "model": "claude-opus-5-5",
+      "usage": {
+        "input_tokens": 79553,
+        "output_tokens": 1919
+      },
+      "bundle_sha256": "73e0a5dc182fe80de54e577e62c41fe655eea14104e7715b09a5ec2bf3aeaecf",
+      "passed": false,
+      "numbers_checked": 44,
+      "charts": 8,
+      "findings": [
+        {
+          "rule": "summary-binding",
+          "field": "summary"
+        }
+      ],
+      "checked_at": "2026-11-18T21:19:14.764Z"
+    },
+    {
+      "n": 2,
+      "version": "2",
+      "prompt_sha256": "616730d64fb37d824cfa6782628127ec2ba5bb948325ce37d794521b00b8e5bb",
+      "model": "claude-opus-5-5",
+      "usage": {
+        "input_tokens": 81557,
+        "output_tokens": 1513
+      },
+      "bundle_sha256": "73e0a5dc182fe80de54e577e62c41fe655eea14104e7715b09a5ec2bf3aeaecf",
+      "passed": false,
+      "numbers_checked": 44,
+      "charts": 8,
+      "findings": [
+        {
+          "rule": "summary-binding",
+          "field": "summary"
+        },
+        {
+          "rule": "summary-binding",
+          "field": "summary"
+        }
+      ],
+      "checked_at": "2026-11-18T21:19:30.205Z"
+    }
+  ]
+}
