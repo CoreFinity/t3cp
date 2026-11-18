@@ -1,0 +1,97 @@
+{
+  "schema": "t3cp/post-source/1",
+  "tag": "v0.1.6-perf.3",
+  "status": "passed",
+  "post": {
+    "bundle_sha256": "3916ad4e3a8f1412bbd6a10487163b50db260d1b9d3c362f5132dbc5ee196d75",
+    "summary": "{claim:reader_tx_wait_p95_ms.linux-x64.1.base}. {claim:rss_peak_mib.linux-x64.1.prev}. {claim:rss_peak_mib.linux-x64.1.base}.",
+    "sections": [
+      {
+        "chart_id": "series.migration_extra_disk_mib.linux-x64",
+        "caption": "{claim:migration_extra_disk_mib.linux-x64.once.base}."
+      },
+      {
+        "chart_id": "fork-vs-base.reader_tx_wait_p95_ms.ladder.linux-x64",
+        "caption": "{claim:reader_tx_wait_p95_ms.linux-x64.50.base}."
+      },
+      {
+        "chart_id": "series.db_ready_first_ms.linux-x64",
+        "caption": "{claim:db_ready_first_ms.linux-x64.once.base}."
+      },
+      {
+        "chart_id": "series.listening_first_ms.linux-x64",
+        "caption": "{claim:listening_first_ms.linux-x64.once.base}."
+      },
+      {
+        "chart_id": "fork-vs-base.reader_tx_wait_avg_ms.ladder.linux-x64",
+        "caption": "{claim:reader_tx_wait_avg_ms.linux-x64.50.base}."
+      },
+      {
+        "chart_id": "fork-vs-base.elu.ladder.linux-x64",
+        "caption": "{claim:elu.linux-x64.50.base}."
+      },
+      {
+        "chart_id": "fork-vs-base.elu_max.ladder.linux-x64",
+        "caption": "{claim:elu_max.linux-x64.50.base}."
+      },
+      {
+        "chart_id": "fork-vs-base.main_minflt_per_s.ladder.linux-x64",
+        "caption": "{claim:main_minflt_per_s.linux-x64.50.base}."
+      }
+    ],
+    "quotes": [
+      2,
+      7,
+      8,
+      10
+    ]
+  },
+  "changelog": [
+    "Admission gate, encode-once fan-out and fewer git commands per turn",
+    "Server: an admission gate on event-loop delay, on by default.",
+    "Events: each live update is encoded once for all subscribers; the live stream's hub owns resynchronisation.",
+    "Memory: a scratch store for compaction; a larger V8 young generation by default, also for the packaged executable.",
+    "Database: a new reader protocol between the server and its reader workers.",
+    "Git: fewer git commands per turn; every command, not only git, goes through the spawner process.",
+    "Checkpoints: a run records its workspace directory, and checkpoint scopes are per workspace.",
+    "Background task interrupts settle cleanly.",
+    "Fixes that came with the upstream merge: the Claude Agent SDK update and the spawner's refusal of a root working directory.",
+    "Bench parameters in tools/server-bench set to chosen defaults."
+  ],
+  "checker": {
+    "n": 1,
+    "version": "2",
+    "prompt_sha256": "616730d64fb37d824cfa6782628127ec2ba5bb948325ce37d794521b00b8e5bb",
+    "model": "claude-opus-5-5",
+    "usage": {
+      "input_tokens": 88142,
+      "output_tokens": 1606
+    },
+    "bundle_sha256": "3916ad4e3a8f1412bbd6a10487163b50db260d1b9d3c362f5132dbc5ee196d75",
+    "post_sha256": "9689572cf34d49fc22c821986c68a891af6d3f8b7d67e6c3fe4b0e5c65a320a7",
+    "passed": true,
+    "numbers_checked": 44,
+    "charts": 8,
+    "findings": [],
+    "checked_at": "2026-11-18T21:19:05.498Z"
+  },
+  "attempts": [
+    {
+      "n": 1,
+      "version": "2",
+      "prompt_sha256": "616730d64fb37d824cfa6782628127ec2ba5bb948325ce37d794521b00b8e5bb",
+      "model": "claude-opus-5-5",
+      "usage": {
+        "input_tokens": 88142,
+        "output_tokens": 1606
+      },
+      "bundle_sha256": "3916ad4e3a8f1412bbd6a10487163b50db260d1b9d3c362f5132dbc5ee196d75",
+      "post_sha256": "9689572cf34d49fc22c821986c68a891af6d3f8b7d67e6c3fe4b0e5c65a320a7",
+      "passed": true,
+      "numbers_checked": 44,
+      "charts": 8,
+      "findings": [],
+      "checked_at": "2026-11-18T21:19:05.498Z"
+    }
+  ]
+}
