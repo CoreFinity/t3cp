@@ -362,3 +362,18 @@ test('over budget, the alert runs in CI: a report-only step builds every release
   assert.match(step.run, /--out "\$RUNNER_TEMP\/releases"$/);
   assert.equal(step['continue-on-error'], undefined, 'it passes on its own: over budget is a warning, never a failure');
 });
+
+test('over budget, never fatal: when even the charts-only form is over the budget, the build completes, ships it and warns', async () => {
+  const TINY = 2048;
+  const d = fresh();
+  const lines = [];
+  const res = await buildReleases({ inDir, outDir: d.outDir, postsDir: d.postsDir, dev: true, scanText: clean, budgetBytes: TINY, log: (l) => lines.push(l) });
+  assert.ok(res.length > 1);
+  for (const r of res) {
+    assert.equal(r.charts_only_reason, 'over_budget', r.tag);
+    assert.ok(r.over_budget_bytes > TINY, r.tag);
+    assert.deepEqual(validate(releaseSchema, json(r.file)), [], r.tag);
+  }
+  const out = execFileSync(process.execPath, [path.join(ROOT, 'site', 'build', 'release-build.mjs'), '--in', inDir, '--out', fresh().outDir, '--posts', d.postsDir, '--dev', '--budget-bytes', String(TINY)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  assert.equal(out.split('\n').filter((l) => l.startsWith('::warning::release ')).length, res.length, out);
+});

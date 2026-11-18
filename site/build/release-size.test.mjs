@@ -200,3 +200,18 @@ test('over budget, on the page: the footer says why, the headline table stays, n
     assert.match(html, /<table class="dt">/, `level ${level}: the headline table`);
   }
 });
+
+test('fail closed before size: a scan hit in a row the over_budget form would drop still stops the build', () => {
+  const b = wide();
+  const row = b.metrics.find((r) => r.headline == null && moved(verdictOf(r, 'base')));
+  const hit = (t) => (String(t).includes(row.id) ? [{ id: 'name' }] : []);
+  assert.throws(() => renderRelease({ bundle: b, source: null, scanText: hit, budgetBytes: 1024 }), (e) => !(e instanceof post.BudgetError) && /fails the internal-name scan/.test(e.message));
+});
+
+test('over budget, never fatal: the over_budget form is validated and scanned, and written even if still over the budget', () => {
+  const b = wide();
+  const rel = renderRelease({ bundle: b, source: null, scanText: clean, budgetBytes: 1024, overBudget: true });
+  assert.equal(rel.charts_only_reason, 'over_budget');
+  assert.ok(Buffer.byteLength(serialiseRelease(rel)) > 1024, 'still over that budget, and returned');
+  assert.throws(() => renderRelease({ bundle: b, source: null, scanText: () => [{ id: 'x' }], budgetBytes: 1024, overBudget: true }), /fails the internal-name scan/);
+});
