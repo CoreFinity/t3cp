@@ -80,6 +80,21 @@ if (process.env.STUB_HANG_CELL === cell) {
   const start = new Date(Date.now() - 2000).toISOString();
   const end = new Date().toISOString();
   fs.writeFileSync(path.join(run, "run.json"), JSON.stringify({ valid: true, window: { start, end } }));
+  // STUB_SCENARIO=turn-start: 10 turn starts in the window, the 4th a 400 ms block, and the loop sample over it.
+  if (process.env.STUB_SCENARIO === "turn-start") {
+    const logs = path.join(run, "base", "userdata", "logs");
+    fs.mkdirSync(logs, { recursive: true });
+    const s0 = Date.parse(start);
+    const ns = (ms) => String(BigInt(Math.round(ms)) * 1000000n);
+    const spans = Array.from({ length: 10 }, (_, i) => [s0 + 50 + i * 100, s0 + 50 + i * 100 + (i === 3 ? 400 : 20)]);
+    fs.writeFileSync(path.join(logs, "server.trace.ndjson"), spans.map(([a, b]) => JSON.stringify({ name: "ProviderTurnStartService.start", startTimeUnixNano: ns(a), endTimeUnixNano: ns(b), durationMs: b - a })).join("\n") + "\n");
+    fs.writeFileSync(path.join(run, "loop-1hz.ndjson"), JSON.stringify({ t: s0 + 750, dt_ms: 500, delay: { max_ms: 4321 } }) + "\n");
+  }
+  // STUB_DB_TEMPLATE: the run's database, as a kept run leaves it.
+  if (process.env.STUB_DB_TEMPLATE) {
+    fs.mkdirSync(path.join(run, "base", "userdata"), { recursive: true });
+    fs.copyFileSync(process.env.STUB_DB_TEMPLATE, path.join(run, "base", "userdata", "statev2.sqlite"));
+  }
   // STUB_TRACE_SPANS=N: the server trace has N prune spans inside the window and one before it.
   const spans = Number(process.env.STUB_TRACE_SPANS ?? 0);
   if (spans > 0) {
@@ -131,7 +146,7 @@ const pipeline = { runner_version: meta.runner?.version ?? null, runner_files_sh
 fs.writeFileSync(path.join(out, "attempt.json"), JSON.stringify({ stub: true, cell: meta.cell, n: meta.n, profile: meta.profile, pipeline }));
 `;
 
-function setup({ archiveSha256, cpuModel = "AMD EPYC 7B13", suite = {}, fixture = false } = {}) {
+function setup({ archiveSha256, cpuModel = "AMD EPYC 7B13", suite = {}, fixture = false, scenarioSuite = null } = {}) {
   const root = mkdtempSync(join(tmpdir(), "t3cp-run-record-"));
   const harness = join(root, "harness");
   mkdirSync(join(harness, "tools", "server-bench", "preload"), { recursive: true });
@@ -169,7 +184,7 @@ function setup({ archiveSha256, cpuModel = "AMD EPYC 7B13", suite = {}, fixture 
         archive_path: archive,
       },
       fixture: fixture ? { id: "large-76", path: fixtureFile, sha256: fixtureSha, migration: 76 } : { id: "none" },
-      suite: {
+      suite: scenarioSuite ?? {
         id: "test-stub",
         levels: [1, 50, 100, 150, 200, 250],
         attempts_per_level: 3,
@@ -1030,6 +1045,123 @@ test("a deadline during a long foreground step (an export) is handled at once, a
   assert.ok(existsSync(`${t.log}.export-started`), "the deadline fell during the export");
   assert.equal(failureOf(t.out).reason, "record_timeout");
   assert.deepEqual(carrying(t), [], "the export is stopped with the record");
+});
+
+// Scenario records (a catalogue row, id@version): the row's cells and attempts in place of the ladder, the row's
+// load and windows, the row's post step, no record extras, and the record's workload naming the scenario.
+const TEST_CATALOGUE = {
+  schema: "t3cp/scenarios/1",
+  rows: [
+    {
+      id: "test-turn-start",
+      version: 1,
+      status: "active",
+      added: "2026-11-18",
+      harness: "t3cp-harness/2.0.2",
+      platforms: ["linux-x64", "darwin-arm64"],
+      fixture: "none",
+      attempts: 2,
+      metrics: ["turn_start_history_gap_ms"],
+      cells: [{ name: "lt", mode: "history", sessions: 1, subscribers: 0, pollers: 0, turn_gap: "20s", warmup_s: 30, window_s: 600, seed_compacted_at: true, post: "turn-start-gap" }],
+    },
+    {
+      id: "test-compaction",
+      version: 1,
+      status: "active",
+      added: "2026-11-18",
+      harness: "t3cp-harness/2.0.2",
+      platforms: ["linux-x64", "darwin-arm64"],
+      fixture: "none",
+      attempts: 1,
+      metrics: ["event_log_unpruned_days"],
+      cells: [{ name: "cmp", mode: "fresh", sessions: 1, subscribers: 1, pollers: 0, turn_gap: "5s", warmup_s: 60, window_s: 300, seed_compacted_at: false, post: "prune-mark" }],
+    },
+  ],
+};
+/** A scenario record's setup: the row's suite and a catalogue holding the test rows (T3CP_SCENARIOS). */
+function scenarioSetup(ref) {
+  const [id, version] = ref.split("@");
+  const t = setup({ scenarioSuite: { id: ref, scenario: { id, version: Number(version) } } });
+  const catalogue = join(t.root, "scenarios.json");
+  writeFileSync(catalogue, JSON.stringify(TEST_CATALOGUE));
+  t.env = { ...t.env, T3CP_SCENARIOS: catalogue };
+  return t;
+}
+const runsOf = (t) => readFileSync(t.log, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
+/** run.ts's arguments with the record's own paths and times as placeholders. */
+const shapeOf = (args) => {
+  const out = [...args];
+  for (const flag of ["--ref", "--archive", "--settings", "--out", "--work", "--now"]) {
+    const i = out.indexOf(flag);
+    if (i >= 0) out[i + 1] = `<${flag.slice(2)}>`;
+  }
+  return out;
+};
+const SERVER_ENV = [
+  "--server-env", "T3CODE_TELEMETRY_ENABLED=false", "--server-env", "T3CODE_LOG_LEVEL=Warn",
+  "--server-env", "T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD=false", "--server-env", "NODE_OPTIONS=--max-old-space-size=8192",
+];
+const DRIVER_STD = ["--call-timeout", "300s", "--stall-timeout", "600s", "--max-error-rate", "0.2", "--setup-concurrency", "16"].map((a) => `--driver-arg=${a}`);
+
+test("a scenario spec naming a row the pinned catalogue does not have is refused before any attempt", { skip, timeout: 1_800_000 }, () => {
+  const t = scenarioSetup("no-such-scenario@1");
+  const result = runRunner(t);
+  assert.equal(result.status, 2, result.stderr);
+  assert.equal(failureOf(t.out).reason, "scenario_unknown");
+  assert.deepEqual(calls(t.log), []);
+});
+
+test("a scenario row's cells become exactly these run.ts arguments, round after round, with no record extras", { skip, timeout: 1_800_000 }, () => {
+  const lt = scenarioSetup("test-turn-start@1");
+  const ltResult = runRunner(lt, { env: { ...lt.env, T3CP_KEEP_RAW: "1" } });
+  assert.equal(ltResult.status, 0, ltResult.stderr);
+  assert.deepEqual(calls(lt.log), ["lt-1", "lt-2"], "the row's attempts, and no extras run");
+  assert.deepEqual(shapeOf(runsOf(lt)[0].args), [
+    "tools/server-bench/run.ts", "--ref", "<ref>", "--archive", "<archive>", "--fixture", "none",
+    "--settings", "<settings>", "--out", "<out>", "--work", "<work>", "--runs", "1", "--retries", "2",
+    "--warmup", "30s", "--window", "600s", "--sessions", "1", "--subscribers", "0",
+    "--now", "<now>", "--seed-compacted-at", "--otlp-interval-ms", "1000", "--startup-timeout", "900s", "--keep-runs",
+    ...SERVER_ENV, "--driver-arg=--seed", "--driver-arg=1",
+    "--driver-arg=--mode", "--driver-arg=history", "--driver-arg=--turn-gap", "--driver-arg=20s", "--driver-arg=--pollers", "--driver-arg=0", ...DRIVER_STD,
+  ]);
+  assert.ok(!existsSync(join(lt.out, "extras")) || readdirSync(join(lt.out, "extras")).length === 0, "no record extras");
+  const cmp = scenarioSetup("test-compaction@1");
+  assert.equal(runRunner(cmp, { env: { ...cmp.env, T3CP_KEEP_RAW: "1" } }).status, 0);
+  const cmpArgs = shapeOf(runsOf(cmp)[0].args);
+  assert.ok(!cmpArgs.includes("--seed-compacted-at"), "the compaction row starts with no fresh compaction marker");
+  assert.deepEqual(cmpArgs.slice(cmpArgs.indexOf("--warmup"), cmpArgs.indexOf("--now")), ["--warmup", "60s", "--window", "300s", "--sessions", "1", "--subscribers", "1"]);
+});
+
+test("a turn-start row writes its raw scenario file from the run's trace and loop samples, and names the scenario", { skip, timeout: 1_800_000 }, () => {
+  const t = scenarioSetup("test-turn-start@1");
+  const result = runRunner(t, { env: { ...t.env, T3CP_KEEP_RAW: "1", STUB_SCENARIO: "turn-start" } });
+  assert.equal(result.status, 0, result.stderr);
+  const raw = JSON.parse(readFileSync(join(t.work, "raw", "lt-1", "scenario.json"), "utf8"));
+  assert.deepEqual(
+    { schema: raw.schema, scenario: raw.scenario, metric: raw.metric, value: raw.value, reason: raw.reason, starts: raw.detail.starts_completed },
+    { schema: "t3cp/scenario-raw/1", scenario: { id: "test-turn-start", version: 1 }, metric: "turn_start_history_gap_ms", value: 4321, reason: null, starts: 10 },
+  );
+  const meta = JSON.parse(readFileSync(join(t.work, "raw", "lt-1", "attempt-meta.json"), "utf8"));
+  assert.deepEqual(meta.scenario, { id: "test-turn-start", version: 1 });
+  assert.notEqual(meta.maintenance_expected, true);
+});
+
+test("a compaction row reads the prune mark from the kept run's database, read-only, and expects maintenance", { skip, timeout: 1_800_000 }, () => {
+  const t = scenarioSetup("test-compaction@1");
+  const db = join(t.root, "template.sqlite");
+  const mark = new Date(Date.now() - 3 * 86_400_000).toISOString();
+  const made = spawnSync("python3", ["-I", "-c", "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute(sys.argv[2]); c.execute(sys.argv[3], (sys.argv[4],)); c.commit(); c.close()", db,
+    "CREATE TABLE orchestration_v2_projection_metadata (projection_name TEXT PRIMARY KEY, schema_version INTEGER, last_sequence INTEGER, updated_at TEXT)",
+    "INSERT INTO orchestration_v2_projection_metadata VALUES ('event-log-prune-mark', 2, 151, ?)", mark], { encoding: "utf8" });
+  assert.equal(made.status, 0, made.stderr);
+  const result = runRunner(t, { env: { ...t.env, T3CP_KEEP_RAW: "1", STUB_DB_TEMPLATE: db } });
+  assert.equal(result.status, 0, result.stderr);
+  const raw = JSON.parse(readFileSync(join(t.work, "raw", "cmp-1", "scenario.json"), "utf8"));
+  assert.equal(raw.metric, "event_log_unpruned_days");
+  assert.equal(raw.value, 2);
+  assert.equal(raw.detail.mark_updated_at, mark);
+  const meta = JSON.parse(readFileSync(join(t.work, "raw", "cmp-1", "attempt-meta.json"), "utf8"));
+  assert.equal(meta.maintenance_expected, true);
 });
 
 // Last in the file: tests run in order, and each one's end has run by now.

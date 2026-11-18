@@ -1,0 +1,67 @@
+{
+  "schema": "t3cp/scenarios/1",
+  "rows": [
+    {
+      "id": "long-thread-turn-start",
+      "version": 1,
+      "status": "active",
+      "added": "2026-11-18",
+      "harness": "t3cp-harness/2.0.2",
+      "platforms": ["linux-x64", "darwin-arm64"],
+      "fixture": "long-thread-1",
+      "attempts": 3,
+      "metrics": ["turn_start_history_gap_ms"],
+      "cells": [
+        {
+          "name": "lt",
+          "mode": "history",
+          "sessions": 1,
+          "subscribers": 0,
+          "pollers": 0,
+          "turn_gap": "20s",
+          "warmup_s": 30,
+          "window_s": 600,
+          "seed_compacted_at": true,
+          "post": "turn-start-gap"
+        }
+      ]
+    },
+    {
+      "id": "event-log-compaction",
+      "version": 1,
+      "status": "active",
+      "added": "2026-11-18",
+      "harness": "t3cp-harness/2.0.2",
+      "platforms": ["linux-x64", "darwin-arm64"],
+      "fixture": "compaction-1",
+      "attempts": 3,
+      "metrics": ["event_log_unpruned_days"],
+      "cells": [
+        {
+          "name": "cmp",
+          "mode": "history",
+          "sessions": 1,
+          "subscribers": 1,
+          "pollers": 0,
+          "turn_gap": "5s",
+          "warmup_s": 60,
+          "window_s": 300,
+          "seed_compacted_at": false,
+          "post": "prune-mark"
+        }
+      ]
+    },
+    {
+      "id": "retired-example",
+      "version": 1,
+      "status": "retired",
+      "added": "2026-11-18",
+      "harness": "t3cp-harness/2.0.2",
+      "platforms": ["linux-x64"],
+      "fixture": "none",
+      "attempts": 1,
+      "metrics": [],
+      "cells": [{ "name": "r", "mode": "fresh", "sessions": 1, "subscribers": 1, "pollers": 0, "turn_gap": "5s", "warmup_s": 10, "window_s": 30, "seed_compacted_at": true, "post": "none" }]
+    }
+  ]
+}
