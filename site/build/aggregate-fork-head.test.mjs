@@ -15,7 +15,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { buildOutputs, BuildError } from "./aggregate.mjs";
 import { mergeRecord } from "../../tools/t3cp/merge.mjs";
-import { fakeAttempts, fakeExtras, fakeIdentity, FAKE_PUBLIC_REFS } from "../../tools/t3cp/lib/fake.mjs";
+import { fakeAttempts, fakeExtras, fakeIdentity, FAKE_PUBLIC_REFS, PLATFORM } from "../../tools/t3cp/lib/fake.mjs";
 import { loadCatalogue, loadSchema } from "../../tools/t3cp/lib/repo.mjs";
 import { validate } from "../../tools/t3cp/lib/validate.mjs";
 
@@ -145,4 +145,39 @@ test("status.json's latest record stays an upstream nightly: a fork-head id ther
   assert.throws(() => build(tree({ fh: heads, status })), (e) => e instanceof BuildError && /status\.json/.test(e.message));
   status.platforms["linux-x64"].latest_record_id = "2026-11-17.linux-x64.nightly";
   assert.doesNotThrow(() => build(tree({ fh: heads, status })), "the upstream nightly's id is accepted");
+});
+
+// From the review of the fork-head line.
+test("a fork-head record paired with another build of its night than the published nightly is refused", () => {
+  const h = head("2026-11-16", { factor: 0.5 });
+  h.paired_nightly.tag = h.paired_nightly.tag.replace(/\.\d+$/, ".1");
+  assert.notEqual(h.paired_nightly.tag, nightlies[2].release.tag);
+  assert.throws(() => build(tree({ releases: [release], fh: [h] })), (e) => e instanceof BuildError && /fork-nightly\/linux-x64\/2026-11-16/.test(e.message) && /paired_nightly/.test(e.message));
+});
+
+test("fork_heads keeps each platform's release: two platforms measuring different releases on one night", () => {
+  const P = { ...PLATFORM, id: "darwin-arm64" };
+  const identity = fakeIdentity({ date: "2026-11-14", kind: "fork", tag: "v0.1.9-perf.8", base: BASE(nightlies[0]), platform: P });
+  identity.record_id = "2026-11-16.darwin-arm64.fork";
+  identity.paired_nightly = { tag: nightlies[2].release.tag, date: "2026-11-16" };
+  const mac = merged(identity);
+  const ri = read(build(tree({ releases: [release], fh: [heads[0], mac] })), "records-index.json");
+  const night = ri.fork_heads.filter((e) => e.date === "2026-11-16");
+  assert.deepEqual(night.map((e) => [e.tag, Object.keys(e.platforms)]).sort(), [["v0.1.9-perf.8", ["darwin-arm64"]], [TAG, ["linux-x64"]]]);
+  for (const e of night) for (const [p, x] of Object.entries(e.platforms)) assert.ok(x.path.endsWith(`.${e.tag}.json`) && x.path.includes(p), `${p}: ${x.path} is ${e.tag}'s`);
+  assert.equal(validate(loadSchema("records-index-1.json"), ri).length, 0);
+});
+
+test("a fork-head night whose count was not measured on a saturated attempt says saturated", () => {
+  const identity = fakeIdentity({ date: "2026-11-14", kind: "fork", tag: TAG, base: BASE(nightlies[0]) });
+  identity.record_id = "2026-11-16.linux-x64.fork";
+  identity.paired_nightly = { tag: nightlies[2].release.tag, date: "2026-11-16" };
+  const attempts = fakeAttempts(catalogue, identity, { jitter: 0 });
+  const a = attempts.find((x) => x.cell === "100" && x.n === 1);
+  a.attempt.saturated = true; a.attempt.saturated_by = ["driver_failed"]; a.attempt.metric_reasons = { ...(a.attempt.metric_reasons ?? {}), turns_completed: "not_measured_saturated" }; a.metrics.turns_completed = null;
+  const h = mergeRecord({ publicRefs: FAKE_PUBLIC_REFS, attempts, extras: [fakeExtras(catalogue, identity)], catalogue, generatedAt: "2026-11-14T18:00:00Z" });
+  assert.equal(h.cells["100"].saturated, false, "the cell itself is not saturated");
+  const s = read(build(tree({ releases: [release], fh: [h] })), "series/linux-x64/turns_completed.all.json");
+  assert.equal(s.fork.levels["100"].head_note[2], "saturated");
+  assert.equal(s.fork.levels["100"].step[2], null);
 });
