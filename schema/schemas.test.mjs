@@ -74,7 +74,9 @@ test("schemas: tag, sha and record id patterns accept the real shapes and refuse
   bad("tag", "main");
   ok("record_id", "2026-11-15.linux-x64.nightly");
   ok("record_id", "0.1.9-perf.8.linux-x64.fork");
-  bad("record_id", "2026-11-15.linux-x64.fork");
+  ok("record_id", "2026-11-15.linux-x64.fork"); // the nightly fork-head record, keyed by its night
+  bad("record_id", "2026-11-15.linux-x64.forks");
+  bad("record_id", "0.1.9-perf.8.linux-x64.nightly");
   ok("sha", "295a0a7332aa1b0cc2f737dae71bd5e607a6ebb9");
   bad("sha", "295a0a7");
   ok("problem", "server_exited");

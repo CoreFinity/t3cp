@@ -87,6 +87,15 @@ const forkSpec = fakeSpec({
   base: { tag: "v0.1.10-nightly.20261115.4749", date: "2026-11-15", sha: "a".repeat(40) },
 });
 
+const headSpec = fakeSpec({
+  record_id: "2026-11-17.linux-x64.fork",
+  kind: "fork",
+  release: { tag: "v0.1.9-perf.9", version: "0.1.9-perf.9", archive_name: "t3-0.1.9-perf.9-linux-x64.tar.gz", date: "2026-11-16" },
+  base: { tag: "v0.1.10-nightly.20261115.4749", date: "2026-11-15", sha: "a".repeat(40) },
+  paired_nightly: { tag: "v0.1.10-nightly.20261117.4800", date: "2026-11-17" },
+  now: "2026-11-18T00:00:00Z",
+});
+
 /** A valid attempt as the exporter writes a saturated one (agents served below the cell's agents, turns not measured). */
 function saturate(a, served) {
   a.attempt.saturated = true;
@@ -104,6 +113,8 @@ function outputs() {
     exportOne("100", { edit: harnessRun({ codes: ["server_exited"] }) }),
     exportOne("1e"),
     exportOne("100", { spec: forkSpec }),
+    // A nightly fork-head record's attempt: the latest release measured on night 2026-11-17, beside that nightly.
+    exportOne("100", { spec: headSpec }),
   ];
   const extras = exportExtras();
   // Extras that timed out (the runner stopped startup after its era cold starts; the snapshot ran out of time) and a
@@ -131,6 +142,11 @@ function outputs() {
     records.push(merge(fakeAttempts(catalogue, identity), [fakeExtras(catalogue, identity)]));
   }
   records.push(merge(marked, [markedExtras]));
+  // A nightly fork-head record (paired_nightly).
+  const head = fakeIdentity({ date: "2026-11-16", kind: "fork", tag: "v0.1.9-perf.9", base: { tag: "v0.1.10-nightly.20261115.4749", date: "2026-11-15", sha: "a".repeat(40) } });
+  head.record_id = "2026-11-17.linux-x64.fork";
+  head.paired_nightly = { tag: "v0.1.10-nightly.20261117.4800", date: "2026-11-17" };
+  records.push(merge(fakeAttempts(catalogue, head), [fakeExtras(catalogue, head)]));
   // A saturated cell, and CPU per served agent with one served level (every level from 50 up serves 50).
   const sat = fakeAttempts(catalogue, nightly);
   for (const a of sat) if (a.cell === "250") saturate(a, 147);

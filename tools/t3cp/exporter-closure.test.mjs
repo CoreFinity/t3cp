@@ -1,8 +1,9 @@
 // exporter_files_sha256, which every attempt and record publishes, must name exactly what runs on the runner VM during
 // export and merge: the static import closure of export.mjs and merge.mjs, plus the data files that code reads (the
-// catalogue, the load profiles, the schemas it validates against, and any JSON it opens beside itself). A file the VM
-// runs but the hash leaves out makes the published hash unreproducible; a CI-only file in it would force images for
-// nothing.
+// catalogue, the load profiles, the schemas it validates against, and any JSON it opens beside itself), plus the record
+// spec schema run-record.sh validates its input against (the runner identity covers run-record.sh and runner/* only,
+// so without it no pin would cover that contract). A file the VM runs but the hash leaves out makes the published hash
+// unreproducible; a CI-only file in it would force images for nothing.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
@@ -34,11 +35,19 @@ function closure() {
   };
   walk(path.join(root, "tools/t3cp/export.mjs"));
   walk(path.join(root, "tools/t3cp/merge.mjs"));
+  // The runner's input contract: run-record.sh validates the spec against it on the VM.
+  data.add("schema/record-spec-1.json");
   return [...code, ...data].sort();
 }
 
 test("EXPORTER_FILES is exactly the VM's export and merge closure: their imports and the data they read", () => {
   assert.deepEqual([...EXPORTER_FILES].sort(), closure());
+});
+
+test("the closure covers the record spec run-record.sh validates against, which the runner identity does not", () => {
+  assert.ok(EXPORTER_FILES.includes("schema/record-spec-1.json"));
+  const sh = fs.readFileSync(path.join(root, "tools/t3cp/run-record.sh"), "utf8");
+  assert.match(sh, /schema\/record-spec-1\.json/, "run-record.sh reads the spec schema");
 });
 
 test("image-pin.json pins the closure hash: a commit that changes what the VM runs updates the pin with it, so a new image is built", async () => {
