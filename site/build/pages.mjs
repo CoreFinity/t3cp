@@ -39,9 +39,10 @@ export function overview(c) {
   const fk = T.forkFor(H, f ? c.read(T.basePath(f, plat)) : null, cat, f, { plat: c.platName, level: L });
   const latest = c.ix && c.ix.platforms.find(p => p.id === plat);
   const rec = latest && latest.latest_date ? `<p class="dim">Latest nightly <span class="tag">${esc(latest.latest_tag)}</span>, ${T.dLong(latest.latest_date)}, ${esc(c.platName)} ${esc(latest.latest_status)}.</p>` : '';
-  // The compact status line above the graph; before the first record it says what is still to be measured, once.
-  const has = Ms.some(M => M && M.pts.some(Boolean)), pend = c.pending ? esc(pendingLine(c)) : '';
-  const line = has || !pend ? T.stripFor(H, Ms, cat, { level: L, line: 1 }) : pend;
+  // The compact status line above the graph: the nightly (or its failure) at the level; with nothing to say at the
+  // level yet, what is still to be measured. The pending sentence is said once: here, or under "What changed".
+  const pend = c.pending ? esc(pendingLine(c)) : '', fl = T.stripFor(H, Ms, cat, { level: L, line: 1 });
+  const usePend = !!pend && fl === 'No records at this level yet.', line = usePend ? pend : fl;
   const body = `<h1 class="sr">T3 Code, performance over time</h1>
 <p class="lede ov-i">Nightly benchmarks of T3 Code under many concurrent agents, comparing upstream with our performance fork whose fixes we send back upstream.</p>
 <p class="lede">We forked T3 Code to optimise it for high-concurrency workloads: one server running many coding agents at once. Every fix we make goes back upstream as a pull request (see our <a href="/mrs/">MRs</a>). Each night we benchmark upstream's nightly against our performance fork under the same load; as upstream merges our fixes, the two lines should meet.</p>
@@ -61,7 +62,7 @@ ${ERR}
   </div>
   <div class="plot h-hero" id="hero"></div>
   <div class="lg"><a id="open" href="/metrics/${m0}/">Open this metric</a></div>
-  <details class="mt2"><summary>What changed</summary><div class="strip" id="strip-w">${rec}${has && pend ? `<p class="dim">${pend}</p>` : ''}<div id="strip">${T.stripFor(H, Ms, cat, { plat: c.platName, level: L })}</div></div></details>
+  <details class="mt2"><summary>What changed</summary><div class="strip" id="strip-w">${rec}${pend && !usePend ? `<p class="dim">${pend}</p>` : ''}<div id="strip">${T.stripFor(H, Ms, cat, { plat: c.platName, level: L })}</div></div></details>
   <details><summary>Show the numbers</summary><p class="note" id="hcap">The eight headline metrics, 50 agents</p><div class="tw" id="htable">${T.headTable(Ms)}</div></details>
   <details class="tg-s"><summary>How to read this</summary>${LEGEND()}</details>
 </section>
@@ -284,7 +285,7 @@ export function records(c) {
   }).join('');
   const frows = c.forks.slice().reverse().map(f => {
     const p = f.platforms[plat], rec = p && p.path && c.read(p.path);
-    return `<tr><td class="tag">${esc(f.tag)}</td><td>${T.dLong(f.date)}</td><td class="hs sha" title="${esc(f.sha)}">${esc(f.sha.slice(0, 12))}</td><td class="hs">${f.base_sha ? `built from source at <span class="sha">${esc(f.base_sha.slice(0, 12))}</span>` : f.base_tag ? `<span class="tag">${esc(f.base_tag)}</span>` : '–'}</td><td>${status(p && p.status, rec && rec.status_reason)}</td><td>${p ? `<a href="/data/v1/${esc(p.path)}">JSON</a>` : ''}</td></tr>`;
+    return `<tr><td class="tag">${esc(f.tag)}</td><td>${T.dLong(f.date)}</td><td class="hs sha" title="${esc(f.sha)}">${esc(f.sha.slice(0, 12))}</td><td class="hs">${f.base_sha ? `built from source at <span class="sha">${esc(f.base_sha.slice(0, 12))}</span>` : f.base_tag ? `<span class="tag">${esc(f.base_tag)}</span>` : '–'}</td><td>${status(p && p.status, rec && rec.status_reason)}${rec && validity(rec.cells) ? ` <span class="dim">${esc(validity(rec.cells))}</span>` : ''}</td><td>${p ? `<a href="/data/v1/${esc(p.path)}">JSON</a>` : ''}</td></tr>`;
   }).join('');
   const more = c.records.length > 120 ? `<p class="note mt1">The ${c.records.length - 120} older records are in <a href="/downloads/">the downloads</a>.</p>` : '';
   const body = `<header class="page-h"><h1>Records.</h1><p class="lede">One record per upstream nightly on ${esc(c.platName)}, and one per fork release. Each links to its JSON file, which carries every attempt's values.${c.pending ? ' ' + esc(pendingLine(c)) : ''}</p></header>
