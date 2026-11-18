@@ -1,12 +1,14 @@
-// The MRs build step: the fork author's pull requests on upstream T3 Code, read from the public GitHub search API
-// at build time without a token, written to data/v1/mrs.json (schema/mrs-1.json). Node, no dependencies.
+// The MRs build step: the fork author's pull requests and issues on upstream T3 Code, read from the public GitHub
+// search API at build time without a token (two queries, type:pr and type:issue), written to data/v1/mrs.json
+// (schema/mrs-2.json). Node, no dependencies.
 //
 //   node site/build/mrs.mjs [--out data/v1/mrs.json] [--previous <file or https URL>]... [--part <file>]
 //
 // If GitHub cannot be read (an HTTP error, a timeout, a rate limit, bad JSON, an incomplete or inconsistent
 // result), the build keeps the previous list, marks it stale and exits 0: the deploy never fails on the API.
 // The previous list is the first of the --previous sources that loads and validates (default: the --out file).
-// The file is at most 32 KB: if the list would be larger, the oldest pull requests are left out and counted.
+// The file is at most 32 KB: if the list would be larger, the oldest items are left out and counted. A previous list in
+// the first format (t3cp/mrs/1, pull requests only) is read once and kept as t3cp/mrs/2.
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
@@ -17,22 +19,28 @@ import { schemaErrorLines } from '../../tools/t3cp/lib/safe-errors.mjs';
 import { PUBLIC_PATTERNS, scanText } from '../../tools/t3cp/lib/scan.mjs';
 
 export const UPSTREAM = 'pingdotgg/t3code';
-// The fork. Its public owner's pull requests are the list; the login is taken from the fork URL, because
-// public files carry it only there and in this author query.
+// The fork. Its public owner's pull requests and issues are the list; the login is taken from the fork URL, because
+// public files carry it only there and in these author queries.
 export const FORK_URL = 'https://github.com/navidnadali/t3code';
 export const AUTHOR = new URL(FORK_URL).pathname.split('/')[1];
 export const DISCUSSION_URL = `https://github.com/${UPSTREAM}/discussions/31002`;
-export const SCHEMA_ID = 't3cp/mrs/1';
-export const SOURCE_QUERY = `repo:${UPSTREAM} author:${AUTHOR} type:pr`;
+export const SCHEMA_ID = 't3cp/mrs/2';
+export const SCHEMA_V1_ID = 't3cp/mrs/1';
+export const PR_QUERY = `repo:${UPSTREAM} author:${AUTHOR} type:pr`;
+export const ISSUE_QUERY = `repo:${UPSTREAM} author:${AUTHOR} type:issue`;
+export const SOURCE_QUERIES = [PR_QUERY, ISSUE_QUERY];
+const KIND_OF_QUERY = new Map([[PR_QUERY, 'pr'], [ISSUE_QUERY, 'issue']]);
 export const MAX_BYTES = 32 * 1024;
 export const PER_PAGE = 100;
 export const SEARCH_CAP = 1000; // the search API returns at most this many results for one query
-export const MAX_TITLE_LENGTH = 1024; // characters; equals items.title.maxLength in schema/mrs-1.json
+export const MAX_TITLE_LENGTH = 1024; // characters; equals items.title.maxLength in schema/mrs-2.json
 export const API_BASE = 'https://api.github.com';
 export const DEFAULT_OUT = fileURLToPath(new URL('../../data/v1/mrs.json', import.meta.url));
-const SCHEMA_URL = new URL('../../schema/mrs-1.json', import.meta.url);
+const SCHEMA_URL = new URL('../../schema/mrs-2.json', import.meta.url);
+const SCHEMA_V1_URL = new URL('../../schema/mrs-1.json', import.meta.url);
 
 export const prUrl = (number) => `https://github.com/${UPSTREAM}/pull/${number}`;
+export const issueUrl = (number) => `https://github.com/${UPSTREAM}/issues/${number}`;
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
 const STATES = new Set(['open', 'closed']);
 
@@ -61,21 +69,31 @@ export function mapState(item) {
   return 'merged';
 }
 
-// One public row: number, title, state, updated_at, url. Nothing else from the API response is kept.
-export function toItem(item) {
-  const state = mapState(item);
+// An issue's state and closed_as: open, or closed with GitHub's state_reason when it is completed (fixed) or not_planned
+// (closed); a reopened, duplicate or unexplained one has none. A pull request in the issue query, or another state, throws.
+export function mapIssue(item) {
+  if (!item || typeof item !== 'object') throw new Error('search item ? is not an issue');
+  if (Object.hasOwn(item, 'pull_request')) throw new Error(`search item ${item.number ?? '?'} is a pull request, not an issue`);
+  if (!STATES.has(item.state)) throw new Error(`search item ${item.number ?? '?'} has an unknown state`);
+  if (item.state === 'open') return { state: 'open', closed_as: null };
+  return { state: 'closed', closed_as: item.state_reason === 'completed' || item.state_reason === 'not_planned' ? item.state_reason : null };
+}
+
+// One public row: kind, number, title, state, closed_as, updated_at, url. Nothing else from the API response is kept.
+export function toItem(item, kind = 'pr') {
+  const { state, closed_as: closedAs } = kind === 'pr' ? { state: mapState(item), closed_as: null } : mapIssue(item);
   const { number, title, updated_at: updatedAt, html_url: url } = item;
   if (!Number.isSafeInteger(number) || number < 1) throw new Error('search item has no valid number');
   if (typeof title !== 'string' || title.trim() === '') throw new Error(`search item ${number} has no title`);
   if ([...title].length > MAX_TITLE_LENGTH) throw new Error(`search item ${number} has a title over ${MAX_TITLE_LENGTH} characters`);
   if (!isUtcTimestamp(updatedAt)) throw new Error(`search item ${number} has no valid updated_at`);
-  if (url !== prUrl(number)) throw new Error(`search item ${number} has an unexpected url`);
-  // The query asks for the fork owner's pull requests; anyone else's is an inconsistent result.
+  if (url !== (kind === 'pr' ? prUrl(number) : issueUrl(number))) throw new Error(`search item ${number} has an unexpected url`);
+  // The queries ask for the fork owner's pull requests and issues; anyone else's is an inconsistent result.
   const login = item.user?.login;
   if (typeof login !== 'string' || login.toLowerCase() !== AUTHOR.toLowerCase()) {
     throw new Error(`search item ${number} is not by the fork's author`);
   }
-  return { number, title, state, updated_at: updatedAt, url };
+  return { kind, number, title, state, closed_as: closedAs, updated_at: updatedAt, url };
 }
 
 // ---- reading the API ----
@@ -90,8 +108,8 @@ export class ApiError extends Error {
   }
 }
 
-export function searchUrl(page, apiBase = API_BASE) {
-  const q = SOURCE_QUERY.replaceAll(' ', '+');
+export function searchUrl(page, apiBase = API_BASE, query = PR_QUERY) {
+  const q = query.replaceAll(' ', '+');
   return `${apiBase}/search/issues?q=${q}&per_page=${PER_PAGE}&sort=updated&order=desc&page=${page}`;
 }
 
@@ -153,13 +171,13 @@ async function getJson(url, opts) {
   }
 }
 
-// Every pull request the query returns, page by page. Throws ApiError on anything short of a complete,
-// consistent result.
-export async function fetchPulls(opts) {
+// Every item one query returns, page by page. Throws ApiError on anything short of a complete, consistent result.
+export async function fetchQuery(query, opts) {
+  const kind = KIND_OF_QUERY.get(query);
   const byNumber = new Map();
   let total = null;
   for (let page = 1; ; page += 1) {
-    const body = await getJson(searchUrl(page, opts.apiBase), opts);
+    const body = await getJson(searchUrl(page, opts.apiBase, query), opts);
     if (!body || typeof body !== 'object' || Array.isArray(body) || !Number.isSafeInteger(body.total_count)
       || body.total_count < 0 || !Array.isArray(body.items)) {
       throw new ApiError('the response is not a search result');
@@ -173,7 +191,7 @@ export async function fetchPulls(opts) {
     for (const raw of body.items) {
       let item;
       try {
-        item = toItem(raw);
+        item = toItem(raw, kind);
       } catch (e) {
         throw new ApiError(e.message);
       }
@@ -182,41 +200,54 @@ export async function fetchPulls(opts) {
     }
     if (page >= Math.ceil(total / PER_PAGE) || body.items.length === 0) break;
   }
-  if (byNumber.size !== total) throw new ApiError(`read ${byNumber.size} pull requests but total_count is ${total}`);
+  if (byNumber.size !== total) throw new ApiError(`read ${byNumber.size} ${kind === 'pr' ? 'pull requests' : 'issues'} but total_count is ${total}`);
   return [...byNumber.values()];
+}
+
+// The fork author's pull requests (the first query), then issues. A number is a pull request or an issue, never both.
+export const fetchPulls = (opts) => fetchQuery(PR_QUERY, opts);
+export async function fetchAll(opts) {
+  const prs = await fetchQuery(PR_QUERY, opts);
+  const issues = await fetchQuery(ISSUE_QUERY, opts);
+  const numbers = new Set(prs.map((i) => i.number));
+  const both = issues.find((i) => numbers.has(i.number));
+  if (both) throw new ApiError(`#${both.number} came back as both a pull request and an issue`);
+  return [...prs, ...issues];
 }
 
 // ---- the document ----
 
 const byUpdatedDesc = (a, b) => (Date.parse(b.updated_at) - Date.parse(a.updated_at)) || (b.number - a.number);
-const zeroCounts = () => ({ open: 0, merged: 0, closed: 0 });
+const zeroCounts = () => ({ pr: { open: 0, merged: 0, closed: 0 }, issue: { open: 0, closed: 0 } });
+const countTotal = (counts) => Object.values(counts).reduce((n, c) => n + Object.values(c).reduce((a, b) => a + b, 0), 0);
 export const isoSeconds = (date) => date.toISOString().replace(/\.\d{3}Z$/, 'Z');
 export const serialize = (doc) => `${JSON.stringify(canonical(doc))}\n`;
 const byteLength = (text) => Buffer.byteLength(text, 'utf8');
 
 // Keys in schema order, so the same list always gives the same bytes.
 function canonical(doc) {
+  const { pr, issue } = doc.counts;
   return {
     schema: doc.schema,
     fetched_at: doc.fetched_at,
     stale: doc.stale,
-    source_query: doc.source_query,
-    counts: { open: doc.counts.open, merged: doc.counts.merged, closed: doc.counts.closed },
+    source_queries: [...doc.source_queries],
+    counts: { pr: { open: pr.open, merged: pr.merged, closed: pr.closed }, issue: { open: issue.open, closed: issue.closed } },
     omitted: doc.omitted,
-    items: doc.items.map((i) => ({ number: i.number, title: i.title, state: i.state, updated_at: i.updated_at, url: i.url })),
+    items: doc.items.map((i) => ({ kind: i.kind, number: i.number, title: i.title, state: i.state, closed_as: i.closed_as, updated_at: i.updated_at, url: i.url })),
   };
 }
 
 export function emptyDoc() {
-  return { schema: SCHEMA_ID, fetched_at: null, stale: true, source_query: SOURCE_QUERY, counts: zeroCounts(), omitted: 0, items: [] };
+  return { schema: SCHEMA_ID, fetched_at: null, stale: true, source_queries: [...SOURCE_QUERIES], counts: zeroCounts(), omitted: 0, items: [] };
 }
 
-// The list as fetched: newest first, counted by state, trimmed to MAX_BYTES by leaving out the oldest.
+// The list as fetched: newest first, counted by kind and state, trimmed to MAX_BYTES by leaving out the oldest.
 export function makeDoc(items, fetchedAt) {
   const sorted = [...items].sort(byUpdatedDesc);
   const counts = zeroCounts();
-  for (const item of sorted) counts[item.state] += 1;
-  const doc = { schema: SCHEMA_ID, fetched_at: fetchedAt, stale: false, source_query: SOURCE_QUERY, counts, omitted: 0, items: sorted };
+  for (const item of sorted) counts[item.kind][item.state] += 1;
+  const doc = { schema: SCHEMA_ID, fetched_at: fetchedAt, stale: false, source_queries: [...SOURCE_QUERIES], counts, omitted: 0, items: sorted };
   if (byteLength(serialize(doc)) <= MAX_BYTES) return doc;
   const keep = (k) => ({ ...doc, items: sorted.slice(0, k), omitted: sorted.length - k });
   let lo = 0, hi = sorted.length; // the largest k whose file fits; k = 0 always fits
@@ -231,11 +262,28 @@ export function makeDoc(items, fetchedAt) {
 // What the schema cannot say.
 export function checkInvariants(doc) {
   const errors = [];
-  const sum = doc.counts.open + doc.counts.merged + doc.counts.closed;
+  const sum = countTotal(doc.counts);
   if (sum !== doc.items.length + doc.omitted) errors.push(`counts add up to ${sum}, not items + omitted (${doc.items.length + doc.omitted})`);
   const seen = zeroCounts();
-  for (const item of doc.items) seen[item.state] += 1;
-  for (const state of Object.keys(seen)) if (seen[state] > doc.counts[state]) errors.push(`more ${state} items than counts.${state}`);
+  for (const item of doc.items) {
+    const where = `${item.kind} #${item.number}`;
+    if (item.kind === 'pr') {
+      if (item.url !== prUrl(item.number)) errors.push(`${where}: a pull request links to /pull/${item.number}`);
+      if (item.closed_as !== null) errors.push(`${where}: closed_as belongs to closed issues`);
+    } else {
+      if (item.url !== issueUrl(item.number)) errors.push(`${where}: an issue links to /issues/${item.number}`);
+      if (item.state === 'merged') errors.push(`${where}: an issue is never merged`);
+      if (item.state === 'open' && item.closed_as !== null) errors.push(`${where}: an open issue has no closed_as`);
+    }
+    if (Object.hasOwn(seen[item.kind], item.state)) seen[item.kind][item.state] += 1;
+  }
+  for (const kind of Object.keys(seen)) for (const state of Object.keys(seen[kind])) {
+    if (seen[kind][state] > doc.counts[kind][state]) errors.push(`more ${kind} ${state} items than counts.${kind}.${state}`);
+  }
+  // The pull request query, then (unless the list was kept from t3cp/mrs/1) the same author's issue query.
+  const [prq, iq] = doc.source_queries, author = prq?.replace(/ type:pr$/, '');
+  if (!prq?.endsWith(' type:pr') || (iq !== undefined && iq !== `${author} type:issue`)) errors.push('source_queries is not the pull request query and the same author\'s issue query');
+  if (iq === undefined && countTotal({ issue: doc.counts.issue }) + doc.items.filter((i) => i.kind === 'issue').length > 0) errors.push('issues listed with no issue query');
   if (new Set(doc.items.map((i) => i.number)).size !== doc.items.length) errors.push('an item number appears twice');
   for (let i = 1; i < doc.items.length; i += 1) {
     if (byUpdatedDesc(doc.items[i - 1], doc.items[i]) > 0) { errors.push('items are not sorted by updated_at descending'); break; }
@@ -244,10 +292,26 @@ export function checkInvariants(doc) {
   return errors;
 }
 
-let schemaCache;
+let schemaCache, schemaV1Cache;
 export async function loadSchema() {
   schemaCache ??= JSON.parse(await readFile(SCHEMA_URL, 'utf8'));
   return schemaCache;
+}
+export async function loadSchemaV1() {
+  schemaV1Cache ??= JSON.parse(await readFile(SCHEMA_V1_URL, 'utf8'));
+  return schemaV1Cache;
+}
+
+// A t3cp/mrs/1 list (pull requests only, one query) as t3cp/mrs/2: every item a pull request, no issue read. The first
+// format's own checks first: its counts add up, its items are counted and sorted, its file was within 32 KB.
+export function migrateV1(doc, schemaV1) {
+  const errors = validateSchema(doc, schemaV1);
+  if (errors.length) return { errors };
+  const sum = doc.counts.open + doc.counts.merged + doc.counts.closed;
+  if (sum !== doc.items.length + doc.omitted) return { errors: ['counts do not add up'] };
+  const items = doc.items.map((i) => ({ kind: 'pr', number: i.number, title: i.title, state: i.state, closed_as: null, updated_at: i.updated_at, url: i.url }));
+  const next = { schema: SCHEMA_ID, fetched_at: doc.fetched_at, stale: doc.stale, source_queries: [doc.source_query], counts: { pr: { ...doc.counts }, issue: { open: 0, closed: 0 } }, omitted: doc.omitted, items };
+  return { doc: next, errors: [] };
 }
 
 export function validateDoc(doc, schema) {
@@ -266,10 +330,10 @@ export const validateSchema = (value, schema) => schemaErrorLines(schema, value,
 const PUBLIC_IDS = new Map(PUBLIC_PATTERNS.map((p) => [p.id, p.re]));
 
 export class ForbiddenPatternError extends Error {
-  constructor(patterns, field, number) {
+  constructor(patterns, field, number, kind = 'pr') {
     // Named by pattern id (with the expression for a public one), never by the matched text: logs may be public.
     const named = patterns.map((id) => (PUBLIC_IDS.has(id) ? `${id} (/${PUBLIC_IDS.get(id).source}/)` : id)).join(', ');
-    const where = number === undefined ? `the ${field} field` : `the ${field} of pull request #${number}`;
+    const where = number === undefined ? `the ${field} field` : `the ${field} of ${kind === 'issue' ? 'issue' : 'pull request'} #${number}`;
     super(`forbidden pattern ${named} in ${where}; fix the source or the scan list before publishing`);
     this.name = 'ForbiddenPatternError';
     this.code = 'T3CP_FORBIDDEN_PATTERN';
@@ -280,24 +344,25 @@ export class ForbiddenPatternError extends Error {
   }
 }
 
-function scanField(value, field, number) {
+function scanField(value, field, number, kind) {
+  if (Array.isArray(value)) { for (const v of value) scanField(v, field, number, kind); return; }
   if (typeof value !== 'string') return;
   const hits = scanText(value);
-  if (hits.length) throw new ForbiddenPatternError([...new Set(hits.map((h) => h.pattern))], field, number);
+  if (hits.length) throw new ForbiddenPatternError([...new Set(hits.map((h) => h.pattern))], field, number, kind);
 }
 
-// Every string of the list it is about to write, fetched or kept: the top-level fields (the author query
+// Every string of the list it is about to write, fetched or kept: the top-level fields (the author queries
 // included, which the scan allows) and every item's title and url. The aggregator scans the file again.
 export function scanDoc(doc) {
-  for (const [field, value] of Object.entries(doc)) scanField(value, field);
+  for (const [field, value] of Object.entries(doc)) if (field !== 'items') scanField(value, field);
   for (const item of doc.items) {
-    for (const [field, value] of Object.entries(item)) scanField(value, field, item.number);
+    for (const [field, value] of Object.entries(item)) scanField(value, field, item.number, item.kind);
   }
 }
 
 // ---- the previous list ----
 
-async function loadPrevious(sources, opts, schema) {
+async function loadPrevious(sources, opts, schema, schemaV1) {
   for (const source of sources) {
     let doc;
     try {
@@ -313,13 +378,22 @@ async function loadPrevious(sources, opts, schema) {
       if (e?.code !== 'ENOENT') opts.log(`mrs: previous list ${display(source)} could not be read (${e.message})`);
       continue;
     }
+    if (doc?.schema === SCHEMA_V1_ID) {
+      const migrated = migrateV1(doc, schemaV1);
+      if (migrated.errors.length) {
+        opts.log(`mrs: previous list ${display(source)} is not a valid ${SCHEMA_V1_ID} file (${migrated.errors.slice(0, 3).join('; ')}); ignored`);
+        continue;
+      }
+      opts.log(`mrs: previous list ${display(source)} is a ${SCHEMA_V1_ID} file; read as ${SCHEMA_ID} (pull requests only)`);
+      doc = migrated.doc;
+    }
     const errors = validateDoc(doc, schema);
     if (errors.length) {
       opts.log(`mrs: previous list ${display(source)} is not a valid ${SCHEMA_ID} file (${errors.slice(0, 3).join('; ')}); ignored`);
       continue;
     }
-    if (doc.source_query !== SOURCE_QUERY) {
-      opts.log(`mrs: previous list ${display(source)} comes from a different query; ignored`);
+    if (doc.source_queries.some((q, k) => q !== SOURCE_QUERIES[k])) {
+      opts.log(`mrs: previous list ${display(source)} comes from different queries; ignored`);
       continue;
     }
     return { doc, source };
@@ -360,11 +434,11 @@ export async function buildMrs(options = {}) {
   const schema = opts.schema ?? (await loadSchema());
   let doc, reason = null, source = 'github';
   try {
-    doc = makeDoc(await fetchPulls(opts), isoSeconds(opts.now()));
+    doc = makeDoc(await fetchAll(opts), isoSeconds(opts.now()));
   } catch (e) {
     if (!(e instanceof ApiError)) throw e;
     reason = e.message;
-    const previous = await loadPrevious(opts.previous ?? [opts.out], opts, schema);
+    const previous = await loadPrevious(opts.previous ?? [opts.out], opts, schema, await loadSchemaV1());
     if (previous) {
       doc = { ...previous.doc, stale: true };
       source = previous.source;
@@ -455,13 +529,14 @@ export async function main(argv = process.argv.slice(2)) {
       log: warn,
     });
     const { counts, items, omitted, fetched_at: fetchedAt } = result.doc;
+    const nPr = items.filter((i) => i.kind === 'pr').length, nIssue = items.length - nPr;
     const where = `${display(out)} (${result.bytes} bytes)`;
     if (result.stale) {
       warn(fetchedAt
         ? `mrs: GitHub could not be read (${result.reason}); kept the list from ${fetchedAt} (${display(result.source)}), marked stale; wrote ${where}`
         : `mrs: GitHub could not be read (${result.reason}) and there is no previous list; wrote an empty stale list to ${where}`);
     } else {
-      process.stderr.write(`mrs: read ${items.length + omitted} pull requests from GitHub (${counts.open} open, ${counts.merged} merged, ${counts.closed} closed${omitted ? `, ${omitted} oldest left out for size` : ''}); wrote ${where}\n`);
+      process.stderr.write(`mrs: read ${counts.pr.open + counts.pr.merged + counts.pr.closed} pull requests (${counts.pr.open} open, ${counts.pr.merged} merged, ${counts.pr.closed} closed) and ${counts.issue.open + counts.issue.closed} issues (${counts.issue.open} open, ${counts.issue.closed} closed) from GitHub${omitted ? `; ${omitted} oldest left out for size, ${nPr} pull requests and ${nIssue} issues listed` : ''}; wrote ${where}\n`);
     }
     if (args.part) {
       const { renderMrsPart } = await import('./mrs-render.mjs');

@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://t3cp.io/schema/mrs-2.json",
+  "title": "t3cp/mrs/2",
+  "description": "data/v1/mrs.json: the fork author's pull requests and issues on upstream T3 Code, read from the public GitHub search API at site build time (two queries, type:pr and type:issue). Also checked by the build, beyond this schema: counts add up to items plus omitted, each item's kind and state is counted, items are sorted by updated_at descending (then number descending), item numbers are unique, a pull request has a /pull/ url, is open, merged or closed and has closed_as null, an issue has an /issues/ url, is open or closed and has closed_as only when closed, source_queries is the pull request query alone (a list kept from t3cp/mrs/1, issues not read) or it and the issue query of the same author, fetched_at null only on a stale file with no items, and the file is at most 32768 bytes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "fetched_at", "stale", "source_queries", "counts", "omitted", "items"],
+  "properties": {
+    "schema": { "const": "t3cp/mrs/2" },
+    "fetched_at": {
+      "description": "When the list was read from GitHub (UTC, whole seconds). Kept from the previous file when a build could not read GitHub; null only if no build has read it yet.",
+      "type": ["string", "null"],
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "stale": {
+      "description": "true when the latest build could not read GitHub and kept the previous list.",
+      "type": "boolean"
+    },
+    "source_queries": {
+      "description": "The search queries the list comes from: the pull request query, then the issue query.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^repo:pingdotgg/t3code author:[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}) type:(?:pr|issue)$"
+      }
+    },
+    "counts": {
+      "description": "Every item the queries returned, by kind and state, including any left out of items.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pr", "issue"],
+      "properties": {
+        "pr": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["open", "merged", "closed"],
+          "properties": {
+            "open": { "type": "integer", "minimum": 0 },
+            "merged": { "type": "integer", "minimum": 0 },
+            "closed": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "issue": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["open", "closed"],
+          "properties": {
+            "open": { "type": "integer", "minimum": 0 },
+            "closed": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "omitted": {
+      "description": "How many of the oldest items were left out of items to keep the file within 32 KB.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "items": {
+      "type": "array",
+      "maxItems": 2000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "number", "title", "state", "closed_as", "updated_at", "url"],
+        "properties": {
+          "kind": { "enum": ["pr", "issue"] },
+          "number": { "type": "integer", "minimum": 1 },
+          "title": { "type": "string", "minLength": 1, "maxLength": 1024 },
+          "state": { "enum": ["open", "merged", "closed"] },
+          "closed_as": {
+            "description": "A closed issue's reason as GitHub gives it (completed: fixed; not_planned: closed); null for a pull request, an open issue, and a closed issue with no such reason.",
+            "enum": ["completed", "not_planned", null]
+          },
+          "updated_at": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"
+          },
+          "url": {
+            "type": "string",
+            "pattern": "^https://github\\.com/pingdotgg/t3code/(?:pull|issues)/[1-9][0-9]*$"
+          }
+        }
+      }
+    }
+  }
+}

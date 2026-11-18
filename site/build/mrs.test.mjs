@@ -64,12 +64,14 @@ test('an updated_at that is not a real UTC timestamp is rejected', () => {
   assert.equal(toItem(searchItem({ updated_at: '2026-11-15T09:12:44.123Z' })).updated_at, '2026-11-15T09:12:44.123Z');
 });
 
-test('toItem keeps number, title, state, updated_at and the pull request link, nothing else', () => {
+test('toItem keeps kind, number, title, state, closed_as, updated_at and the pull request link, nothing else', () => {
   const item = toItem(searchItem({ number: 202, state: 'open', html_url: 'https://github.com/pingdotgg/t3code/pull/202' }));
   assert.deepEqual(item, {
+    kind: 'pr',
     number: 202,
     title: 'perf(server): a synthetic pull request title',
     state: 'open',
+    closed_as: null,
     updated_at: '2026-11-15T09:12:44Z',
     url: 'https://github.com/pingdotgg/t3code/pull/202',
   });

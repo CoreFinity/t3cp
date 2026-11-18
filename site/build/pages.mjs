@@ -347,7 +347,7 @@ export function notFound() {
 }
 
 export function mrsPage(c, render) {
-  return { path: 'mrs/index.html', title: 'MRs · t3cp', desc: "The performance fork's pull requests to T3 Code: open, merged and closed.", nav: 'MRs', page: 'mrs', body: render(c.mrs) };
+  return { path: 'mrs/index.html', title: 'MRs · t3cp', desc: "The performance fork's pull requests and issues to T3 Code: open, merged or fixed, and closed.", nav: 'MRs', page: 'mrs', body: render(c.mrs) };
 }
 
 // Every release at each headline level, as a fragment (head, a marker, body) the Releases page fetches. The URLs carry
