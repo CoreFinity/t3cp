@@ -44,7 +44,7 @@ test('the overview and Releases offer 1, 50, 100 and 250 agents, opening at 50; 
   try {
     const home = s.read('index.html');
     assert.deepEqual(pressed(home, 'Agents: 1, 50, 100 or 250'), ['1', '*50', '100', '250']);
-    assert.match(home, /<summary id="hcap">Table: the eight headline metrics, 50 agents<\/summary>/);
+    assert.match(home, /<p[^>]*id="hcap"[^>]*>The eight headline metrics, 50 agents<\/p>/);
     assert.deepEqual(pressed(s.read('releases/index.html'), 'Agents: 1, 50, 100 or 250'), ['1', '*50', '100', '250']);
     assert.match(pressed(s.read('metrics/turn_p50_ms/index.html'), 'Agents, concurrent sessions').join(' '), /\*50/, 'a metric page opens at 50');
     assert.match(s.read('metrics/index.html'), /latest value at 50 agents/);
