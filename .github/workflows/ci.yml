@@ -1,7 +1,8 @@
 # ci: tests, the public-tree audit and the supply-chain checks, as ONE job (one billed job per run)
 # on pushes to main and pull requests to main. Read-only token, no secrets; actions pinned by full
-# commit SHA. Every check runs even when an earlier one fails, so one run reports them all; a newer
-# run on the same ref cancels the older one. tools/audit/pre-push.sh runs the same checks locally.
+# commit SHA. Every check runs even when an earlier one fails, so one run reports them all. A run on main
+# is never cancelled, so every main commit gets a result (the pipeline pushes data commits in bursts); on
+# any other ref a newer run cancels the older one. tools/audit/pre-push.sh runs the same checks locally.
 name: ci
 
 on:
@@ -15,7 +16,7 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   ci:
