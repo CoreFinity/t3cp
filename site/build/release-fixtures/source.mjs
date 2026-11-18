@@ -10,7 +10,7 @@ const num = (v) => {
   const [i, f] = Math.abs(v).toFixed(d).split('.');
   return (v < 0 ? MINUS : '') + group(i) + (f ? `.${f}` : '');
 };
-const SUFFIX = { n: '', '0–1': '', '%': '%', '% of one core': '%', ms: ' ms', s: ' s', MiB: ' MiB', '/s': '/s' };
+const SUFFIX = { n: '', '0–1': '', '%': '%', '% of one core': '%', ms: ' ms', 'ms/s': ' ms/s', s: ' s', MiB: ' MiB', '/s': '/s' };
 const fmt = (v, unit) => (v == null ? null : num(v) + SUFFIX[unit]);
 const pct = (r) => {
   if (r == null) return null;
@@ -47,11 +47,15 @@ function judge(better, band, fork, ref) {
 
 const stats = (v) => ({ median: v, min: v, max: v, n: 3 });
 
-/** @param {{prev?: boolean}} opts prev: false gives a first release with no previous one. */
-export function source({ prev = true } = {}) {
+/**
+ * @param {{prev?: boolean, spec?: Array, saturatedBase?: string[]}} opts prev: false gives a first release with no
+ *   previous one; spec replaces the twelve metrics above; saturatedBase lists the levels where the base could not
+ *   serve every agent.
+ */
+export function source({ prev = true, spec = SPEC, saturatedBase = [] } = {}) {
   const metrics = [];
   const counts = { regressed: 0, improved: 0, within: 0, no_verdict: 0 };
-  for (const [id, name, unit, better, headline, band, levels] of SPEC) {
+  for (const [id, name, unit, better, headline, band, levels] of spec) {
     for (const [level, [f, b, p]] of Object.entries(levels)) {
       const vb = judge(better, band, f, b);
       const vp = prev ? judge(better, band, f, p) : { delta: null, worse: null, verdict: null, note: 'no_reference' };
@@ -62,7 +66,7 @@ export function source({ prev = true } = {}) {
         band_pct: band, threshold_pct: vb.threshold ?? null,
         delta_pct: round(vb.delta), worse_pct: round(vb.worse), verdict: vb.verdict, note: vb.note,
         delta_vs_prev_pct: round(vp.delta), worse_vs_prev_pct: round(vp.worse), verdict_vs_prev: vp.verdict, note_vs_prev: vp.note,
-        saturated: { fork: false, base: false, prev: prev ? false : null },
+        saturated: { fork: false, base: saturatedBase.includes(level), prev: prev ? false : null },
         text: {
           fork: fmt(f, unit), base: fmt(b, unit), prev: prev ? fmt(p, unit) : null, delta_pct: pct(vb.delta),
           band_pct: band == null ? null : `${band.toFixed(1)}%`, threshold_pct: vb.threshold == null ? null : `${vb.threshold.toFixed(1)}%`,
@@ -86,4 +90,33 @@ export function source({ prev = true } = {}) {
     allowed_numbers: [...allowed].sort(),
     allowed_metric_names: [...new Set(metrics.filter((m) => m.verdict).map((m) => m.name))].sort(),
   };
+}
+
+/**
+ * A release shaped like a real one measured at 1, 50, 100 and 250 agents: every daily metric of the catalogue
+ * with a direction (58), the eight headlines among them, each moving at some level against the base or the
+ * previous release; a quarter of the rows beyond noise against the base at their own level; the base saturated
+ * at 250 agents, where agents_served stays within noise. Every number is invented (base 100 + 10 per metric).
+ * @param {{metrics: object[], headlines: object}} catalogue catalogue/catalogue.json
+ */
+export function wideSource(catalogue) {
+  const heads = catalogue.headlines['linux-x64'];
+  const daily = catalogue.metrics.filter((m) => m.lane === 'daily' && m.scope === 'level' && m.better !== 'context' && (m.upstream === 'yes' || m.upstream === 'yes L'));
+  const levels = ['1', '50', '100', '250'];
+  const spec = daily.map((m, i) => {
+    const rows = {};
+    levels.forEach((L, li) => {
+      const b = 100 + 10 * i + li;
+      const moved = (i + li) % 4 === 0 && !(m.id === 'agents_served' && L === '250');
+      const worse = moved ? (i % 2 ? 1.25 : 0.75) : 1.01;
+      const f = round(m.better === 'higher' ? b * (2 - worse) : b * worse, 2);
+      const p = (i + li) % 4 === 1 ? round(f * 1.5, 2) : round(f * 1.005, 2);
+      rows[L] = [f, b, p];
+    });
+    const h = heads.indexOf(m.id);
+    return [m.id, m.name, m.unit, m.better, h < 0 ? null : h + 1, 5, rows];
+  });
+  const once = catalogue.metrics.find((m) => m.id === heads[heads.length - 1]);
+  spec.push([once.id, once.name, once.unit, once.better, heads.length, null, { once: [1840, 1850, 1845] }]);
+  return source({ spec, saturatedBase: ['250'] });
 }

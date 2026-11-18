@@ -91,7 +91,7 @@ test('saturated, from the source: the bundle builder nulls every comparison at a
   const rss = rel.deltas.find((d) => d.metric === 'rss_peak_mib' && d.level === '250');
   assert.equal(rss.verdict, null);
   assert.equal(rss.note, 'saturated');
-  assert.deepEqual(rss.saturated, { fork: true, base: false, prev: false });
+  assert.deepEqual(rss.saturated, { fork: true, base: false });
   assert.ok(!/at 250 agents/.test((rel.post.summary || '').replace(/Turns completed in the window at 250 agents[^.]*\./g, '')), rel.post.summary);
 });
 
