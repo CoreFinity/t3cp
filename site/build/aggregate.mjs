@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // The aggregator: reads the committed inputs under data/v1 (records/<platform>/<date>.<tag>.json,
 // fork/<tag>.<platform>.json, base/<sha12>.<platform>.json, fork-nightly/<platform>/<date>.<tag>.json, bands.json,
-// status.json) and nothing else: a derived file there fails the build. Nightly fork-head records (fork-nightly/) are
-// checked and passed through only, not yet drawn. It validates and scans every record, computes the design §4 verdicts and writes a
+// status.json) and nothing else: a derived file there fails the build. Nightly fork-head records (fork-nightly/) are the
+// fork's latest release measured on a nightly's night: they give the fork step its measured value on those nights,
+// records-index.json's fork_heads and a fork-head-vs-nightly comparison per night. It validates and scans every record, computes the design §4 verdicts and writes a
 // complete public tree into the output directory (never under data/):
 //
 //   index.json, changes.json, series/<platform>/<metric>.latest.json and .all.json (or year shards when .all is
@@ -138,7 +139,7 @@ export function loadInputs(inDir, { dev = false, catalogue = loadCatalogue(), pu
   const records = [];
   const forks = [];
   const bases = [];
-  // Nightly fork-head records (fork-nightly/<platform>/<date>.<tag>.json): checked and passed through; not yet drawn.
+  // Nightly fork-head records (fork-nightly/<platform>/<date>.<tag>.json): checked, passed through and drawn on the fork line.
   const forkNightlies = [];
   const seenHeads = new Set();
   const copies = new Map();
@@ -280,6 +281,12 @@ function makeModel(inputs, catalogue) {
     if (!bases.has(record.platform.id)) bases.set(record.platform.id, new Map());
     bases.get(record.platform.id).set(record.release.sha, record);
   }
+  // Nightly fork-head records by platform and night (paired_nightly.date).
+  const heads = new Map();
+  for (const { record } of inputs.forkNightlies ?? []) {
+    if (!heads.has(record.platform.id)) heads.set(record.platform.id, new Map());
+    heads.get(record.platform.id).set(record.paired_nightly.date, record);
+  }
   for (const list of nightlies.values()) list.sort(byKey((r) => r.release.date));
   for (const list of forks.values()) list.sort((a, b) => (a.release.date < b.release.date ? -1 : a.release.date > b.release.date ? 1 : versionKey(a.release.tag) < versionKey(b.release.tag) ? -1 : 1));
   const platforms = PLATFORM_IDS.filter((p) => nightlies.has(p) || forks.has(p));
@@ -290,13 +297,14 @@ function makeModel(inputs, catalogue) {
     if (inputs.bands.platforms?.[p] === undefined) throw new BuildError(`bands.json has no entry for ${p}, which has records (mark it "pending": true until its noise-band run lands)`);
   }
   const seriesMetrics = catalogue.metrics.filter((m) => m.lane === "daily" || m.lane === "record");
-  return { catalogue, byId, pins, nightlies, forks, bases, platforms, seriesMetrics, bands: inputs.bands };
+  return { catalogue, byId, pins, nightlies, forks, bases, heads, platforms, seriesMetrics, bands: inputs.bands };
 }
 
 /** The levels a metric has: the six ladder levels (scope level) or "once" (scope record), plus "1e" when flagged. */
 export const levelsFor = (m) => [...(m.scope === "level" ? LADDER : ["once"]), ...(m.empty_cell ? ["1e"] : [])];
 
-const dataDate = (record) => (record.kind === "fork" && record.base ? record.base.date : record.release.date);
+// A fork-head record is measured on its night, with that night's harness and fixture: its data date is the night's.
+const dataDate = (record) => (record.paired_nightly ? record.paired_nightly.date : record.kind === "fork" && record.base ? record.base.date : record.release.date);
 
 /** Whether a record can carry metric m at all: a fork-only row on a fork record, an era metric from its era start. */
 const inEra = (record, m) => !(m.era_start === null && m.upstream === "fork" && record.kind !== "fork") && !(m.era_start !== null && dataDate(record) < m.era_start);
@@ -576,10 +584,15 @@ function baseOf(model, fork) {
   return model.bases.get(fork.platform.id)?.get(fork.base?.sha) ?? null;
 }
 
-/** The fork step series of one metric and level: per release values and verdicts, plus the held step per nightly date. */
+/**
+ * The fork step series of one metric and level: per release values and verdicts, plus the step per nightly date: the
+ * value measured that night where a fork-head record exists (null without one, head_note saying why), else the held
+ * release value. head_note is present only when the platform has fork-head records.
+ */
 function forkSeries(model, p, m, L, dates) {
   const list = model.forks.get(p) ?? [];
-  if (list.length === 0) return null;
+  const heads = model.heads.get(p);
+  if (list.length === 0 && !heads) return null;
   const out = { value: [], min: [], max: [], n: [], vs_base: [], vs_base_verdict: [], vs_base_note: [], vs_prev: [], vs_prev_verdict: [], vs_prev_note: [], saturated: [], saturated_by: [], step: [] };
   list.forEach((record, k) => {
     const stat = statAt(record, m, L);
@@ -600,18 +613,29 @@ function forkSeries(model, p, m, L, dates) {
     out.vs_prev_verdict.push(vp.verdict);
     out.vs_prev_note.push(vp.note);
   });
+  if (heads) out.head_note = [];
   for (const date of dates) {
+    const h = heads?.get(date);
+    if (h) {
+      const v = statAt(h, m, L)?.median ?? null;
+      out.step.push(v);
+      out.head_note.push(v !== null ? null : ranNoValid(h, m, L) ? "hollow" : saturatedAt(h, L) ? "saturated" : "no_data");
+      continue;
+    }
     let held = -1;
     for (let k = 0; k < list.length; k++) if (list[k].release.date <= date) held = k;
     out.step.push(held < 0 ? null : out.value[held]);
+    if (heads) out.head_note.push(null);
   }
   return out;
 }
 
 function forkHeader(model, p, dates) {
   const list = model.forks.get(p) ?? [];
-  if (list.length === 0) return null;
+  const heads = model.heads.get(p);
+  if (list.length === 0 && !heads) return null;
   const stepTags = dates.map((date) => {
+    if (heads?.has(date)) return heads.get(date).release.tag;
     let tag = null;
     for (const r of list) if (r.release.date <= date) tag = r.release.tag;
     return tag;
@@ -624,6 +648,7 @@ function forkHeader(model, p, dates) {
     base_shas: list.map((r) => r.base?.sha ?? null),
     prev_tags: list.map((_, k) => (k > 0 ? list[k - 1].release.tag : null)),
     step_tags: stepTags,
+    ...(heads ? { head_tags: dates.map((date) => heads.get(date)?.release.tag ?? null) } : {}),
   };
 }
 
@@ -675,10 +700,11 @@ function shardOf(full, from, to, shardName, generatedAt, synthetic) {
       base_shas: pickF(full.fork.base_shas),
       prev_tags: pickF(full.fork.prev_tags),
       step_tags: pick(full.fork.step_tags),
+      ...(full.fork.head_tags ? { head_tags: pick(full.fork.head_tags) } : {}),
       levels: Object.fromEntries(
         Object.entries(full.fork.levels).map(([L, s]) => [
           L,
-          Object.fromEntries(Object.entries(s).map(([k, arr]) => [k, k === "step" ? pick(arr) : pickF(arr)])),
+          Object.fromEntries(Object.entries(s).map(([k, arr]) => [k, k === "step" || k === "head_note" ? pick(arr) : pickF(arr)])),
         ]),
       ),
     };
@@ -734,7 +760,7 @@ export function buildOutputs(
   const inputs = loadInputs(inDir, { dev, catalogue, publicRefs });
   const model = makeModel(inputs, catalogue);
   const synthetic = inputs.synthetic;
-  const all = [...inputs.records, ...inputs.forks, ...inputs.bases].map((x) => x.record);
+  const all = [...inputs.records, ...inputs.forks, ...inputs.bases, ...(inputs.forkNightlies ?? [])].map((x) => x.record);
   const generatedAt = all.map((r) => r.pipeline.generated_at).sort().at(-1);
   const files = new Map();
   for (const [rel, bytes] of [...inputs.copies].sort(byKey(([rel]) => rel))) files.set(rel, bytes);
@@ -834,8 +860,8 @@ export function buildOutputs(
         rows.push({ metric: m.id, level: L, a: c.a, b: c.b, delta: c.delta, band: c.band, threshold: c.threshold, verdict: c.verdict, note: c.note });
       }
     }
-    const side = (r) => ({ record_id: r.record_id, kind: r.kind, tag: r.release.tag, date: r.release.date });
-    const name = (r) => (r.kind === "base" ? `base-${r.release.sha.slice(0, 12)}` : r.release.tag);
+    const side = (r) => ({ record_id: r.record_id, kind: r.kind, tag: r.release.tag, date: r.paired_nightly?.date ?? r.release.date });
+    const name = (r) => (r.paired_nightly ? `head-${r.paired_nightly.date}` : r.kind === "base" ? `base-${r.release.sha.slice(0, 12)}` : r.release.tag);
     const rel = `compare/${name(a)}__${name(b)}.${p}.json`;
     files.set(rel, json(mark({ schema: "t3cp/compare/1", kind, platform: p, a: side(a), b: side(b), rows })));
     comparePaths.push(rel);
@@ -849,6 +875,11 @@ export function buildOutputs(
       if (base) compareFile("fork-vs-base", p, base, f);
       if (k > 0) compareFile("fork-vs-prev", p, fl[k - 1], f);
     });
+    // Each fork-head night against the upstream nightly it was paired with, where that nightly is published.
+    for (const [date, h] of [...(model.heads.get(p) ?? new Map())].sort(byKey(([d]) => d))) {
+      const n = list.find((r) => r.release.date === date);
+      if (n) compareFile("fork-head-vs-nightly", p, n, h);
+    }
   }
   comparePaths.sort();
 
@@ -866,9 +897,11 @@ export function buildOutputs(
   const recordPath = (r) =>
     r.kind === "nightly"
       ? `records/${r.platform.id}/${r.release.date}.${r.release.tag}.json`
-      : r.kind === "fork"
-        ? `fork/${r.release.tag}.${r.platform.id}.json`
-        : `base/${r.release.sha.slice(0, 12)}.${r.platform.id}.json`;
+      : r.paired_nightly
+        ? `fork-nightly/${r.platform.id}/${r.paired_nightly.date}.${r.release.tag}.json`
+        : r.kind === "fork"
+          ? `fork/${r.release.tag}.${r.platform.id}.json`
+          : `base/${r.release.sha.slice(0, 12)}.${r.platform.id}.json`;
   // Each nightly's comparability, published so no reader re-implements it: per level an opaque id of the
   // aggregator's own segment, the first 48 bits of the key's sha256 (so inserting or removing a record never changes
   // another record's ids), whether a noise band applies (capFor's rule: the scheduled compaction era), and the
@@ -979,9 +1012,16 @@ export function buildOutputs(
     downloads,
   });
   // Every nightly record's entry lives in records-index.json, never in the overview payload.
+  // The fork-head records by night, each with the nightly it was paired with; the key only when there are any.
+  const headByNight = new Map();
+  for (const { record: r } of [...(inputs.forkNightlies ?? [])].sort(byKey((x) => `${x.record.paired_nightly.date}|${x.record.platform.id}`))) {
+    const night = r.paired_nightly.date;
+    if (!headByNight.has(night)) headByNight.set(night, { date: night, tag: r.release.tag, sha: r.release.sha, paired_tag: r.paired_nightly.tag, platforms: {} });
+    headByNight.get(night).platforms[r.platform.id] = { record_id: r.record_id, status: r.status, path: recordPath(r) };
+  }
   files.set(
     "records-index.json",
-    json(mark({ schema: "t3cp/records-index/1", generated_at: generatedAt, records: [...byTag.values()].sort(byKey((r) => `${r.date}|${r.tag}`)) })),
+    json(mark({ schema: "t3cp/records-index/1", generated_at: generatedAt, records: [...byTag.values()].sort(byKey((r) => `${r.date}|${r.tag}`)), ...(headByNight.size ? { fork_heads: [...headByNight.values()] } : {}) })),
   );
   // index.json publishes the overview payload it is itself part of: iterate to the size it has with its own figures in
   // it, and if no exact fixed point turns up, settle on figures that are never below the payload as built.

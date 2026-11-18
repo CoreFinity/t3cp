@@ -112,6 +112,12 @@ export function loadRecords(read, ix) {
   return doc.records;
 }
 
+// The nightly fork-head records on one platform, from records-index.json's fork_heads (none before the first).
+export function loadForkHeads(read, ix, plat) {
+  const doc = ix && ix.records_index ? read(ix.records_index) : null;
+  return ((doc && doc.fork_heads) || []).filter(h => h.platforms && h.platforms[plat]);
+}
+
 // fixture/SHA256SUMS: the published sha256 of each fixture file, by file name.
 export function sha256sums(root) {
   const f = join(root, 'fixture/SHA256SUMS');
@@ -158,7 +164,7 @@ function context(dv, cfg, log, js) {
   const catFile = readJson(join(ROOT, 'catalogue/catalogue.json'));
   const catalogue = ix ? ix.catalogue : catFile.metrics.map(m => Object.assign({}, m, { bands: {} }));
   const cat = {}; catalogue.forEach(m => { cat[m.id] = m; });
-  const plat = 'linux-x64';
+  const plat = 'linux-x64', heads = loadForkHeads(read, ix, plat);
   const darwin = records.some(r => r.platforms['darwin-arm64']);
   const mode = (cfg.macos || 'auto');
   if (!['auto', 'show', 'hide'].includes(mode)) throw new Error(`site/config.json: macos must be auto, show or hide, not ${mode}`);
@@ -194,7 +200,7 @@ function context(dv, cfg, log, js) {
   const releases = {};
   const release = tag => (tag in releases ? releases[tag] : (releases[tag] = read(`releases/${tag}.json`)));
   return {
-    T, ix, records, cat, catalogue, plat, platName: 'Linux x64', mac, first, pending, read, size, shard, model, latest, downloads, fixtures, shapeFile, fixtureFiles, release, log, cfg,
+    T, ix, records, heads, cat, catalogue, plat, platName: 'Linux x64', mac, first, pending, read, size, shard, model, latest, downloads, fixtures, shapeFile, fixtureFiles, release, log, cfg,
     harness: ix ? ix.eras.harness : [],
     groups: ix ? ix.groups : catFile.groups, headlines: (ix ? ix.headlines : catFile.headlines)[plat], forks: ix ? ix.fork : [],
     eras: ix ? ix.eras.fixture : catFile.fixture_eras, bands: read('bands.json'), mrs: read('mrs.json'),

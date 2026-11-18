@@ -363,6 +363,94 @@
           }
         }
       }
+    },
+    "fork_heads": {
+      "type": "array",
+      "description": "The nightly fork-head records, by night: the fork release measured that night (tag, sha) and the upstream nightly it was paired with (paired_tag); present only when there are any.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "date",
+          "tag",
+          "sha",
+          "paired_tag",
+          "platforms"
+        ],
+        "properties": {
+          "date": {
+            "$ref": "#/$defs/date"
+          },
+          "tag": {
+            "type": "string",
+            "pattern": "^v\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}-perf\\.\\d{1,3}$"
+          },
+          "sha": {
+            "$ref": "#/$defs/sha"
+          },
+          "paired_tag": {
+            "$ref": "#/$defs/nightly_tag"
+          },
+          "platforms": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "linux-x64": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "record_id",
+                  "status",
+                  "path"
+                ],
+                "properties": {
+                  "record_id": {
+                    "$ref": "#/$defs/record_id"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "complete",
+                      "partial",
+                      "missing"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^fork-nightly/(linux-x64|darwin-arm64)/20\\d{2}-\\d{2}-\\d{2}\\.v[0-9A-Za-z.-]+\\.json$"
+                  }
+                }
+              },
+              "darwin-arm64": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "record_id",
+                  "status",
+                  "path"
+                ],
+                "properties": {
+                  "record_id": {
+                    "$ref": "#/$defs/record_id"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "complete",
+                      "partial",
+                      "missing"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^fork-nightly/(linux-x64|darwin-arm64)/20\\d{2}-\\d{2}-\\d{2}\\.v[0-9A-Za-z.-]+\\.json$"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "$defs": {

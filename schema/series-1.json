@@ -230,6 +230,17 @@
               "$ref": "#/$defs/fork_level"
             }
           }
+        },
+        "head_tags": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^v\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}-perf\\.\\d{1,3}$"
+          },
+          "description": "Aligned with dates: the fork release measured on that night (a fork-head record), null where none was; present only when the platform has fork-head records."
         }
       }
     },
@@ -389,6 +400,13 @@
               "null"
             ]
           }
+        },
+        "head_note": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/note"
+          },
+          "description": "Aligned with dates: on a fork-head night without a value at this level, why (hollow: no valid attempt; saturated: not measured; no_data: not run); null elsewhere. With fork-head records, step is the measured value on their nights and the held release value on the others."
         }
       }
     },

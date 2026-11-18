@@ -6,7 +6,7 @@
 import { buildSchemas, PLATFORM_IDS, SERIES_LEVELS } from "./schemas.mjs";
 
 /** The schema files this module extends; every other file is exactly lib/schemas.mjs's. */
-export const SITE_EXTENDED = ["index-1.json", "records-index-1.json"];
+export const SITE_EXTENDED = ["index-1.json", "records-index-1.json", "series-1.json", "compare-1.json"];
 
 /** capability()'s notes: the reasons a metric has no verdict at a level whatever the pair. */
 export const CAP_NOTES = ["context", "no_band", "wide_band"];
@@ -79,6 +79,82 @@ export function buildAllSchemas(catalogue) {
         },
       },
     },
+  };
+  return withForkHeads(schemas);
+}
+
+// The nightly fork-head records (fork-nightly/<platform>/<date>.<tag>.json: the fork's latest release measured on the
+// night of an upstream nightly, paired with it). Every key here is optional and appears only when such records exist.
+function withForkHeads(schemas) {
+  const series = schemas["series-1.json"], forkTag = series.$defs.fork_tag.pattern, fork = series.properties.fork, fl = series.$defs.fork_level;
+  schemas["series-1.json"] = {
+    ...series,
+    properties: {
+      ...series.properties,
+      fork: {
+        ...fork,
+        properties: {
+          ...fork.properties,
+          head_tags: {
+            type: "array",
+            items: { type: ["string", "null"], pattern: forkTag },
+            description: "Aligned with dates: the fork release measured on that night (a fork-head record), null where none was; present only when the platform has fork-head records.",
+          },
+        },
+      },
+    },
+    $defs: {
+      ...series.$defs,
+      fork_level: {
+        ...fl,
+        properties: {
+          ...fl.properties,
+          head_note: {
+            type: "array",
+            items: { $ref: "#/$defs/note" },
+            description: "Aligned with dates: on a fork-head night without a value at this level, why (hollow: no valid attempt; saturated: not measured; no_data: not run); null elsewhere. With fork-head records, step is the measured value on their nights and the held release value on the others.",
+          },
+        },
+      },
+    },
+  };
+  const ri = schemas["records-index-1.json"];
+  const headRecord = {
+    type: "object",
+    additionalProperties: false,
+    required: ["record_id", "status", "path"],
+    properties: {
+      record_id: { $ref: "#/$defs/record_id" },
+      status: { type: "string", enum: ["complete", "partial", "missing"] },
+      path: { type: "string", pattern: "^fork-nightly/(linux-x64|darwin-arm64)/20\\d{2}-\\d{2}-\\d{2}\\.v[0-9A-Za-z.-]+\\.json$" },
+    },
+  };
+  schemas["records-index-1.json"] = {
+    ...ri,
+    properties: {
+      ...ri.properties,
+      fork_heads: {
+        type: "array",
+        description: "The nightly fork-head records, by night: the fork release measured that night (tag, sha) and the upstream nightly it was paired with (paired_tag); present only when there are any.",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["date", "tag", "sha", "paired_tag", "platforms"],
+          properties: {
+            date: { $ref: "#/$defs/date" },
+            tag: { type: "string", pattern: forkTag },
+            sha: { $ref: "#/$defs/sha" },
+            paired_tag: { $ref: "#/$defs/nightly_tag" },
+            platforms: { type: "object", additionalProperties: false, properties: Object.fromEntries(PLATFORM_IDS.map((p) => [p, headRecord])) },
+          },
+        },
+      },
+    },
+  };
+  const compare = schemas["compare-1.json"];
+  schemas["compare-1.json"] = {
+    ...compare,
+    properties: { ...compare.properties, kind: { ...compare.properties.kind, enum: [...compare.properties.kind.enum, "fork-head-vs-nightly"] } },
   };
   return schemas;
 }

@@ -19,6 +19,9 @@ const bytes = n => Number(n).toLocaleString('en-GB') + ' bytes';
 const UP = { yes: 'Every upstream build', 'yes L': 'Every upstream build, Linux only', pre: "Needs the harness's preload", fork: 'Fork builds only' };
 const LANE = { daily: 'Every record, inside the agent ladder', record: 'Once per record, outside the ladder', weekly: 'The weekly long-run lane, which starts after launch', release: 'Fork releases only', later: 'Catalogued; not measured yet' };
 
+// With nightly fork-head records, the caption beside the charts that draw the fork line.
+const MEET = c => (c.heads && c.heads.length ? '<p class="note mt1">When upstream merges a fix, the lines meet.</p>' : '');
+
 // ---------- overview ----------
 // The nightlies of the window still to be measured, as one sentence ('' once the window's first nightly is published).
 export function pendingLine(c) {
@@ -61,10 +64,10 @@ ${ERR}
     </div>
   </div>
   <div class="plot h-hero" id="hero"></div>
-  <div class="lg"><a id="open" href="/metrics/${m0}/">Open this metric</a></div>
+  ${MEET(c)}<div class="lg"><a id="open" href="/metrics/${m0}/">Open this metric</a></div>
   <details class="mt2"><summary>What changed</summary><div class="strip" id="strip-w">${rec}${pend && !usePend ? `<p class="dim">${pend}</p>` : ''}<div id="strip">${T.stripFor(H, Ms, cat, { plat: c.platName, level: L })}</div></div></details>
   <details><summary>Show the numbers</summary><p class="note" id="hcap">The eight headline metrics, 50 agents</p><div class="tw" id="htable">${T.headTable(Ms)}</div></details>
-  <details class="tg-s"><summary>How to read this</summary>${LEGEND()}</details>
+  <details class="tg-s"><summary>How to read this</summary>${LEGEND('', c.heads.length)}</details>
 </section>
 
 <section class="sec">
@@ -107,7 +110,7 @@ ${ERR}
 <p class="count" id="count" aria-live="polite">${c.catalogue.length} metrics, ${esc(c.platName)}, 50 agents</p>
 <div class="grid" id="grid"></div>
 <div class="empty" id="none" hidden><p>No metric matches.</p><p class="mt1"><button type="button" class="btn" id="clear">Clear filters</button></p></div>
-${LEGEND()}
+${LEGEND('', c.heads.length)}
 <details class="mt3" id="cat"><summary>The catalogue as a table: every metric, its unit, direction, band and latest value at 50 agents</summary><div class="tw"><table><thead><tr><th>Metric</th><th>Unit</th><th>Better</th><th class="n">Band</th><th class="hs">From</th><th class="hs">Platforms</th><th class="hs">Lane</th><th class="n">Latest</th><th>Verdict</th></tr></thead><tbody>${rows}</tbody></table></div></details>
 <script type="application/json" id="latest">${JSON.stringify(c.latest).replace(/</g, '\\u003c')}</script>`;
   return { path: 'metrics/index.html', title: 'All metrics · t3cp', desc: `The ${c.catalogue.length} metrics t3cp records for T3 Code, with unit, direction, noise band and the latest value.`, nav: 'Metrics', page: 'metrics', body };
@@ -151,7 +154,7 @@ ${ERR}
     <div class="ctl">${lvl}${range()}</div>
   </div>
   <div class="plot h-hero" id="hero"></div>
-  ${LEGEND()}
+  ${MEET(c)}${LEGEND('', c.heads.length)}
 </section>
 
 <section class="sec">
@@ -287,9 +290,17 @@ export function records(c) {
     const p = f.platforms[plat], rec = p && p.path && c.read(p.path);
     return `<tr><td class="tag">${esc(f.tag)}</td><td>${T.dLong(f.date)}</td><td class="hs sha" title="${esc(f.sha)}">${esc(f.sha.slice(0, 12))}</td><td class="hs">${f.base_sha ? `built from source at <span class="sha">${esc(f.base_sha.slice(0, 12))}</span>` : f.base_tag ? `<span class="tag">${esc(f.base_tag)}</span>` : '–'}</td><td>${status(p && p.status, rec && rec.status_reason)}${rec && validity(rec.cells) ? ` <span class="dim">${esc(validity(rec.cells))}</span>` : ''}</td><td>${p ? `<a href="/data/v1/${esc(p.path)}">JSON</a>` : ''}</td></tr>`;
   }).join('');
+  // The nightly fork-head records, newest night first, each beside the upstream nightly it was paired with.
+  const hrows = (c.heads || []).slice().reverse().map(h => {
+    const p = h.platforms[plat], rec = c.read(p.path), v = rec && validity(rec.cells);
+    return `<tr><td>${T.dLong(h.date)}</td><td class="tag">${esc(h.tag)}</td><td class="tag">${esc(h.paired_tag)}</td><td>${status(p.status, rec && rec.status_reason)}${v ? ` <span class="dim">${esc(v)}</span>` : ''}</td><td><a href="/data/v1/${esc(p.path)}">JSON</a></td></tr>`;
+  }).join('');
+  const heads = hrows ? `
+<section class="sec mt3"><div class="sec-h"><div><h2>The fork, measured each night.</h2><p>The fork's latest release, measured on the night of an upstream nightly, under the same load.</p></div></div>
+<div class="tw"><table><thead><tr><th>Night</th><th>Fork release</th><th>Paired nightly</th><th>Status</th><th>File</th></tr></thead><tbody>${hrows}</tbody></table></div></section>` : '';
   const more = c.records.length > 120 ? `<p class="note mt1">The ${c.records.length - 120} older records are in <a href="/downloads/">the downloads</a>.</p>` : '';
   const body = `<header class="page-h"><h1>Records.</h1><p class="lede">One record per upstream nightly on ${esc(c.platName)}, and one per fork release. Each links to its JSON file, which carries every attempt's values.${c.pending ? ' ' + esc(pendingLine(c)) : ''}</p></header>
-<div class="tw"><table><thead><tr><th>Date</th><th>Tag</th><th class="hs">Commit</th><th class="hs">Archive sha256</th><th class="n hs" title="The recorded tolerance of the driver's check that sessions represent the fixture">Tolerance</th><th>Status</th><th>File</th></tr></thead><tbody>${nrows || '<tr><td colspan="7" class="mut">No records yet.</td></tr>'}</tbody></table></div>${more}
+<div class="tw"><table><thead><tr><th>Date</th><th>Tag</th><th class="hs">Commit</th><th class="hs">Archive sha256</th><th class="n hs" title="The recorded tolerance of the driver's check that sessions represent the fixture">Tolerance</th><th>Status</th><th>File</th></tr></thead><tbody>${nrows || '<tr><td colspan="7" class="mut">No records yet.</td></tr>'}</tbody></table></div>${more}${heads}
 <section class="sec mt3"><div class="sec-h"><h2>Fork releases.</h2></div>
 <div class="tw"><table><thead><tr><th>Tag</th><th>Date</th><th class="hs">Commit</th><th class="hs">Upstream base</th><th>Status</th><th>File</th></tr></thead><tbody>${frows || '<tr><td colspan="6" class="mut">No fork release measured yet.</td></tr>'}</tbody></table></div></section>`;
   return { path: 'records/index.html', title: 'Records · t3cp', desc: 'Every t3cp record of T3 Code: date, tag, commit, archive sha256, status and the record file.', nav: '', page: 'records', body };

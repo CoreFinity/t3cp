@@ -98,7 +98,9 @@
     rel.forEach(r => { r.dx = r.j < 0 ? 0 : -8 * rel.filter(q => q.j === r.j && q.k > r.k).length; });
     const last = dates[dates.length - 1];
     return {
-      meta: m, L, n: dates.length, dates, tags: S.tags.slice(a), notes: lv.note.slice(a), reasons: lv.reason ? lv.reason.slice(a) : [], ns: lv.n.slice(a), sats: (lv.saturated || []).slice(a), srv: served && served.levels[L] ? served.levels[L].median.slice(a) : [], pts, step, stepTags, rel, platform: S.platform,
+      meta: m, L, n: dates.length, dates, tags: S.tags.slice(a), notes: lv.note.slice(a), reasons: lv.reason ? lv.reason.slice(a) : [], ns: lv.n.slice(a), sats: (lv.saturated || []).slice(a), srv: served && served.levels[L] ? served.levels[L].median.slice(a) : [], pts,
+      // Fork-head nights (the fork measured beside the nightly): the release measured, why a night has no value, the agents served.
+      hd: !!(F && F.head_tags), ht: F && F.head_tags ? F.head_tags.slice(a) : [], hn: fl && fl.head_note ? fl.head_note.slice(a) : [], sfs: served && served.fork && served.fork.levels[L] ? served.fork.levels[L].step.slice(a) : [], step, stepTags, rel, platform: S.platform,
       t: m.better === 'context' ? null : lv.threshold, eras: T.eraRoles(S.eras || []).filter(e => e.date > dates[0] && e.date <= last),
     };
   };
@@ -263,7 +265,7 @@
       h: o.h || 320, n: M.n, label: `${m.name}, ${o.plat || ''}, ${lvLabel(M.L)}, last ${M.n} nightlies. Use the arrow keys to read each record; Enter on a release date opens its post.`,
       xt: xticks(M.n, W0 < 560 ? 3 : 6), xl: j => dShort(M.dates[j]), band: bandOf(M),
       whisk: M.n <= 60 ? pts.map(p => (p && p.lo != null && p.hi != null ? [p.lo, p.hi] : null)) : null,
-      series: [{ cls: 'ln-n', vals: pts.map(p => (p ? p.v : null)) }, { cls: 'ln-f', step: true, vals: M.step }],
+      series: [{ cls: 'ln-n', vals: pts.map(p => (p ? p.v : null)) }, { cls: 'ln-f', step: !M.hd, vals: M.step }],
       eras: M.eras.map(e => ({ j: M.dates.findIndex(d => d >= e.date), label: e.role === 'unknown' ? 'compaction schedule unknown' : e.role === 'resume' ? 'compaction schedule known' : e.label, kind: e.kind, role: e.role })),
       marks, tip: j => T.tipHTML(M, j), open: j => { const r = M.rel.find(x => x.j === j); return r ? relHref(r.tag) : null; },
     };
@@ -273,26 +275,27 @@
   const refOf = p => (p.thin ? 'the previous complete nightly' : 'the median of up to 7 previous complete nightlies');
   // A gap's reason, from the series alone (no cause is claimed): a level run with no valid attempt failed; a
   // saturated level with no value was not measured; a value missing for a public reason; else ''.
-  const FAILED = 'failed: no valid attempt';
-  const gap = (M, j) => (M.notes[j] === 'hollow' ? (M.ns[j] ? say('none', 'hollow') : FAILED) : M.sats[j] ? `saturated${M.srv[j] == null ? '' : `: ${fmt(M.srv[j])} of ${M.L} agents served`}, not measured` : M.notes[j] === 'no_data' && REASON.hasOwnProperty(M.reasons[j]) ? REASON[M.reasons[j]] : '');
+  const FAILED = 'failed: no valid attempt', satW = (M, n) => `saturated${n == null ? '' : `: ${fmt(n)} of ${M.L} agents served`}, not measured`;
+  const gap = (M, j) => (M.notes[j] === 'hollow' ? (M.ns[j] ? say('none', 'hollow') : FAILED) : M.sats[j] ? satW(M, M.srv[j]) : M.notes[j] === 'no_data' && REASON.hasOwnProperty(M.reasons[j]) ? REASON[M.reasons[j]] : '');
+  // The fork's tooltip rows: on a fork-head night the release measured that night (or why it has no value), else the
+  // held release with its comparisons.
+  const forkTip = (M, j, u) => {
+    const t = M.ht[j], r = relAt(M, j), v = M.step[j];
+    if (t) return `<div class="tip-r"><i class="k k-f"></i>${v == null ? `Fork ${esc(short(t))}: ${M.hn[j] === 'hollow' ? FAILED : M.hn[j] === 'saturated' ? satW(M, M.sfs[j]) : NOTE.no_data}` : `<b>${fmt(v)}</b>${u} Fork ${esc(short(t))}, measured the same night`}</div>`;
+    return r && v != null ? `<div class="tip-r"><i class="k k-f"></i><b>${fmt(v)}</b>${u} Fork ${esc(r.short)}</div><div class="tip-s">${r.first ? 'First release' : `${glyph(r.vpv, r.vpd)}${pct(r.vp)} vs the previous release, ${esc(say(r.vpv, r.vpn))}`}</div><div class="tip-s">${r.vb == null ? esc(say(r.vbv, r.vbn)) : `${glyph(r.vbv, r.vb)}${pct(r.vb)} vs its upstream base, ${esc(say(r.vbv, r.vbn))}`}</div>` : '';
+  };
   T.tipHTML = function (M, j) {
     const m = M.meta, p = M.pts[j], date = M.dates[j], u = esc(sfx(m));
     let h = `<div class="tip-d">${dLong(date)}<span class="tag">${esc(M.tags[j])}</span></div>`;
     const era = M.eras.find(e => e.date === date);
     if (era) h += `<div class="tip-s">${{ early: 'compaction schedule changes here', unknown: 'compaction schedule unknown from this record', resume: 'compaction schedule known again from this record' }[era.role] || 'New era from this record: ' + esc(era.label)}</div>`;
-    if (!p) return h + `<div class="tip-s">${gap(M, j) || (m.era_start && date < m.era_start ? 'Not recorded before ' + dShort(m.era_start) : 'No record at this level')}</div>`;
-    h += `<div class="tip-r"><i class="k"></i><b>${fmt(p.v)}</b>${u} Nightly</div>`;
+    if (!p) return h + `<div class="tip-s">${gap(M, j) || (m.era_start && date < m.era_start ? 'Not recorded before ' + dShort(m.era_start) : 'No record at this level')}</div>` + (M.ht[j] ? forkTip(M, j, u) : '');
+    h += `<div class="tip-r"><i class="k"></i><b>${fmt(p.v)}</b>${u} ${M.hd ? 'Upstream nightly' : 'Nightly'}</div>`;
     h += `<div class="tip-s">${p.d == null ? glyph(p.verdict, p.dir) + esc(say(p.verdict, p.note)) : `${glyph(p.verdict, p.dir)}${pct(p.d)} vs ${refOf(p)}, ${esc(say(p.verdict, p.note))}`}</div>`;
     if (p.dd != null) h += `<div class="tip-s">${pct(p.dd)} vs the previous complete nightly</div>`;
     if (p.sat) h += `<div class="tip-s">saturated: ${p.served == null ? '?' : fmt(p.served)} of ${esc(M.L)} agents served${p.by && p.by.length ? ` (${esc(T.satWords(p.by))})` : ''}</div>`;
     h += `<div class="tip-s">Range ${fmt(p.lo)} to ${fmt(p.hi)}, ${p.n} valid attempt${p.n === 1 ? '' : 's'}</div>`;
-    const r = relAt(M, j);
-    if (r && M.step[j] != null) {
-      h += `<div class="tip-r"><i class="k k-f"></i><b>${fmt(M.step[j])}</b>${u} Fork ${esc(r.short)}</div>`;
-      h += `<div class="tip-s">${r.first ? 'First release' : `${glyph(r.vpv, r.vpd)}${pct(r.vp)} vs the previous release, ${esc(say(r.vpv, r.vpn))}`}</div>`;
-      h += `<div class="tip-s">${r.vb == null ? esc(say(r.vbv, r.vbn)) : `${glyph(r.vbv, r.vb)}${pct(r.vb)} vs its upstream base, ${esc(say(r.vbv, r.vbn))}`}</div>`;
-    }
-    return h;
+    return h + forkTip(M, j, u);
   };
   T.recordsTable = function (M) {
     const m = M.meta, rows = [];
@@ -325,7 +328,7 @@
   };
   function spark(card, M) {
     const el = $('.spark', card), W = Math.max(120, el.clientWidth || 260), H = 56, n = M.n, b = bandOf(M);
-    const c = { band: b, series: [{ cls: 'ln-n', vals: M.pts.map(p => (p ? p.v : null)) }, { cls: 'ln-f', step: true, vals: M.step }] }, dom = domain(c);
+    const c = { band: b, series: [{ cls: 'ln-n', vals: M.pts.map(p => (p ? p.v : null)) }, { cls: 'ln-f', step: !M.hd, vals: M.step }] }, dom = domain(c);
     if (!dom) { el.classList.add('spark-na'); return; }
     const x = i => r1(4 + (n === 1 ? 0.5 : i / (n - 1)) * (W - 8)), y = v => r1(5 + (1 - (v - dom[0]) / (dom[1] - dom[0])) * (H - 10));
     let h = `<svg viewBox="0 0 ${W} ${H}" aria-hidden="true">` + paths(c, x, y);

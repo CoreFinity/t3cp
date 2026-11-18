@@ -85,4 +85,5 @@ ${p.body}
 }
 
 // The legend under a time chart. Release markers and the arrows explained once, quietly.
-export const LEGEND = extra => `<div class="lg"><span><i class="k"></i>Nightly</span><span><i class="k k-f"></i>Fork release</span><span><i class="k k-b"></i>Noise band</span><span><i class="k k-r"></i>Range of attempts</span><span><span class="g v-good" aria-hidden="true">▲▼</span> green = better, <span class="g v-bad" aria-hidden="true">▲▼</span> red = worse, beyond the noise band</span>${extra || ''}</div>`;
+// heads: the platform has nightly fork-head records, so the fork line is measured each night beside the upstream nightly.
+export const LEGEND = (extra, heads) => `<div class="lg"><span><i class="k"></i>${heads ? 'Upstream nightly' : 'Nightly'}</span><span><i class="k k-f"></i>${heads ? 'Performance fork' : 'Fork release'}</span><span><i class="k k-b"></i>Noise band</span><span><i class="k k-r"></i>Range of attempts</span><span><span class="g v-good" aria-hidden="true">▲▼</span> green = better, <span class="g v-bad" aria-hidden="true">▲▼</span> red = worse, beyond the noise band</span>${extra || ''}</div>`;
