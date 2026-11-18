@@ -143,7 +143,8 @@ test('every release on the committed data builds within the budget as compact JS
     const text = readFileSync(r.file, 'utf8');
     const rel = JSON.parse(text);
     assert.equal(text, `${JSON.stringify(rel)}\n`, `${r.tag}: compact JSON`);
-    assert.ok(Buffer.byteLength(text) <= BUDGET_BYTES, `${r.tag}: ${Buffer.byteLength(text)} bytes`);
+    // Over budget is an alert (CI's release budget step warns), never a failure here.
+    if (r.over_budget_bytes === undefined) assert.ok(Buffer.byteLength(text) <= BUDGET_BYTES, `${r.tag}: ${Buffer.byteLength(text)} bytes`);
     assert.deepEqual(validate(releaseSchema, rel), [], r.tag);
     if (r.charts_only_reason === 'pending' || r.charts_only_reason === 'no_base') {
       assert.ok(lines.some((l) => l.startsWith(`release-build: ${r.tag} pending: `) && l.length > `release-build: ${r.tag} pending: `.length), `${r.tag}: pending with a stated reason`);
@@ -192,7 +193,7 @@ test('over budget, on the page: the footer says why, the headline table stays, n
   for (const level of ['1', '50', '100', '250']) {
     const ctx = { catalogue: catalogue.metrics, headlines: catalogue.headlines['linux-x64'], platform: 'linux-x64', level };
     const html = releaseHTML(T, rel, ctx).html;
-    assert.match(html, /Charts only: the full comparison is over this page&#39;s size budget, so only the headline metrics are listed\./);
+    assert.match(html, /Charts only: this release is over its page&#39;s size budget, so only the headline metrics are listed; its changelog is on GitHub\./);
     const others = (/<h3 class="mt3">Other metrics beyond noise<\/h3>(.*?)<\/table>/s.exec(html) || ['', ''])[1];
     const listed = [...others.matchAll(/<tr><td><a href="\/metrics\/([^/]+)\//g)].map((m) => m[1]);
     // agents_served stays at the saturated level (250 here) for the saturated line, never in that table.
@@ -214,4 +215,36 @@ test('over budget, never fatal: the over_budget form is validated and scanned, a
   assert.equal(rel.charts_only_reason, 'over_budget');
   assert.ok(Buffer.byteLength(serialiseRelease(rel)) > 1024, 'still over that budget, and returned');
   assert.throws(() => renderRelease({ bundle: b, source: null, scanText: () => [{ id: 'x' }], budgetBytes: 1024, overBudget: true }), /fails the internal-name scan/);
+});
+
+// A changelog at the schema's limit in a script that compresses poorly: 40 lines of 399 characters (invented text).
+const LONG = Array.from({ length: 40 }, (_, i) => `${'変更'.repeat(199)}${i % 10}`);
+
+test('over budget at the real budget: a long changelog; the over_budget form drops it, fits by construction, and its page fits the HTML budget', async () => {
+  const { gzipSync } = await import('node:zlib');
+  const { BUDGETS } = await import('./budgets.mjs');
+  const T = loadApp();
+  const b = buildPostBundle(wideSource(catalogue), { catalogue, changelog: LONG, scanText: clean });
+  assert.throws(() => renderRelease({ bundle: b, source: null, scanText: clean }), post.BudgetError);
+  const rel = renderRelease({ bundle: b, source: null, scanText: clean, overBudget: true });
+  assert.equal(rel.charts_only_reason, 'over_budget');
+  assert.deepEqual(rel.changelog, []);
+  assert.ok(Buffer.byteLength(serialiseRelease(rel)) <= BUDGET_BYTES, `${Buffer.byteLength(serialiseRelease(rel))} bytes`);
+  for (const level of ['1', '50', '100', '250']) {
+    const gz = gzipSync(releaseHTML(T, rel, pageCtx(level)).html).length;
+    assert.ok(gz <= BUDGETS.html, `level ${level}: ${gz} bytes gzipped`);
+  }
+});
+
+test('a pending release over budget keeps its pending form without the changelog, and its footer says why', () => {
+  const b = buildPostBundle(wideSource(catalogue), { catalogue, changelog: LONG, scanText: clean, pending: true });
+  assert.equal(b.pending, true);
+  assert.throws(() => renderRelease({ bundle: b, source: null, scanText: clean }), post.BudgetError);
+  const rel = renderRelease({ bundle: b, source: null, scanText: clean, overBudget: true });
+  assert.deepEqual(validate(releaseSchema, rel), []);
+  assert.equal(rel.charts_only_reason, 'pending');
+  assert.deepEqual(rel.deltas, []);
+  assert.deepEqual(rel.changelog, []);
+  assert.match(rel.checker.footer, /^Comparison pending: the measured records for this release are not complete yet\. Its changelog is over this page's size budget; it is on GitHub\.$/);
+  assert.ok(Buffer.byteLength(serialiseRelease(rel)) <= BUDGET_BYTES);
 });

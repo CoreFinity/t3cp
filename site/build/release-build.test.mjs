@@ -330,7 +330,7 @@ test('over budget: that release builds charts-only, reason over_budget, headline
   assert.equal(rel.charts_only, true);
   assert.equal(rel.charts_only_reason, 'over_budget');
   assert.equal(rel.checker.passed, false);
-  assert.match(rel.checker.footer, /^Charts only: the full comparison is over this page's size budget/);
+  assert.match(rel.checker.footer, /^Charts only: this release is over its page's size budget, so only the headline metrics are listed; its changelog is on GitHub\.$/);
   assert.ok(rel.deltas.length > 0 && rel.deltas.every((x) => x.headline != null), 'headline rows only');
   const headline = json(big.file).deltas.filter((x) => x.headline != null);
   assert.deepEqual(rel.deltas, headline, 'the same headline rows as the full release');
