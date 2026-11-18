@@ -485,11 +485,12 @@
 
   // The overview's verdict strip and fork strip from the eight headline models; shared by the build and the browser.
   // o.line: the compact line above the graph (the nightly, the level, how many moved), else the detail with its badges.
+  // Both read the newest nightly with a headline value at the level, and what moved on it.
   T.stripFor = (H, Ms, cat, o) => {
-    const M0 = Ms.find(M => M && lastPt(M));
-    if (!M0) return o.line ? 'No records at this level yet.' : '<p>No records yet.</p>';
-    const lp = lastPt(M0), prev = M0.dates[M0.dates.indexOf(lp.date) - 1] || null, items = H.map((id, i) => ({ m: cat[id], p: Ms[i] && lastPt(Ms[i]), t: Ms[i] && Ms[i].t }));
-    if (o.line) { const n = items.filter(x => x.p && (x.p.verdict === 'bad' || x.p.verdict === 'good')).length; return `Nightly ${dLong(lp.date)}, ${lvLabel(o.level)}: ${n ? `<b>${n} of ${H.length}</b>` : 'none of the ' + H.length} headline metrics moved beyond noise.`; }
+    const date = Ms.map(M => M && lastPt(M)).filter(Boolean).map(p => p.date).sort().pop();
+    if (!date) return o.line ? 'No records at this level yet.' : '<p>No records yet.</p>';
+    const at = M => M && M.pts[M.dates.indexOf(date)], M0 = Ms.find(at), prev = M0.dates[M0.dates.indexOf(date) - 1] || null, items = H.map((id, i) => ({ m: cat[id], p: at(Ms[i]), t: Ms[i] && Ms[i].t }));
+    if (o.line) { const n = items.filter(x => x.p && (x.p.verdict === 'bad' || x.p.verdict === 'good')).length; return `Nightly ${dLong(date)}, ${lvLabel(o.level)}: ${n ? `<b>${n} of ${H.length}</b>` : 'none of the ' + H.length} headline metrics moved beyond noise.`; }
     return T.stripHTML(items, { prev, plat: o.plat, level: o.level });
   };
   // The fork against its upstream base: the precomputed comparison (a = the base, b = the fork) for the headlines.
