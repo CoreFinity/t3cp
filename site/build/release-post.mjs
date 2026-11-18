@@ -44,8 +44,9 @@ export { bundleSha256 };
 export const BUDGET_BYTES = 48 * 1024;
 
 /**
- * A release file over its byte budget. release-build catches only this error and builds that release over_budget
- * (charts only, its headline rows); a schema or scan failure is a plain Error and still stops the build.
+ * A release file over its byte budget, thrown only after the file validated and passed the scan. release-build
+ * catches only this error and builds that release over_budget (charts only, its headline rows), which is never
+ * refused for its size; a schema or scan failure is a plain Error and still stops the build.
  */
 export class BudgetError extends Error {
   constructor(tag, bytes, budget) {
@@ -201,10 +202,12 @@ export function renderRelease({ bundle, source = null, scanText, scanValues, bud
   if (src && !bundle.pending && rec.deltas.length) rec.deltas = withServed(rec.deltas, bundle, servedRows(src, { platforms: bundle.platforms }));
   const errors = schemaErrors(schema('schema/release-1.json'), rec);
   if (errors.length) throw new Error(`release ${bundle.release.tag}: does not validate against t3cp/release/1: ${formatSafeErrors(errors, schema('schema/release-1.json'), 3)}`);
-  const text = serialiseRelease(rec);
-  if (Buffer.byteLength(text) > budgetBytes) throw new BudgetError(bundle.release.tag, Buffer.byteLength(text), budgetBytes);
   // Keys and string leaves (the bundle's numbers masked only for a values list passed in); number leaves are measured data.
+  // Scanned before the size check, so a scan hit in a row the over_budget form would drop still stops the build.
   if (scanJson(rec, scanText, bundle, { scanValues }).length) throw new Error(`release ${bundle.release.tag}: fails the internal-name scan`);
+  // The over_budget form is the last resort: validated and scanned, never refused for its size (the build warns).
+  const bytes = Buffer.byteLength(serialiseRelease(rec));
+  if (!overBudget && bytes > budgetBytes) throw new BudgetError(bundle.release.tag, bytes, budgetBytes);
   return rec;
 }
 
