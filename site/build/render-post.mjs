@@ -8,8 +8,9 @@ export function releaseHTML(T, rel, ctx) {
     const text = !rel.charts_only && rel.post && chk.passed === true;
     const ds = (rel.deltas || []).filter(d => d.platform === P && cat[d.metric] && String(d.level) === T.effLevel(cat[d.metric], L));
     const rows = ds.map(d => Object.assign(T.drow(cat[d.metric], d.base, d.fork, d.delta_pct != null ? d.delta_pct : d.delta, d.verdict, d.note, d.threshold_pct != null ? d.threshold_pct : d.threshold), { txt: d.text || null, hl: d.headline }));
-    // The figures count the headline rows, and the first table lists exactly those; other metrics beyond noise sit apart.
-    const hasHl = rows.some(r => r.hl != null), head8 = rows.filter(r => r.hl != null || !hasHl), others = rows.filter(r => hasHl && r.hl == null), c = T.tally(head8);
+    // The figures count the headline rows, and the first table lists exactly those; other metrics beyond noise sit
+    // apart, and only those: a row kept as context (agents_served for the saturated line) feeds its line, never this table.
+    const hasHl = rows.some(r => r.hl != null), head8 = rows.filter(r => r.hl != null || !hasHl), others = rows.filter(r => hasHl && r.hl == null && (r.k === 'good' || r.k === 'bad')), c = T.tally(head8);
     const sha = rel.base && (rel.base.sha7 || (rel.base.sha ? rel.base.sha.slice(0, 7) : null)), baseName = sha ? 'Upstream base ' + sha : 'Base ' + (rel.base && rel.base.date ? T.dShort(rel.base.date) : '');
     const by = {}; rows.forEach(r => { by[r.m.id] = r; });
     // A level where the fork or its base could not serve every agent: the flag, and latency there is context only.
