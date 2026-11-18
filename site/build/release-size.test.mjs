@@ -29,6 +29,9 @@ const clean = () => [];
 const moved = (v) => v === 'improved' || v === 'regressed';
 const wide = () => buildPostBundle(wideSource(catalogue), { catalogue });
 const key = (d) => `${d.metric}.${d.level}`;
+const pageCtx = (level) => ({ catalogue: catalogue.metrics, headlines: catalogue.headlines['linux-x64'], platform: 'linux-x64', level });
+const OTHERS = /<h3 class="mt3">Other metrics beyond noise<\/h3><div class="tw">.*?<\/table><\/div>/s;
+const othersListed = (html) => [...((OTHERS.exec(html) || [''])[0]).matchAll(/<tr><td><a href="\/metrics\/([^/]+)\//g)].map((m) => m[1]);
 
 // The rows and fields every release file carried before: a whole metric at every level once it moved anywhere,
 // against the base or the previous release, with the comparison against the previous release in each row.
@@ -92,22 +95,43 @@ test('schema/release-1.json still accepts a row in the previous form: the droppe
   assert.deepEqual(validate(releaseSchema, { ...rel, deltas: previousForm(b).slice(0, 400) }), []);
 });
 
-test('the release page renders byte-identical, except the rows of its "Other metrics beyond noise" table', () => {
+test('the release page renders the same from the previous form and from this one; "Other metrics beyond noise" lists only rows beyond noise', () => {
   const T = loadApp();
   const b = wide();
   const rel = renderRelease({ bundle: b, source: null, scanText: clean });
   const before = { ...rel, deltas: previousForm(b) };
-  const TABLE = /<h3 class="mt3">Other metrics beyond noise<\/h3><div class="tw">.*?<\/table><\/div>/s;
-  const rows = (html) => [...((TABLE.exec(html) || [''])[0]).matchAll(/<tr><td><a href="\/metrics\/([^/]+)\//g)].map((m) => m[1]);
   for (const level of ['1', '50', '100', '250']) {
-    const ctx = { catalogue: catalogue.metrics, headlines: catalogue.headlines['linux-x64'], platform: 'linux-x64', level };
-    const now = releaseHTML(T, rel, ctx).html;
-    const then = releaseHTML(T, before, ctx).html;
-    assert.equal(now.replace(TABLE, ''), then.replace(TABLE, ''), `level ${level}: everything but that table`);
-    const listed = rel.deltas.filter((d) => d.level === level && d.headline == null).map((d) => d.metric);
-    assert.deepEqual(rows(now).sort(), listed.sort(), `level ${level}: the table lists the rows the file carries`);
-    for (const d of rel.deltas.filter((x) => x.level === level && x.headline == null)) assert.ok(moved(d.verdict) || d.metric === 'agents_served', `${key(d)} is beyond noise`);
-    assert.ok(rows(then).length > rows(now).length, `level ${level}: the previous form listed rows within noise there`);
+    const now = releaseHTML(T, rel, pageCtx(level)).html;
+    assert.equal(now, releaseHTML(T, before, pageCtx(level)).html, `level ${level}`);
+    const beyond = rel.deltas.filter((d) => d.level === level && d.headline == null && moved(d.verdict)).map((d) => d.metric);
+    assert.ok(beyond.length > 0 || level === '250', `level ${level}: rows beyond noise`);
+    assert.deepEqual(othersListed(now).sort(), beyond.sort(), `level ${level}: that table lists exactly the rows beyond noise`);
+  }
+});
+
+test('a row kept only for the saturated line feeds that line and is never listed beyond noise, in both forms', () => {
+  const T = loadApp();
+  const b = wide();
+  for (const form of [{}, { overBudget: true }]) {
+    const rel = renderRelease({ bundle: b, source: null, scanText: clean, ...form });
+    const served = rel.deltas.find((d) => d.metric === 'agents_served' && d.level === '250');
+    assert.ok(served && served.saturated.base === true && !moved(served.verdict), JSON.stringify(served));
+    const html = releaseHTML(T, rel, pageCtx('250')).html;
+    assert.match(html, new RegExp(`saturated: ${T.fmt(served.base).replace(/[.]/g, '[.]')} of 250 agents served by its base`), JSON.stringify(form));
+    assert.ok(!othersListed(html).includes('agents_served'), `${JSON.stringify(form)}: ${othersListed(html)}`);
+  }
+});
+
+test('agents_served beyond noise at the saturated level feeds the line and is listed beyond noise, in both forms', () => {
+  const T = loadApp();
+  const b = buildPostBundle(wideSource(catalogue, { servedMoves: true }), { catalogue });
+  for (const form of [{}, { overBudget: true }]) {
+    const rel = renderRelease({ bundle: b, source: null, scanText: clean, ...form });
+    const served = rel.deltas.find((d) => d.metric === 'agents_served' && d.level === '250');
+    assert.ok(served && served.saturated.base === true && moved(served.verdict), JSON.stringify(served));
+    const html = releaseHTML(T, rel, pageCtx('250')).html;
+    assert.match(html, new RegExp(`saturated: ${T.fmt(served.base).replace(/[.]/g, '[.]')} of 250 agents served by its base`), JSON.stringify(form));
+    assert.ok(othersListed(html).includes('agents_served'), `${JSON.stringify(form)}: ${othersListed(html)}`);
   }
 });
 
@@ -162,7 +186,7 @@ test('over budget: the size check throws a BudgetError with its bytes, and the o
   assert.throws(() => renderRelease({ bundle: b, source: null, scanText: () => [{ id: 'x' }] }), (e) => !(e instanceof post.BudgetError));
 });
 
-test('over budget, on the page: the footer says why, the headline table stays, no other row but the saturated line\'s', () => {
+test('over budget, on the page: the footer says why, the headline table stays, no other row', () => {
   const T = loadApp();
   const rel = renderRelease({ bundle: wide(), source: null, scanText: clean, overBudget: true });
   for (const level of ['1', '50', '100', '250']) {
@@ -171,8 +195,8 @@ test('over budget, on the page: the footer says why, the headline table stays, n
     assert.match(html, /Charts only: the full comparison is over this page&#39;s size budget, so only the headline metrics are listed\./);
     const others = (/<h3 class="mt3">Other metrics beyond noise<\/h3>(.*?)<\/table>/s.exec(html) || ['', ''])[1];
     const listed = [...others.matchAll(/<tr><td><a href="\/metrics\/([^/]+)\//g)].map((m) => m[1]);
-    // agents_served stays at the saturated level (250 here), for the saturated line; render-post lists it there.
-    assert.deepEqual(listed, level === '250' ? ['agents_served'] : [], `level ${level}`);
+    // agents_served stays at the saturated level (250 here) for the saturated line, never in that table.
+    assert.deepEqual(listed, [], `level ${level}`);
     assert.match(html, /<table class="dt">/, `level ${level}: the headline table`);
   }
 });

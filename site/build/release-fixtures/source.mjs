@@ -98,9 +98,10 @@ export function source({ prev = true, spec = SPEC, saturatedBase = [] } = {}) {
  * previous release; a quarter of the rows beyond noise against the base at their own level; the base saturated
  * at 250 agents, where agents_served stays within noise. Every number is invented (base 100 + 10 per metric).
  * @param {{metrics: object[], headlines: object}} catalogue catalogue/catalogue.json
- * @param {{servedBand?: number|null}} opts servedBand: null gives agents_served no noise band, so no verdict anywhere
+ * @param {{servedBand?: number|null, servedMoves?: boolean}} opts servedBand: null gives agents_served no noise band,
+ *   so no verdict anywhere; servedMoves: agents_served moves beyond noise at the saturated level too
  */
-export function wideSource(catalogue, { servedBand = 5 } = {}) {
+export function wideSource(catalogue, { servedBand = 5, servedMoves = false } = {}) {
   const heads = catalogue.headlines['linux-x64'];
   const daily = catalogue.metrics.filter((m) => m.lane === 'daily' && m.scope === 'level' && m.better !== 'context' && (m.upstream === 'yes' || m.upstream === 'yes L'));
   const levels = ['1', '50', '100', '250'];
@@ -108,7 +109,7 @@ export function wideSource(catalogue, { servedBand = 5 } = {}) {
     const rows = {};
     levels.forEach((L, li) => {
       const b = 100 + 10 * i + li;
-      const moved = (i + li) % 4 === 0 && !(m.id === 'agents_served' && L === '250');
+      const moved = (i + li) % 4 === 0 && (servedMoves || !(m.id === 'agents_served' && L === '250'));
       const worse = moved ? (i % 2 ? 1.25 : 0.75) : 1.01;
       const f = round(m.better === 'higher' ? b * (2 - worse) : b * worse, 2);
       const p = (i + li) % 4 === 1 ? round(f * 1.5, 2) : round(f * 1.005, 2);
