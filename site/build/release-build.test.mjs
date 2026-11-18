@@ -290,3 +290,75 @@ test('agents_served at a saturated level reaches the release through the aggrega
   assert.match(html, /saturated: 210 of 250 agents served by the fork/);
   assert.doesNotMatch(html, /\? of 250 agents/);
 });
+
+// ---- Over budget: one release over its byte budget never stops the build. ----
+const OVER = 24 * 1024;
+// perf.8 with every measured value of the fork moved far beyond noise at every level: a release whose rows fill
+// the file. Invented: the synthetic values doubled, and those of one or less halved (a 0-1 ratio stays in range).
+const inflated = () => {
+  const dir = copyData();
+  const move = (v) => (typeof v !== 'number' ? v : v <= 1 ? v * 0.5 : v * 2);
+  editJson(path.join(dir, 'fork', `${PERF8}.linux-x64.json`), (j) => {
+    for (const c of Object.values(j.cells)) for (const [id, s] of Object.entries(c.metrics || {})) {
+      if (id === 'agents_served' || !s || typeof s.median !== 'number') continue;
+      for (const k of ['median', 'min', 'max']) s[k] = move(s[k]);
+      if (Array.isArray(s.values)) s.values = s.values.map(move);
+    }
+  });
+  return dir;
+};
+
+test('over budget: that release builds charts-only, reason over_budget, headline rows only; every other release is unchanged', async () => {
+  const { statSync } = await import('node:fs');
+  const dir = inflated();
+  const full = fresh();
+  const before = await buildReleases({ inDir: dir, outDir: full.outDir, postsDir: full.postsDir, dev: true, scanText: clean });
+  const size = (r) => statSync(r.file).size;
+  const big = before.find((r) => r.tag === PERF8);
+  assert.ok(size(big) > OVER, `the fixture release is over the test budget: ${size(big)} bytes`);
+  for (const r of before.filter((x) => x.tag !== PERF8)) assert.ok(size(r) <= OVER, `${r.tag} is under it`);
+  const d = fresh();
+  const lines = [];
+  const res = await buildReleases({ inDir: dir, outDir: d.outDir, postsDir: d.postsDir, dev: true, scanText: clean, budgetBytes: OVER, log: (l) => lines.push(l) });
+  const r8 = res.find((r) => r.tag === PERF8);
+  assert.equal(r8.charts_only_reason, 'over_budget');
+  assert.equal(r8.over_budget_bytes, size(big));
+  assert.ok(lines.includes(`release-build: ${PERF8} over_budget: ${size(big)} bytes`), lines.join('\n'));
+  const rel = json(r8.file);
+  assert.deepEqual(validate(releaseSchema, rel), []);
+  assert.ok(statSync(r8.file).size <= OVER);
+  assert.equal(rel.charts_only, true);
+  assert.equal(rel.charts_only_reason, 'over_budget');
+  assert.equal(rel.checker.passed, false);
+  assert.match(rel.checker.footer, /^Charts only: the full comparison is over this page's size budget/);
+  assert.ok(rel.deltas.length > 0 && rel.deltas.every((x) => x.headline != null), 'headline rows only');
+  const headline = json(big.file).deltas.filter((x) => x.headline != null);
+  assert.deepEqual(rel.deltas, headline, 'the same headline rows as the full release');
+  for (const r of res.filter((x) => x.tag !== PERF8)) {
+    assert.equal(r.charts_only_reason, before.find((x) => x.tag === r.tag).charts_only_reason, r.tag);
+    assert.equal(readFileSync(r.file, 'utf8'), readFileSync(before.find((x) => x.tag === r.tag).file, 'utf8'), `${r.tag} unchanged`);
+  }
+});
+
+test('over budget, the alert: the build prints a GitHub warning naming the release and still exits 0', () => {
+  const dir = inflated();
+  const d = fresh();
+  const out = execFileSync(process.execPath, [path.join(ROOT, 'site', 'build', 'release-build.mjs'), '--in', dir, '--out', d.outDir, '--posts', d.postsDir, '--dev', '--budget-bytes', String(OVER)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const warnings = out.split('\n').filter((l) => l.startsWith('::warning::'));
+  assert.equal(warnings.length, 1, out);
+  assert.match(warnings[0], new RegExp(`^::warning::release ${PERF8.replace(/\./g, '\\.')} over budget: \\d+ bytes$`));
+  // Under the real budget the same tree warns about nothing.
+  const quiet = execFileSync(process.execPath, [path.join(ROOT, 'site', 'build', 'release-build.mjs'), '--in', dir, '--out', fresh().outDir, '--posts', d.postsDir, '--dev'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  assert.ok(!quiet.includes('::warning::'), quiet);
+});
+
+test('over budget, the alert runs in CI: a report-only step builds every release on the committed data', async () => {
+  const { parseYaml } = await import('../../tools/audit/lib/yaml-lite.mjs');
+  const ci = parseYaml(readFileSync(path.join(ROOT, '.github', 'workflows', 'ci.yml'), 'utf8'));
+  const [, job] = Object.entries(ci.jobs)[0];
+  const step = job.steps.find((s) => /^node site\/build\/release-build\.mjs --in data\/v1 /.test(String(s.run ?? '')));
+  assert.ok(step, 'the release budget step');
+  assert.equal(step.if, '${{ !cancelled() }}');
+  assert.match(step.run, /--out "\$RUNNER_TEMP\/releases"$/);
+  assert.equal(step['continue-on-error'], undefined, 'it passes on its own: over budget is a warning, never a failure');
+});

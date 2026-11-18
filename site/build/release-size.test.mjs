@@ -146,3 +146,18 @@ test('agents_served at a saturated level is in the release even with no verdict 
   const relBand = renderRelease({ bundle: buildPostBundle(withBand, { catalogue }), source: null, scanText: clean, src: withBand });
   assert.deepEqual(relBand.deltas.filter((d) => d.metric === 'agents_served').map((d) => d.level), ['250']);
 });
+
+test('over budget: the size check throws a BudgetError with its bytes, and the over_budget form keeps the headline rows', () => {
+  const b = wide();
+  let err;
+  try { renderRelease({ bundle: b, source: null, scanText: clean, budgetBytes: 1024 }); } catch (e) { err = e; }
+  assert.ok(err instanceof post.BudgetError, String(err));
+  assert.equal(err.budget, 1024);
+  assert.ok(err.bytes > 1024);
+  const rel = renderRelease({ bundle: b, source: null, scanText: clean, overBudget: true });
+  assert.deepEqual(validate(releaseSchema, rel), []);
+  assert.equal(rel.charts_only_reason, 'over_budget');
+  assert.deepEqual(rel.deltas.map(key), b.metrics.filter((r) => r.headline != null || (r.id === 'agents_served' && (r.saturated.fork === true || r.saturated.base === true))).map((r) => `${r.id}.${r.level}`));
+  // A schema or scan failure is never a BudgetError: it still stops the build.
+  assert.throws(() => renderRelease({ bundle: b, source: null, scanText: () => [{ id: 'x' }] }), (e) => !(e instanceof post.BudgetError));
+});
