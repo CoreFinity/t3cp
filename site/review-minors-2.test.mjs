@@ -24,7 +24,7 @@ test('the built site never calls the fork\'s base a nightly', async () => {
       const html = readFileSync(join(out, p), 'utf8');
       assert.doesNotMatch(html, /nightl(y|ies) (it is|they are) based on/, p);
     }
-    assert.match(readFileSync(join(out, 'about/index.html'), 'utf8'), /upstream base, built from source/);
+    assert.match(readFileSync(join(out, 'about/index.html'), 'utf8'), /upstream base<\/b>: the upstream code at the commit the fork release is based on, built from source/);
   } finally { rmSync(out, { recursive: true, force: true }); }
 });
 
