@@ -68,8 +68,9 @@ export async function buildReleases({ inDir, outDir, postsDir = path.join(ROOT, 
     const source = sources.get(tag) ?? null;
     const changelog = source ? source.changelog : [];
     let bundle;
+    let src = null;
     try {
-      const src = await loadSource({ dataDir: inDir, tag, dev });
+      src = await loadSource({ dataDir: inDir, tag, dev });
       const set = recordSet({ dataDir: inDir, tag, prevTag: src.prev ? src.prev.tag : null, platform });
       bundle = buildPostBundle(src, { catalogue: cat, changelog, scanText, platform, bundleSha256: set.digest, pending: set.pending, baseRecord: set.baseRecord });
       if (set.pending) log(`release-build: ${tag} pending: ${set.why.join('; ')}`);
@@ -79,7 +80,8 @@ export async function buildReleases({ inDir, outDir, postsDir = path.join(ROOT, 
       bundle = pendingBundle({ forkRecord, catalogue: cat, changelog, platform });
       log(`release-build: ${tag} pending: ${e.message}`);
     }
-    const rec = renderRelease({ bundle, source, scanText });
+    // src: the page's saturated line quotes agents_served, which the post bundle may leave out.
+    const rec = renderRelease({ bundle, source, scanText, src });
     const file = path.join(outDir, `${tag}.json`);
     writeAtomic(file, serialiseRelease(rec));
     out.push({ tag, file, charts_only_reason: rec.charts_only_reason, ...(errors.has(tag) ? { error: errors.get(tag) } : {}) });

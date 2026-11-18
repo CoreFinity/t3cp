@@ -26,6 +26,7 @@ import { parseArgs } from 'node:util';
 import { CHECKER_VERSION, bundleSha256, check, cleanFinding, loadScanner, readJsonInput, scanJson } from '../../news/check.mjs';
 import { fallbackPost, noteOf, titleFor, verdictOf } from '../../news/claims.mjs';
 import { isMain } from '../../tools/t3cp/lib/repo.mjs';
+import { servedRows } from './release-bundle.mjs';
 import { formatSafeErrors, safePath, schemaErrors, schemaKeys } from '../../tools/t3cp/lib/safe-errors.mjs';
 
 /** Validation errors as 'path message' pairs, the first n of them. */
@@ -79,6 +80,28 @@ export const safeSourcePath = (p) => safePath(p, schemaKeys(schema('news/post-so
 
 const provenanceOf = (attempt) => (attempt && attempt.prompt_sha256 ? { prompt_sha256: attempt.prompt_sha256 } : attempt ? { written_in_session: true } : {});
 
+/** A bundle row as a release delta: the fields the release page reads. */
+const deltaRow = (r) => ({
+  metric: r.id, platform: r.platform, level: r.level, headline: r.headline,
+  fork: r.value.fork, base: r.value.base, delta_pct: r.value.delta_pct,
+  threshold_pct: r.value.threshold_pct, verdict: verdictOf(r, 'base'), note: verdictOf(r, 'base') ? r.note : noteOf(r, 'base'),
+  saturated: { fork: r.saturated.fork, base: r.saturated.base },
+  text: { fork: r.text.fork, base: r.text.base, delta_pct: r.text.delta_pct },
+});
+
+/**
+ * The deltas with agents_served added at each saturated level the post bundle left out (no verdict at any level),
+ * in the bundle's order: headline, then the catalogue's order, then level.
+ */
+function withServed(deltas, bundle, served) {
+  const have = new Set(deltas.map((d) => `${d.metric}.${d.level}`));
+  const add = served.filter((r) => !have.has(`${r.id}.${r.level}`)).map(deltaRow);
+  if (!add.length) return deltas;
+  const cat = new Map((bundle.catalogue_names || []).map((m, i) => [m.id, i]));
+  const rank = (l) => (l === 'once' ? 99 : Number(l));
+  return [...deltas, ...add].sort((a, b) => (a.headline ?? 99) - (b.headline ?? 99) || (cat.get(a.metric) ?? 1e9) - (cat.get(b.metric) ?? 1e9) || rank(a.level) - rank(b.level));
+}
+
 function record(bundle, { post, reason, result, attempts, provenance = {} }) {
   if (reason === 'pending' || reason === 'no_base') {
     return {
@@ -93,13 +116,7 @@ function record(bundle, { post, reason, result, attempts, provenance = {} }) {
   // reads. The whole table is in the records; the comparison with the previous release is in the series files.
   const beyond = (r) => ['improved', 'regressed'].includes(verdictOf(r, 'base'));
   const servedLine = (r) => r.id === 'agents_served' && (r.saturated.fork === true || r.saturated.base === true);
-  const deltas = bundle.metrics.filter((r) => r.headline != null || beyond(r) || servedLine(r)).map((r) => ({
-    metric: r.id, platform: r.platform, level: r.level, headline: r.headline,
-    fork: r.value.fork, base: r.value.base, delta_pct: r.value.delta_pct,
-    threshold_pct: r.value.threshold_pct, verdict: verdictOf(r, 'base'), note: verdictOf(r, 'base') ? r.note : noteOf(r, 'base'),
-    saturated: { fork: r.saturated.fork, base: r.saturated.base },
-    text: { fork: r.text.fork, base: r.text.base, delta_pct: r.text.delta_pct },
-  }));
+  const deltas = bundle.metrics.filter((r) => r.headline != null || beyond(r) || servedLine(r)).map(deltaRow);
   const chartsOnly = reason !== null;
   // A release never carries findings: the footer gives their number only.
   const findingCount = chartsOnly ? (result.findings || []).length : 0;
@@ -140,10 +157,11 @@ function record(bundle, { post, reason, result, attempts, provenance = {} }) {
 /**
  * Render the published release file from a source (or null) and the bundle rebuilt from data. Re-runs the
  * checker on stored text; validates, scans and sizes the result, throwing on any failure (fail closed).
- * @param {{bundle: object, source: object|null, scanText: Function, budgetBytes?: number}} args
+ * @param {{bundle: object, source: object|null, scanText: Function, budgetBytes?: number, src?: object|null}} args src:
+ *   the aggregator's release source the bundle was built from, for the rows the page needs that the bundle leaves out
  * @returns {object} a `t3cp/release/1` object
  */
-export function renderRelease({ bundle, source = null, scanText, scanValues, budgetBytes = BUDGET_BYTES }) {
+export function renderRelease({ bundle, source = null, scanText, scanValues, budgetBytes = BUDGET_BYTES, src = null }) {
   if (typeof scanText !== 'function') throw new Error('release: the internal-name scanner (tools/t3cp/lib/scan.mjs) did not load');
   const empty = { numbers_checked: 0, charts: 0, findings: [] };
   let rec;
@@ -163,6 +181,7 @@ export function renderRelease({ bundle, source = null, scanText, scanValues, bud
       ? record(bundle, { post: result.rendered, reason: null, result, attempts: source.checker.n, provenance })
       : record(bundle, { reason: 'stale', result, attempts: source.checker.n, provenance });
   }
+  if (src && !bundle.pending && rec.deltas.length) rec.deltas = withServed(rec.deltas, bundle, servedRows(src, { platforms: bundle.platforms }));
   const errors = schemaErrors(schema('schema/release-1.json'), rec);
   if (errors.length) throw new Error(`release ${bundle.release.tag}: does not validate against t3cp/release/1: ${formatSafeErrors(errors, schema('schema/release-1.json'), 3)}`);
   const text = serialiseRelease(rec);

@@ -1216,7 +1216,10 @@ export function releaseBundle({ dataDir, tag, levels = ["1", "50", "100", "250"]
     for (const row of rel.rows) {
       const m = model.byId.get(row.metric);
       if (!levels.includes(row.level) && row.level !== "once") continue;
-      if (!headlines.has(m.id) && row.verdict === null && row.verdict_vs_prev === null) continue;
+      // agents_served at a level where the fork or its base is saturated stays whatever its verdicts: the release
+      // page's saturated line quotes it.
+      const servedLine = m.id === "agents_served" && (row.saturated?.fork === true || row.saturated?.base === true);
+      if (!headlines.has(m.id) && row.verdict === null && row.verdict_vs_prev === null && !servedLine) continue;
       const deltaPct = row.delta_pct_raw;
       metrics.push({
         id: m.id,

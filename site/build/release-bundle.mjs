@@ -105,6 +105,45 @@ export function changelogExcerpt(markdown, tag) {
   return out;
 }
 
+/** A source row (t3cp/release-bundle/1) as a post bundle row, with the saturation rule applied. */
+function bundleRow(r, release) {
+  // The source schema requires saturated on every row; the bundle carries it on every row.
+  const sat = { saturated: { fork: r.saturated.fork, base: r.saturated.base, prev: release.prev ? r.saturated.prev : null } };
+  const row = {
+    id: r.id, name: r.name, unit: r.unit, better: r.better, headline: r.headline, platform: r.platform, level: r.level,
+    verdict: r.verdict, note: r.note, verdict_vs_prev: release.prev ? r.verdict_vs_prev : null,
+    note_vs_prev: release.prev ? r.note_vs_prev : 'no_reference', thin_reference: false,
+    text: {
+      fork: r.text.fork, base: r.text.base, prev: release.prev ? r.text.prev : null, delta_pct: r.text.delta_pct,
+      band_pct: r.text.band_pct, threshold_pct: r.text.threshold_pct, delta_vs_prev_pct: release.prev ? r.text.delta_vs_prev_pct : null,
+    },
+    value: {
+      fork: r.fork ? r.fork.median : null, base: r.base ? r.base.median : null, prev: release.prev && r.prev ? r.prev.median : null,
+      delta_pct: r.delta_pct, threshold_pct: r.threshold_pct, delta_vs_prev_pct: release.prev ? r.delta_vs_prev_pct : null,
+    },
+    _worse: r.worse_pct, _worse_prev: release.prev ? r.worse_vs_prev_pct : null,
+    ...sat,
+  };
+  // A saturated level keeps only turns_completed and agents_served: whatever the source says, every other
+  // metric there has no verdict (fail closed), so it counts, sizes and charts as context.
+  if (saturatedAt(row, 'base')) Object.assign(row, { verdict: null, note: 'saturated' });
+  if (release.prev && saturatedAt(row, 'prev')) Object.assign(row, { verdict_vs_prev: null, note_vs_prev: 'saturated' });
+  return row;
+}
+
+/**
+ * agents_served at each level where the fork or its base is saturated, as bundle rows, whatever its verdict. The
+ * release page's saturated line quotes it, and the post bundle leaves out a metric with no verdict at any level.
+ * @param {object} src the aggregator's release source (releaseBundle())
+ * @param {{platforms?: string[]}} opts the bundle's platforms
+ */
+export function servedRows(src, { platforms = ['linux-x64'] } = {}) {
+  const release = { prev: src.prev ?? null };
+  return src.metrics
+    .filter((m) => m.id === 'agents_served' && platforms.includes(m.platform) && HEADLINE_LEVELS.includes(m.level) && m.saturated && (m.saturated.fork === true || m.saturated.base === true))
+    .map((m) => bundleRow(m, release));
+}
+
 /**
  * Build the post bundle.
  * @param {object} src a `t3cp/release-bundle/1` object (validated here against schema/release-bundle-1.json)
@@ -155,30 +194,7 @@ export function buildPostBundle(src, { catalogue, changelog = [], scanText = nul
   const levelRank = (l) => (l === 'once' ? 99 : Number(l));
   const metrics = [];
   for (const [, rows] of included) {
-    for (const r of rows.slice().sort((a, b) => levelRank(a.level) - levelRank(b.level))) {
-      // The source schema requires saturated on every row; the bundle carries it on every row.
-      const sat = { saturated: { fork: r.saturated.fork, base: r.saturated.base, prev: release.prev ? r.saturated.prev : null } };
-      const row = {
-        id: r.id, name: r.name, unit: r.unit, better: r.better, headline: r.headline, platform: r.platform, level: r.level,
-        verdict: r.verdict, note: r.note, verdict_vs_prev: release.prev ? r.verdict_vs_prev : null,
-        note_vs_prev: release.prev ? r.note_vs_prev : 'no_reference', thin_reference: false,
-        text: {
-          fork: r.text.fork, base: r.text.base, prev: release.prev ? r.text.prev : null, delta_pct: r.text.delta_pct,
-          band_pct: r.text.band_pct, threshold_pct: r.text.threshold_pct, delta_vs_prev_pct: release.prev ? r.text.delta_vs_prev_pct : null,
-        },
-        value: {
-          fork: r.fork ? r.fork.median : null, base: r.base ? r.base.median : null, prev: release.prev && r.prev ? r.prev.median : null,
-          delta_pct: r.delta_pct, threshold_pct: r.threshold_pct, delta_vs_prev_pct: release.prev ? r.delta_vs_prev_pct : null,
-        },
-        _worse: r.worse_pct, _worse_prev: release.prev ? r.worse_vs_prev_pct : null,
-        ...sat,
-      };
-      // A saturated level keeps only turns_completed and agents_served: whatever the source says, every other
-      // metric there has no verdict (fail closed), so it counts, sizes and charts as context.
-      if (saturatedAt(row, 'base')) Object.assign(row, { verdict: null, note: 'saturated' });
-      if (release.prev && saturatedAt(row, 'prev')) Object.assign(row, { verdict_vs_prev: null, note_vs_prev: 'saturated' });
-      metrics.push(row);
-    }
+    for (const r of rows.slice().sort((a, b) => levelRank(a.level) - levelRank(b.level))) metrics.push(bundleRow(r, release));
   }
   // Headline order first, then the catalogue's order: a stable, readable row order.
   const catOrder = new Map(catalogue.metrics.map((m, i) => [m.id, i]));
