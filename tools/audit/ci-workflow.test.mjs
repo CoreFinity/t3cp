@@ -1,5 +1,6 @@
-// ci.yml bills one job per run: main and pull requests to main only, one job, cancelled when
-// superseded, bounded, and every check runs even after another one fails.
+// ci.yml bills one job per run: main and pull requests to main only, one job, bounded, and every check runs even after
+// another one fails. A run on main is never cancelled (every main commit gets a result); on another ref a newer run
+// cancels the older one.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -16,8 +17,76 @@ test("ci: runs on pushes to main and pull requests to main only", () => {
   assert.deepEqual(ci.on, { push: { branches: ["main"] }, pull_request: { branches: ["main"] } });
 });
 
-test("ci: a newer run on the same ref cancels the older one", () => {
-  assert.deepEqual(ci.concurrency, { group: "ci-${{ github.ref }}", "cancel-in-progress": true });
+/**
+ * A GitHub Actions expression, `${{ ... }}` or a bare true/false, evaluated for one context: the subset a concurrency
+ * setting uses (string and boolean literals, github.<name>, ==, !=, !, &&, ||, parentheses). Anything else throws, so
+ * the test never passes on an expression it cannot read.
+ */
+function evaluate(value, github) {
+  if (value === true || value === "true") return true;
+  if (value === false || value === "false") return false;
+  const m = /^\$\{\{\s*([\s\S]*?)\s*\}\}$/.exec(String(value));
+  if (!m) throw new Error(`not an expression: ${value}`);
+  const tokens = m[1].match(/'(?:[^']|'')*'|==|!=|&&|\|\||[!()]|[A-Za-z_][A-Za-z0-9_.-]*|\S/g) ?? [];
+  let i = 0;
+  const peek = () => tokens[i];
+  const next = () => tokens[i++];
+  const primary = () => {
+    const t = next();
+    if (t === "(") {
+      const v = or();
+      if (next() !== ")") throw new Error("missing )");
+      return v;
+    }
+    if (t === "!") return !truthy(primary());
+    if (/^'/.test(t)) return t.slice(1, -1).replace(/''/g, "'");
+    if (t === "true" || t === "false") return t === "true";
+    if (/^github\.[a-z_]+$/.test(t)) {
+      const key = t.slice("github.".length);
+      if (!(key in github)) throw new Error(`unknown context ${t}`);
+      return github[key];
+    }
+    throw new Error(`unsupported token ${t}`);
+  };
+  const truthy = (v) => v !== false && v !== "" && v !== null && v !== undefined && v !== 0;
+  // GitHub compares strings case-insensitively.
+  const eq = (a, b) => (typeof a === "string" && typeof b === "string" ? a.toLowerCase() === b.toLowerCase() : a === b);
+  const comparison = () => {
+    let v = primary();
+    while (peek() === "==" || peek() === "!=") {
+      const op = next();
+      const r = primary();
+      v = op === "==" ? eq(v, r) : !eq(v, r);
+    }
+    return v;
+  };
+  const and = () => {
+    let v = comparison();
+    while (peek() === "&&") { next(); const r = comparison(); v = truthy(v) ? r : v; }
+    return v;
+  };
+  const or = () => {
+    let v = and();
+    while (peek() === "||") { next(); const r = and(); v = truthy(v) ? v : r; }
+    return v;
+  };
+  const v = or();
+  if (i !== tokens.length) throw new Error(`trailing tokens in ${m[1]}`);
+  return truthy(v);
+}
+
+test("ci: on main every run completes (each main commit gets a result); on any other ref a newer run cancels the older one", () => {
+  assert.equal(ci.concurrency.group, "ci-${{ github.ref }}", "one group per ref");
+  const cancels = (ref) => evaluate(ci.concurrency["cancel-in-progress"], { ref });
+  assert.equal(cancels("refs/heads/main"), false, "a burst of commits to main never cancels a main run");
+  for (const ref of ["refs/pull/12/merge", "refs/heads/ws/site", "refs/heads/main-old"]) assert.equal(cancels(ref), true, ref);
+});
+
+test("ci: the expression reader refuses what it cannot evaluate", () => {
+  assert.equal(evaluate("${{ github.ref != 'refs/heads/main' }}", { ref: "refs/heads/MAIN" }), false, "case-insensitive, as GitHub");
+  assert.throws(() => evaluate("${{ startsWith(github.ref, 'refs/heads/') }}", { ref: "x" }));
+  assert.throws(() => evaluate("${{ github.head_ref == 'x' }}", { ref: "x" }), /unknown context/);
+  assert.throws(() => evaluate("yes", { ref: "x" }), /not an expression/);
 });
 
 test("ci: one job with a timeout, every check after the setup steps runs whatever failed before", () => {
