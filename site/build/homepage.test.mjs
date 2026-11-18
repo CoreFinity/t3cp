@@ -137,3 +137,17 @@ test('in the browser the compact line and the table caption follow the agents sw
   assert.equal(txt(P.$('#sline').innerHTML), 'Nightly 26 Oct 2026, 50 agents: none of the 8 headline metrics moved beyond noise.');
   assert.equal(P.$('#hcap').textContent, 'The eight headline metrics, 50 agents');
 });
+
+// The status names the newest nightly with a headline value at the level, and counts what moved on that nightly,
+// even when the first headline has no value there (a saturated or unmeasured cell).
+test('the compact line and the strip follow the newest nightly, not the first headline\'s last value', async () => {
+  const { loadApp } = await import('./lib/app-vm.mjs');
+  const T = loadApp(), cat = Object.fromEntries(catalogue.metrics.map(m => [m.id, m])), H = catalogue.headlines['linux-x64'];
+  const vals = [10, 11, 10, 11, 10, 11, 10, 11, 10, 14];
+  const Ms = H.map((id, i) => {
+    const lv = level(i === 0 ? vals.slice(0, 9).concat([null]) : vals, i === 1 ? { 9: ['regressed', 30, 10.5] } : {});
+    return T.model(shard(id, { 100: lv, once: lv }, { n: 10 }), { ...cat[id], era_start: '2026-10-17' }, T.effLevel(cat[id], '100'), 30, null);
+  });
+  assert.equal(txt(T.stripFor(H, Ms, cat, { level: '100', line: 1 })), 'Nightly 26 Oct 2026, 100 agents: 1 of 8 headline metrics moved beyond noise.');
+  assert.match(txt(T.stripFor(H, Ms, cat, { plat: 'Linux x64', level: '100' })), /^1 of 8 headline metrics moved beyond noise since 25 Oct: 1 regressed, 0 improved\./);
+});
