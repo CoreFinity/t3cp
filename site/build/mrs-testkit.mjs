@@ -11,8 +11,14 @@ export const NOW = new Date('2026-11-15T12:34:56.789Z');
 // The fork's owner, from the fork URL (public files carry the login only there and in the author query).
 export const LOGIN = 'https://github.com/navidnadali/t3code'.split('/')[3];
 export const API_PREFIX = `https://api.github.com/search/issues?q=repo:pingdotgg/t3code+author:${LOGIN}+type:pr&per_page=100`;
+export const ISSUE_PREFIX = `https://api.github.com/search/issues?q=repo:pingdotgg/t3code+author:${LOGIN}+type:issue&per_page=100`;
 export const QUERY = `repo:pingdotgg/t3code author:${LOGIN} type:pr`;
+export const ISSUE_QUERY = `repo:pingdotgg/t3code author:${LOGIN} type:issue`;
+export const QUERIES = [QUERY, ISSUE_QUERY];
 export const prLink = (n) => `https://github.com/pingdotgg/t3code/pull/${n}`;
+export const issueLink = (n) => `https://github.com/pingdotgg/t3code/issues/${n}`;
+// Which query a search URL (or a request path) asks: 'issue' or 'pr'.
+export const queryKind = (url) => (decodeURIComponent(String(url)).replaceAll('+', ' ').includes('type:issue') ? 'issue' : 'pr');
 
 // A pull request as the search API returns it. state: open | merged | closed.
 export function pr(number, state, updatedAt, title = `perf(server): synthetic change ${number}`) {
@@ -32,6 +38,20 @@ export function pr(number, state, updatedAt, title = `perf(server): synthetic ch
   };
 }
 
+// An issue as the search API returns it: no pull_request key. state: open | closed; reason: GitHub's state_reason.
+export function issue(number, state, reason, updatedAt, title = `perf: synthetic issue ${number}`) {
+  return {
+    number,
+    title,
+    state,
+    state_reason: reason,
+    updated_at: updatedAt,
+    created_at: '2026-10-01T00:00:00Z',
+    html_url: issueLink(number),
+    user: { login: LOGIN },
+  };
+}
+
 export const page = (items, total = items.length, incomplete = false) => ({ total_count: total, incomplete_results: incomplete, items });
 
 export const json = (body, status = 200, headers = {}) =>
@@ -48,8 +68,27 @@ export function stubFetch(handler) {
   return fetch;
 }
 
-// The list a previous build wrote (fetched 12 Nov 2026).
+// A fetch handler that answers the pull request query and the issue query apart (the issue query: no issues by default).
+export const routed = (prs, issues = () => json(page([]))) => (url, init, n) => (queryKind(url) === 'issue' ? issues(url, init, n) : prs(url, init, n));
+
+// The list a previous build wrote (fetched 12 Nov 2026): three pull requests and an issue fixed upstream.
 export const previousDoc = () => ({
+  schema: 't3cp/mrs/2',
+  fetched_at: '2026-11-12T06:00:00Z',
+  stale: false,
+  source_queries: [...QUERIES],
+  counts: { pr: { open: 1, merged: 1, closed: 1 }, issue: { open: 0, closed: 1 } },
+  omitted: 0,
+  items: [
+    { kind: 'pr', number: 12, title: 'fix(server): synthetic open change', state: 'open', closed_as: null, updated_at: '2026-11-11T10:00:00Z', url: prLink(12) },
+    { kind: 'pr', number: 11, title: 'perf(server): synthetic merged change', state: 'merged', closed_as: null, updated_at: '2026-11-10T10:00:00Z', url: prLink(11) },
+    { kind: 'issue', number: 10, title: 'perf: synthetic issue fixed upstream', state: 'closed', closed_as: 'completed', updated_at: '2026-11-08T10:00:00Z', url: issueLink(10) },
+    { kind: 'pr', number: 9, title: 'perf(shared): synthetic closed change', state: 'closed', closed_as: null, updated_at: '2026-11-02T10:00:00Z', url: prLink(9) },
+  ],
+});
+
+// The same kind of list as the first page version wrote it (t3cp/mrs/1: pull requests only), for the one-time migration.
+export const previousDocV1 = () => ({
   schema: 't3cp/mrs/1',
   fetched_at: '2026-11-12T06:00:00Z',
   stale: false,

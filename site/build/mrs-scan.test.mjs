@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import * as mrs from './mrs.mjs';
 import { scanText } from '../../tools/t3cp/lib/scan.mjs';
 import { renderMrsPart } from './mrs-render.mjs';
-import { NOW, pr, page, json, stubFetch, previousDoc, tempDir, runCli, removeTempDirs } from './mrs-testkit.mjs';
+import { NOW, pr, issue, page, json, stubFetch, routed, queryKind, previousDoc, QUERIES, tempDir, runCli, removeTempDirs } from './mrs-testkit.mjs';
 
 after(removeTempDirs);
 
@@ -42,17 +42,17 @@ test('a forbidden pattern in a fetched title fails the build, names the pattern,
   const out = join(dir, 'mrs.json');
   const before = `${JSON.stringify(previousDoc())}\n`;
   await writeFile(out, before);
-  const fetch = stubFetch(() => json(page([
+  const fetch = stubFetch(routed(() => json(page([
     pr(76, 'open', '2026-11-15T08:00:00Z'),
     pr(77, 'merged', '2026-11-14T08:00:00Z', `fix(server): a stall seen on ${j('w', 's4')}`),
-  ])));
+  ]))));
   await assert.rejects(mrs.buildMrs(options({ out, fetch })), isForbidden('host_ws', 77));
   assert.equal(await readFile(out, 'utf8'), before);
 });
 
 test('a planted title from each pattern family fails the build', async () => {
   for (const [pattern, text] of planted) {
-    const fetch = stubFetch(() => json(page([pr(88, 'open', '2026-11-15T08:00:00Z', `fix: ${text} here`)])));
+    const fetch = stubFetch(routed(() => json(page([pr(88, 'open', '2026-11-15T08:00:00Z', `fix: ${text} here`)]))));
     const out = join(await tempDir(), 'mrs.json');
     await assert.rejects(mrs.buildMrs(options({ out, fetch })), isForbidden(pattern, 88), `${pattern} for a planted title`);
   }
@@ -69,7 +69,7 @@ test('ordinary upstream titles pass', async () => {
     'fix(ui): SolidJS-style signals, Solid rendering, home page, mount the volume, inventory sync, Q&A',
     'docs: Claude Code integration notes',
   ];
-  const fetch = stubFetch(() => json(page(titles.map((t, i) => pr(500 + i, 'open', '2026-11-15T08:00:00Z', t)))));
+  const fetch = stubFetch(routed(() => json(page(titles.map((t, i) => pr(500 + i, 'open', '2026-11-15T08:00:00Z', t))))));
   const result = await mrs.buildMrs(options({ out: join(await tempDir(), 'mrs.json'), fetch }));
   assert.equal(result.stale, false);
   assert.equal(result.doc.items.length, titles.length);
@@ -92,7 +92,7 @@ test('the private list (T3CP_PRIVATE_PATTERNS) applies to the build, and its exp
   const out = join(dir, 'mrs.json');
   const { code, stderr } = await runCli(['--out', out, '--retry-delay-ms', '0'], (req, res) => {
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify(page([pr(92, 'open', '2026-11-13T08:00:00Z', `fix: thanks to ${name}`)])));
+    res.end(JSON.stringify(page(queryKind(req.url) === 'issue' ? [] : [pr(92, 'open', '2026-11-13T08:00:00Z', `fix: thanks to ${name}`)])));
   }, { T3CP_PRIVATE_PATTERNS: list });
   assert.equal(code, 1, stderr);
   assert.match(stderr, /forbidden pattern private_1 in the title of pull request #92/);
@@ -105,7 +105,7 @@ test('the command line exits 1 naming the pattern and the pull request, without 
   const secret = j('build', '-01.lo', 'cal');
   const { code, stderr } = await runCli(['--out', out, '--retry-delay-ms', '0'], (req, res) => {
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify(page([pr(91, 'closed', '2026-11-13T08:00:00Z', `fix: cache on ${secret}`)])));
+    res.end(JSON.stringify(page(queryKind(req.url) === 'issue' ? [] : [pr(91, 'closed', '2026-11-13T08:00:00Z', `fix: cache on ${secret}`)])));
   });
   assert.equal(code, 1, stderr);
   assert.match(stderr, /forbidden pattern host_local/);
@@ -114,31 +114,36 @@ test('the command line exits 1 naming the pattern and the pull request, without 
   await assert.rejects(readFile(out), { code: 'ENOENT' });
 });
 
-test('every top-level string is scanned too, the author query included', () => {
-  const doc = { ...previousDoc(), source_query: `repo:pingdotgg/t3code author:x type:pr ${j('w', 's4')}` };
+test('every top-level string is scanned too, the author queries included', () => {
+  const doc = { ...previousDoc(), source_queries: [QUERIES[0], `repo:pingdotgg/t3code author:x type:issue ${j('w', 's4')}`] };
   assert.throws(() => mrs.scanDoc(doc), (e) => {
     assert.equal(e.code, 'T3CP_FORBIDDEN_PATTERN');
     assert.ok(e.patterns.includes('host_ws'), e.patterns);
-    assert.equal(e.field, 'source_query');
-    assert.match(e.message, /forbidden pattern .*host_ws.* in the source_query field/);
+    assert.equal(e.field, 'source_queries');
+    assert.match(e.message, /forbidden pattern .*host_ws.* in the source_queries field/);
     return true;
   });
-  assert.doesNotThrow(() => mrs.scanDoc(previousDoc()), 'the real author query passes the scan');
+  assert.doesNotThrow(() => mrs.scanDoc(previousDoc()), 'the real author queries pass the scan');
+});
+
+test('an issue title is scanned like a pull request title', async () => {
+  const fetch = stubFetch(routed(() => json(page([])), () => json(page([issue(66, 'open', null, '2026-11-15T08:00:00Z', `perf: seen on ${j('w', 's4')}`)]))));
+  await assert.rejects(mrs.buildMrs(options({ out: join(await tempDir(), 'mrs.json'), fetch })), isForbidden('host_ws', 66));
 });
 
 test('the MRs files, the schema, a built mrs.json and the rendered parts pass the scan themselves', async () => {
   const here = new URL('./', import.meta.url);
   const names = (await readdir(here)).filter((n) => n.startsWith('mrs')).sort();
   assert.ok(names.length >= 7, names.join(' '));
-  const sources = [...names.map((n) => [n, new URL(n, here)]), ['schema/mrs-1.json', new URL('../../schema/mrs-1.json', here)]];
+  const sources = [...names.map((n) => [n, new URL(n, here)]), ...['mrs-1.json', 'mrs-2.json'].map((n) => [`schema/${n}`, new URL(`../../schema/${n}`, here)])];
   const texts = await Promise.all(sources.map(async ([name, url]) => [name, await readFile(url, 'utf8')]));
   // A built file large enough to be trimmed, so the rendered part carries the author-query link as well.
   const all = Array.from({ length: 400 }, (_, i) => pr(3000 + i, ['open', 'merged', 'closed'][i % 3],
     new Date(Date.UTC(2026, 10, 15) - i * 3600e3).toISOString().replace('.000', ''), `perf(server): ${'a long synthetic title '.repeat(8)}${i}`));
-  const fetch = stubFetch((url) => {
+  const fetch = stubFetch(routed((url) => {
     const n = Number(new URL(url).searchParams.get('page'));
     return json(page(all.slice((n - 1) * 100, n * 100), all.length));
-  });
+  }));
   const out = join(await tempDir(), 'mrs.json');
   const built = await mrs.buildMrs(options({ out, fetch }));
   assert.ok(built.doc.omitted > 0);
