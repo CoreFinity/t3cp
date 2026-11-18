@@ -34,7 +34,10 @@ import { formatSafeErrors, safePath, schemaErrors, schemaKeys } from '../../tool
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const readJson = (file) => JSON.parse(readFileSync(file, 'utf8'));
 const sha256 = (s) => createHash('sha256').update(s).digest('hex');
+// A post source (news/posts/<tag>.json) is committed and read in review: indented. A release file is published data,
+// compact like every other data file the aggregator writes; its budget is measured on the bytes written.
 export const serialise = (x) => `${JSON.stringify(x, null, 2)}\n`;
+export const serialiseRelease = (x) => `${JSON.stringify(x)}\n`;
 export { bundleSha256 };
 
 export const BUDGET_BYTES = 48 * 1024;
@@ -84,18 +87,18 @@ function record(bundle, { post, reason, result, attempts, provenance = {} }) {
       checker: { passed: false, version: CHECKER_VERSION, numbers_checked: 0, charts: 0, attempts: 0, findings: [], bundle_sha256: bundleSha256(bundle), footer: FOOTER[reason]() },
     };
   }
-  const keep = (r) => r.headline != null || ['improved', 'regressed'].includes(verdictOf(r, 'base')) || ['improved', 'regressed'].includes(verdictOf(r, 'prev'));
-  const ids = new Set(bundle.metrics.filter(keep).map((r) => r.id));
-  const deltas = bundle.metrics.filter((r) => ids.has(r.id)).map((r) => ({
+  // The rows the release page renders (site/build/render-post.mjs): the headline rows at every level, the rows
+  // beyond noise against the base at their own level ("Other metrics beyond noise"), and agents_served at a level
+  // where the fork or its base is saturated, which the page's saturated line quotes. Each with the fields the page
+  // reads. The whole table is in the records; the comparison with the previous release is in the series files.
+  const beyond = (r) => ['improved', 'regressed'].includes(verdictOf(r, 'base'));
+  const servedLine = (r) => r.id === 'agents_served' && (r.saturated.fork === true || r.saturated.base === true);
+  const deltas = bundle.metrics.filter((r) => r.headline != null || beyond(r) || servedLine(r)).map((r) => ({
     metric: r.id, platform: r.platform, level: r.level, headline: r.headline,
-    fork: r.value.fork, base: r.value.base, prev: r.value.prev, delta_pct: r.value.delta_pct,
+    fork: r.value.fork, base: r.value.base, delta_pct: r.value.delta_pct,
     threshold_pct: r.value.threshold_pct, verdict: verdictOf(r, 'base'), note: verdictOf(r, 'base') ? r.note : noteOf(r, 'base'),
-    delta_vs_prev_pct: r.value.delta_vs_prev_pct, verdict_vs_prev: verdictOf(r, 'prev'), note_vs_prev: verdictOf(r, 'prev') ? r.note_vs_prev : noteOf(r, 'prev'),
-    saturated: { fork: r.saturated.fork, base: r.saturated.base, prev: r.saturated.prev },
-    text: {
-      fork: r.text.fork, base: r.text.base, prev: r.text.prev, delta_pct: r.text.delta_pct,
-      threshold_pct: r.text.threshold_pct, delta_vs_prev_pct: r.text.delta_vs_prev_pct,
-    },
+    saturated: { fork: r.saturated.fork, base: r.saturated.base },
+    text: { fork: r.text.fork, base: r.text.base, delta_pct: r.text.delta_pct },
   }));
   const chartsOnly = reason !== null;
   // A release never carries findings: the footer gives their number only.
@@ -162,7 +165,7 @@ export function renderRelease({ bundle, source = null, scanText, scanValues, bud
   }
   const errors = schemaErrors(schema('schema/release-1.json'), rec);
   if (errors.length) throw new Error(`release ${bundle.release.tag}: does not validate against t3cp/release/1: ${formatSafeErrors(errors, schema('schema/release-1.json'), 3)}`);
-  const text = serialise(rec);
+  const text = serialiseRelease(rec);
   if (Buffer.byteLength(text) > budgetBytes) throw new Error(`release ${bundle.release.tag}: ${Buffer.byteLength(text)} bytes, over the ${budgetBytes}-byte budget`);
   // Keys and string leaves (the bundle's numbers masked only for a values list passed in); number leaves are measured data.
   if (scanJson(rec, scanText, bundle, { scanValues }).length) throw new Error(`release ${bundle.release.tag}: fails the internal-name scan`);
@@ -327,7 +330,7 @@ async function main(argv) {
   if (r.result) Object.assign(out, { numbers_checked: r.result.numbers_checked, charts: r.result.charts, findings: r.result.findings.map(cleanFinding) });
   if (args.preview && r.status !== 'refused') {
     const rec = renderRelease({ bundle, source: readSource(r.file, bundle.release.tag), scanText });
-    writeAtomic(args.preview, serialise(rec));
+    writeAtomic(args.preview, serialiseRelease(rec));
     out.preview = args.preview;
   }
   process.stdout.write(`${JSON.stringify(out, null, 2)}\n`);

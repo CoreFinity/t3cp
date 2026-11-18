@@ -35,11 +35,11 @@
     "deltas": {
       "type": "array",
       "maxItems": 400,
-      "description": "The headline metrics at every level, and every other metric that moved beyond noise against the base or the previous release at any level. delta_pct = (fork - base) / base in percent with its real sign; the verdict already applies the metric's direction. text holds the display strings the post's prose copies.",
+      "description": "The rows the release page renders: the headline metrics at every level, every other row beyond noise against the base at its own level, and agents_served at a level where the fork or its base is saturated (the page's saturated line quotes it). The whole table is in the records; the comparison with the previous release is in the series files. prev, delta_vs_prev_pct, verdict_vs_prev, note_vs_prev, saturated.prev, text.prev, text.threshold_pct and text.delta_vs_prev_pct are no longer written and stay valid when present. delta_pct = (fork - base) / base in percent with its real sign; the verdict already applies the metric's direction. text holds the display strings the post's prose copies.",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["metric", "platform", "level", "headline", "fork", "base", "prev", "delta_pct", "threshold_pct", "verdict", "note", "delta_vs_prev_pct", "verdict_vs_prev", "note_vs_prev", "saturated", "text"],
+        "required": ["metric", "platform", "level", "headline", "fork", "base", "delta_pct", "threshold_pct", "verdict", "note", "saturated", "text"],
         "properties": {
           "metric": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,63}$" },
           "platform": { "$ref": "#/$defs/platform_id" },
@@ -56,13 +56,13 @@
           "verdict_vs_prev": { "$ref": "#/$defs/verdict" },
           "note_vs_prev": { "$ref": "#/$defs/note" },
           "saturated": {
-            "type": "object", "additionalProperties": false, "required": ["fork", "base", "prev"],
+            "type": "object", "additionalProperties": false, "required": ["fork", "base"],
             "properties": { "fork": { "type": "boolean" }, "base": { "type": ["boolean", "null"] }, "prev": { "type": ["boolean", "null"] } }
           },
           "text": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["fork", "base", "prev", "delta_pct", "threshold_pct", "delta_vs_prev_pct"],
+            "required": ["fork", "base", "delta_pct"],
             "properties": {
               "fork": { "$ref": "#/$defs/display" },
               "base": { "$ref": "#/$defs/display" },

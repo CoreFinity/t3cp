@@ -18,7 +18,7 @@ import { parseArgs } from 'node:util';
 import { loadScanner } from '../../news/check.mjs';
 import { isMain } from '../../tools/t3cp/lib/repo.mjs';
 import { buildPostBundle, loadSource, pendingBundle, recordSet } from './release-bundle.mjs';
-import { readSource, renderRelease, serialise, writeAtomic } from './release-post.mjs';
+import { readSource, renderRelease, serialiseRelease, writeAtomic } from './release-post.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -81,7 +81,7 @@ export async function buildReleases({ inDir, outDir, postsDir = path.join(ROOT, 
     }
     const rec = renderRelease({ bundle, source, scanText });
     const file = path.join(outDir, `${tag}.json`);
-    writeAtomic(file, serialise(rec));
+    writeAtomic(file, serialiseRelease(rec));
     out.push({ tag, file, charts_only_reason: rec.charts_only_reason, ...(errors.has(tag) ? { error: errors.get(tag) } : {}) });
   }
   return out;
