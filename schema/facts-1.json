@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://t3cp.io/schema/facts-1.json",
+  "title": "t3cp/facts/1: the runner's machine and harness facts, an input of the exporter (never published as is)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "platform",
+    "harness",
+    "fixture",
+    "release"
+  ],
+  "properties": {
+    "schema": {
+      "const": "t3cp/facts/1"
+    },
+    "platform": {
+      "$ref": "#/$defs/platform"
+    },
+    "harness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "preload_sha256"
+      ],
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^t3cp-harness/\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$"
+        },
+        "preload_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bytes",
+        "migration",
+        "recipe_sha256"
+      ],
+      "properties": {
+        "bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "migration": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9999
+        },
+        "recipe_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "archive_bytes",
+        "binary_sha256",
+        "build_script_sha256"
+      ],
+      "properties": {
+        "archive_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "binary_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "build_script_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "machine",
+        "cpu_model",
+        "cores",
+        "memory_gib",
+        "os",
+        "kernel",
+        "provisioning",
+        "runtime_node"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/platform_id"
+        },
+        "machine": {
+          "type": "string",
+          "pattern": "^(n2d-standard-16|Mac\\d{1,2},\\d{1,2})$"
+        },
+        "cpu_model": {
+          "type": "string",
+          "pattern": "^(AMD EPYC 7B13|Apple M[1-9]( Pro| Max| Ultra)?)$"
+        },
+        "cores": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 256
+        },
+        "memory_gib": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "os": {
+          "type": "string",
+          "pattern": "^(Debian \\d{1,2}|macOS \\d{2}(\\.\\d{1,2}){0,2})$"
+        },
+        "kernel": {
+          "type": "string",
+          "pattern": "^\\d{1,2}\\.\\d{1,3}(\\.\\d{1,3})?(\\+deb\\d{2})?(-cloud)?(-amd64|-arm64)?$"
+        },
+        "provisioning": {
+          "type": "string",
+          "enum": [
+            "spot",
+            "on-demand",
+            "dedicated"
+          ]
+        },
+        "runtime_node": {
+          "type": "string",
+          "pattern": "^\\d{2}\\.\\d{1,2}\\.\\d{1,2}$"
+        }
+      }
+    },
+    "platform_id": {
+      "type": "string",
+      "enum": [
+        "linux-x64",
+        "darwin-arm64"
+      ]
+    }
+  }
+}

@@ -1,0 +1,114 @@
+{
+  "format": "t3-server-bench-shape",
+  "version": 1,
+  "source": {
+    "label": "t3cp.io public large fixture: hand-written round numbers, not measured from any deployment",
+    "capturedAt": "2026-10-17T00:00:00.000Z"
+  },
+  "pageSize": 4096,
+  "pageCount": 6500000,
+  "tables": {
+    "projection_projects": { "rows": 50 },
+    "orchestration_v2_projection_threads": { "rows": 3000 },
+    "orchestration_v2_projection_runs": { "rows": 60000 },
+    "orchestration_v2_projection_run_attempts": { "rows": 62000 },
+    "orchestration_v2_projection_provider_turns": { "rows": 62000 },
+    "orchestration_v2_projection_nodes": { "rows": 800000 },
+    "orchestration_v2_projection_turn_items": {
+      "rows": 1800000,
+      "payload": {
+        "column": "payload_json",
+        "mean": 3000,
+        "quantiles": [
+          [0, 200],
+          [0.5, 800],
+          [0.9, 3000],
+          [0.95, 6000],
+          [0.99, 40000],
+          [0.999, 100000],
+          [1, 400000]
+        ]
+      }
+    },
+    "orchestration_v2_turn_item_positions": { "rows": 1800000 },
+    "orchestration_v2_projection_messages": { "rows": 540000 },
+    "orchestration_v2_projection_checkpoints": { "rows": 150000 },
+    "orchestration_v2_projection_checkpoint_scopes": { "rows": 3000 },
+    "orchestration_v2_projection_provider_sessions": { "rows": 3000 },
+    "orchestration_v2_projection_provider_session_bindings": { "rows": 3000 },
+    "orchestration_v2_projection_provider_threads": { "rows": 3000 },
+    "orchestration_v2_projection_context_transfers": { "rows": 900 },
+    "orchestration_v2_legacy_imports": { "rows": 100 },
+    "projection_threads": { "rows": 100 },
+    "projection_thread_messages": {
+      "rows": 20000,
+      "payload": {
+        "column": "text",
+        "mean": 800,
+        "quantiles": [
+          [0, 20],
+          [0.5, 400],
+          [0.9, 2000],
+          [0.99, 6000],
+          [1, 12000]
+        ]
+      }
+    },
+    "orchestration_events": { "rows": 4700000 }
+  },
+  "distributions": {
+    "threadsPerProject": [
+      [0, 5],
+      [0.5, 40],
+      [0.9, 150],
+      [1, 400]
+    ],
+    "turnItemsPerThread": [
+      [0, 1],
+      [0.5, 30],
+      [0.9, 300],
+      [0.99, 5000],
+      [0.997, 15000],
+      [1, 100000]
+    ]
+  },
+  "lineage": { "root": 2100, "fork": 300, "subagent": 600, "v1Import": 100, "runless": 200 },
+  "mix": {
+    "turnItemTypes": {
+      "user_message": { "rows": 180000, "meanBytes": 900 },
+      "assistant_message": { "rows": 360000, "meanBytes": 1500 },
+      "reasoning": { "rows": 270000, "meanBytes": 1200 },
+      "command_execution": { "rows": 450000, "meanBytes": 2500 },
+      "file_change": { "rows": 180000, "meanBytes": 2500 },
+      "dynamic_tool": { "rows": 140000, "meanBytes": 2000 },
+      "checkpoint": { "rows": 150000, "meanBytes": 800 },
+      "todo_list": { "rows": 18000, "meanBytes": 1000 },
+      "subagent": { "rows": 18000, "meanBytes": 2000 },
+      "approval_request": { "rows": 9000, "meanBytes": 2000 },
+      "notification": { "rows": 9000, "meanBytes": 1000 },
+      "web_search": { "rows": 9000, "meanBytes": 1500 },
+      "file_search": { "rows": 9000, "meanBytes": 1200 }
+    },
+    "eventTypes": {
+      "thread.created": { "rows": 3000, "meanBytes": 1000 },
+      "thread.settled": { "rows": 3000, "meanBytes": 1100 },
+      "run.created": { "rows": 60000, "meanBytes": 850 },
+      "run.updated": { "rows": 120000, "meanBytes": 850 },
+      "run-attempt.created": { "rows": 62000, "meanBytes": 800 },
+      "run-attempt.updated": { "rows": 62000, "meanBytes": 800 },
+      "provider-turn.updated": { "rows": 120000, "meanBytes": 750 },
+      "provider-thread.updated": { "rows": 6000, "meanBytes": 700 },
+      "provider-session.attached": { "rows": 3000, "meanBytes": 2600 },
+      "provider-session.updated": { "rows": 6000, "meanBytes": 2600 },
+      "node.updated": { "rows": 1000000, "meanBytes": 1000 },
+      "message.updated": { "rows": 650000, "meanBytes": 1000 },
+      "turn-item.updated": { "rows": 2400000, "meanBytes": 2500 },
+      "subagent.updated": { "rows": 36000, "meanBytes": 1500 },
+      "runtime-request.updated": { "rows": 18000, "meanBytes": 600 },
+      "plan.updated": { "rows": 18000, "meanBytes": 1000 },
+      "checkpoint.captured": { "rows": 150000, "meanBytes": 1200 },
+      "checkpoint-scope.created": { "rows": 3000, "meanBytes": 600 },
+      "context-transfer.created": { "rows": 900, "meanBytes": 900 }
+    }
+  }
+}

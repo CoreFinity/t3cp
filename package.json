@@ -1,0 +1,18 @@
+{
+  "name": "t3cp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "t3cp.io: an independent performance record of T3 Code.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "build": "node site/build/build.mjs --out dist --in data/v1",
+    "build:dev": "node tools/t3cp/dev/synth-data.mjs && node site/build/build.mjs --out dist --dev site/.dev-data",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "wrangler": "4.156.1"
+  }
+}

@@ -1,0 +1,1537 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://t3cp.io/schema/index-1.json",
+  "title": "t3cp/index/1: the site's manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "generated_at",
+    "schemas",
+    "levels",
+    "empty_cell",
+    "headline_levels",
+    "default_headline_level",
+    "groups",
+    "headlines",
+    "catalogue",
+    "platforms",
+    "eras",
+    "fixtures",
+    "records_index",
+    "budgets",
+    "fork",
+    "bases",
+    "series",
+    "compare",
+    "downloads"
+  ],
+  "properties": {
+    "schema": {
+      "const": "t3cp/index/1"
+    },
+    "synthetic": {
+      "const": true,
+      "description": "Present only on development data from tools/t3cp/dev/synth-data.mjs; refused under data/."
+    },
+    "generated_at": {
+      "$ref": "#/$defs/datetime"
+    },
+    "schemas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "record",
+        "series",
+        "bands",
+        "changes",
+        "compare"
+      ],
+      "properties": {
+        "record": {
+          "const": "t3cp/record/1"
+        },
+        "series": {
+          "const": "t3cp/series/1"
+        },
+        "bands": {
+          "const": "t3cp/bands/1"
+        },
+        "changes": {
+          "const": "t3cp/changes/1"
+        },
+        "compare": {
+          "const": "t3cp/compare/1"
+        }
+      }
+    },
+    "levels": {
+      "type": "array",
+      "items": {
+        "type": "integer"
+      }
+    },
+    "empty_cell": {
+      "const": "1e"
+    },
+    "headline_levels": {
+      "type": "array",
+      "items": {
+        "type": "integer"
+      }
+    },
+    "default_headline_level": {
+      "type": "integer"
+    },
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z]+$"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 60
+          }
+        }
+      }
+    },
+    "headlines": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "linux-x64",
+        "darwin-arm64"
+      ],
+      "properties": {
+        "linux-x64": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/metric_id"
+          },
+          "minItems": 8,
+          "maxItems": 8
+        },
+        "darwin-arm64": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/metric_id"
+          },
+          "minItems": 8,
+          "maxItems": 8
+        }
+      }
+    },
+    "catalogue": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "short",
+          "group",
+          "unit",
+          "better",
+          "definition",
+          "lane",
+          "scope",
+          "form",
+          "era_start",
+          "upstream",
+          "platforms",
+          "na_on",
+          "empty_cell",
+          "gate",
+          "counter",
+          "headline",
+          "source",
+          "bands",
+          "cap",
+          "gate_exempt",
+          "throughput"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/metric_id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "short": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "group": {
+            "type": "string",
+            "enum": [
+              "client",
+              "cpu",
+              "memory",
+              "sqlite",
+              "spans",
+              "git",
+              "startup",
+              "queue",
+              "logs",
+              "fork"
+            ]
+          },
+          "unit": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "better": {
+            "type": "string",
+            "enum": [
+              "lower",
+              "higher",
+              "context"
+            ]
+          },
+          "definition": {
+            "type": "string",
+            "maxLength": 400
+          },
+          "lane": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "record",
+              "weekly",
+              "release",
+              "later"
+            ]
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "level",
+              "record"
+            ]
+          },
+          "form": {
+            "type": "string",
+            "enum": [
+              "ts",
+              "ladder",
+              "bars",
+              "slope"
+            ]
+          },
+          "era_start": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^20\\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+          },
+          "upstream": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "yes L",
+              "pre",
+              "fork"
+            ]
+          },
+          "platforms": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/platform_id"
+            }
+          },
+          "na_on": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/platform_id"
+            }
+          },
+          "empty_cell": {
+            "type": "boolean"
+          },
+          "gate": {
+            "type": "boolean"
+          },
+          "counter": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "absolute",
+              "rise",
+              null
+            ]
+          },
+          "headline": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 8
+          },
+          "source": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "file",
+              "field"
+            ],
+            "properties": {
+              "file": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "field": {
+                "type": "string",
+                "maxLength": 200
+              }
+            }
+          },
+          "bands": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "linux-x64": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": false,
+                "required": [
+                  "band",
+                  "threshold",
+                  "n"
+                ],
+                "properties": {
+                  "band": {
+                    "type": "number"
+                  },
+                  "threshold": {
+                    "type": "number"
+                  },
+                  "n": {
+                    "type": "integer",
+                    "minimum": 2,
+                    "maximum": 999
+                  }
+                }
+              },
+              "darwin-arm64": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": false,
+                "required": [
+                  "band",
+                  "threshold",
+                  "n"
+                ],
+                "properties": {
+                  "band": {
+                    "type": "number"
+                  },
+                  "threshold": {
+                    "type": "number"
+                  },
+                  "n": {
+                    "type": "integer",
+                    "minimum": 2,
+                    "maximum": 999
+                  }
+                }
+              }
+            }
+          },
+          "cap": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "linux-x64",
+              "darwin-arm64"
+            ],
+            "description": "Per platform and per level the metric has, the aggregator's capability: the threshold a comparison uses and the note that stops every verdict there (context, no_band, wide_band), a level's own band overriding the metric's. A counter needs no band: threshold and note are null. A pair also loses its band when either record is not banded (records-index.json): then a non-counter has threshold null and note no_band, unless a note here applies. These rule inputs serve the compare page's nightly pairs; a fork release's verdicts come through the aggregator's own compare files.",
+            "properties": {
+              "linux-x64": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "1": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "threshold",
+                      "note"
+                    ],
+                    "properties": {
+                      "threshold": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "description": "The verdict threshold in percent (the band plus 5 points); null where the metric has none."
+                      },
+                      "note": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "enum": [
+                          "context",
+                          "no_band",
+                          "wide_band",
+                          null
+                        ],
+                        "description": "Why no comparison at this level has a verdict, whatever the pair; null when one can."
+                      }
+                    }
+                  },
+                  "50": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "threshold",
+                      "note"
+                    ],
+                    "properties": {
+                      "threshold": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "description": "The verdict threshold in percent (the band plus 5 points); null where the metric has none."
+                      },
+                      "note": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "enum": [
+                          "context",
+                          "no_band",
+                          "wide_band",
+                          null
+                        ],
+                        "description": "Why no comparison at this level has a verdict, whatever the pair; null when one can."
+                      }
+                    }
+                  },
+                  "100": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "threshold",
+                      "note"
+                    ],
+                    "properties": {
+                      "threshold": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "description": "The verdict threshold in percent (the band plus 5 points); null where the metric has none."
+                      },
+                      "note": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "enum": [
+                          "context",
+                          "no_band",
+                          "wide_band",
+                          null
+                        ],
+                        "description": "Why no comparison at this level has a verdict, whatever the pair; null when one can."
+                      }
+                    }
+                  },
+                  "150": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "threshold",
+                      "note"
+                    ],
+                    "properties": {
+                      "threshold": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "description": "The verdict threshold in percent (the band plus 5 points); null where the metric has none."
+                      },
+                      "note": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "enum": [
+                          "context",
+                          "no_band",
+                          "wide_band",
+                          null
+                        ],
+                        "description": "Why no comparison at this level has a verdict, whatever the pair; null when one can."
+                      }
+                    }
+                  },
+                  "200": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "threshold",
+                      "note"
+                    ],
+                    "properties": {
+                      "threshold": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "description": "The verdict threshold in percent (the band plus 5 points); null where the metric has none."
+                      },
+                      "note": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "enum": [
+                          "context",
+                          "no_band",
+                          "wide_band",
+                          null
+                        ],
+                        "description": "Why no comparison at this level has a verdict, whatever the pair; null when one can."
+                      }
+                    }
+                  },
+                  "250": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "threshold",
+                      "note"
+                    ],
+                    "properties": {
+                      "threshold": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "description": "The verdict threshold in percent (the band plus 5 points); null where the metric has none."
+                      },
+                      "note": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "enum": [
+                          "context",
+                          "no_band",
+                          "wide_band",
+                          null
+                        ],
+                        "description": "Why no comparison at this level has a verdict, whatever the pair; null when one can."
+                      }
+                    }
+                  },
+                  "1e": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "threshold",
+                      "note"
+                    ],
+                    "properties": {
+                      "threshold": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "description": "The verdict threshold in percent (the band plus 5 points); null where the metric has none."
+                      },
+                      "note": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "enum": [
+                          "context",
+                          "no_band",
+                          "wide_band",
+                          null
+                        ],
+                        "description": "Why no comparison at this level has a verdict, whatever the pair; null when one can."
+                      }
+                    }
+                  },
+                  "once": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "threshold",
+                      "note"
+                    ],
+                    "properties": {
+                      "threshold": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "description": "The verdict threshold in percent (the band plus 5 points); null where the metric has none."
+                      },
+                      "note": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "enum": [
+                          "context",
+                          "no_band",
+                          "wide_band",
+                          null
+                        ],
+                        "description": "Why no comparison at this level has a verdict, whatever the pair; null when one can."
+                      }
+                    }
+                  }
+                }
+              },
+              "darwin-arm64": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "1": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "threshold",
+                      "note"
+                    ],
+                    "properties": {
+                      "threshold": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "description": "The verdict threshold in percent (the band plus 5 points); null where the metric has none."
+                      },
+                      "note": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "enum": [
+                          "context",
+                          "no_band",
+                          "wide_band",
+                          null
+                        ],
+                        "description": "Why no comparison at this level has a verdict, whatever the pair; null when one can."
+                      }
+                    }
+                  },
+                  "50": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "threshold",
+                      "note"
+                    ],
+                    "properties": {
+                      "threshold": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "description": "The verdict threshold in percent (the band plus 5 points); null where the metric has none."
+                      },
+                      "note": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "enum": [
+                          "context",
+                          "no_band",
+                          "wide_band",
+                          null
+                        ],
+                        "description": "Why no comparison at this level has a verdict, whatever the pair; null when one can."
+                      }
+                    }
+                  },
+                  "100": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "threshold",
+                      "note"
+                    ],
+                    "properties": {
+                      "threshold": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "description": "The verdict threshold in percent (the band plus 5 points); null where the metric has none."
+                      },
+                      "note": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "enum": [
+                          "context",
+                          "no_band",
+                          "wide_band",
+                          null
+                        ],
+                        "description": "Why no comparison at this level has a verdict, whatever the pair; null when one can."
+                      }
+                    }
+                  },
+                  "150": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "threshold",
+                      "note"
+                    ],
+                    "properties": {
+                      "threshold": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "description": "The verdict threshold in percent (the band plus 5 points); null where the metric has none."
+                      },
+                      "note": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "enum": [
+                          "context",
+                          "no_band",
+                          "wide_band",
+                          null
+                        ],
+                        "description": "Why no comparison at this level has a verdict, whatever the pair; null when one can."
+                      }
+                    }
+                  },
+                  "200": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "threshold",
+                      "note"
+                    ],
+                    "properties": {
+                      "threshold": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "description": "The verdict threshold in percent (the band plus 5 points); null where the metric has none."
+                      },
+                      "note": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "enum": [
+                          "context",
+                          "no_band",
+                          "wide_band",
+                          null
+                        ],
+                        "description": "Why no comparison at this level has a verdict, whatever the pair; null when one can."
+                      }
+                    }
+                  },
+                  "250": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "threshold",
+                      "note"
+                    ],
+                    "properties": {
+                      "threshold": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "description": "The verdict threshold in percent (the band plus 5 points); null where the metric has none."
+                      },
+                      "note": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "enum": [
+                          "context",
+                          "no_band",
+                          "wide_band",
+                          null
+                        ],
+                        "description": "Why no comparison at this level has a verdict, whatever the pair; null when one can."
+                      }
+                    }
+                  },
+                  "1e": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "threshold",
+                      "note"
+                    ],
+                    "properties": {
+                      "threshold": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "description": "The verdict threshold in percent (the band plus 5 points); null where the metric has none."
+                      },
+                      "note": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "enum": [
+                          "context",
+                          "no_band",
+                          "wide_band",
+                          null
+                        ],
+                        "description": "Why no comparison at this level has a verdict, whatever the pair; null when one can."
+                      }
+                    }
+                  },
+                  "once": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "threshold",
+                      "note"
+                    ],
+                    "properties": {
+                      "threshold": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "description": "The verdict threshold in percent (the band plus 5 points); null where the metric has none."
+                      },
+                      "note": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "enum": [
+                          "context",
+                          "no_band",
+                          "wide_band",
+                          null
+                        ],
+                        "description": "Why no comparison at this level has a verdict, whatever the pair; null when one can."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "gate_exempt": {
+            "type": "boolean",
+            "description": "true for the client-call gate's own metrics (client errors, unfinished calls): a level whose gates are client still judges them."
+          },
+          "throughput": {
+            "type": "boolean",
+            "description": "true for the measures a saturated level keeps a verdict on (turns completed, agents served); every other metric there is context."
+          }
+        }
+      }
+    },
+    "platforms": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "host",
+          "live",
+          "latest",
+          "latest_date",
+          "latest_tag",
+          "latest_status",
+          "records"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/platform_id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "host": {
+            "type": "string",
+            "maxLength": 60
+          },
+          "live": {
+            "type": "boolean"
+          },
+          "latest": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^20\\d{2}-\\d{2}-\\d{2}\\.(linux-x64|darwin-arm64)\\.nightly$"
+          },
+          "latest_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^20\\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+          },
+          "latest_tag": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^v\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}-nightly\\.20\\d{6}\\.\\d{1,6}$"
+          },
+          "latest_status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "complete",
+              "partial",
+              "missing",
+              null
+            ]
+          },
+          "records": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "eras": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fixture",
+        "feature",
+        "harness"
+      ],
+      "properties": {
+        "fixture": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "from",
+              "to",
+              "migration"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^large-\\d{2,3}$"
+              },
+              "from": {
+                "$ref": "#/$defs/date"
+              },
+              "to": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^20\\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+              },
+              "migration": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9999
+              }
+            }
+          }
+        },
+        "feature": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "from",
+              "what"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z_]+$"
+              },
+              "from": {
+                "$ref": "#/$defs/date"
+              },
+              "what": {
+                "type": "string",
+                "maxLength": 80
+              }
+            }
+          }
+        },
+        "harness": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "version",
+              "files_sha256",
+              "from",
+              "to"
+            ],
+            "properties": {
+              "version": {
+                "type": "string",
+                "pattern": "^t3cp-harness/\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$"
+              },
+              "files_sha256": {
+                "$ref": "#/$defs/sha256"
+              },
+              "from": {
+                "$ref": "#/$defs/date"
+              },
+              "to": {
+                "$ref": "#/$defs/date"
+              }
+            }
+          }
+        }
+      }
+    },
+    "fixtures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "sha256",
+          "bytes",
+          "migration"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^large-\\d{2,3}$"
+          },
+          "sha256": {
+            "$ref": "#/$defs/sha256"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "migration": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9999
+          }
+        }
+      }
+    },
+    "records_index": {
+      "const": "records-index.json",
+      "description": "The file that lists every nightly record (t3cp/records-index/1); it is never part of the overview payload."
+    },
+    "budgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "overview_gz_bytes",
+        "overview_limit_gz_bytes"
+      ],
+      "properties": {
+        "overview_gz_bytes": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Per platform with records, the overview payload as built (index.json, changes.json and the eight headline latest shards), in gzipped bytes; it counts this file too, so it may exceed its own size by a few bytes, never fall below it.",
+          "properties": {
+            "linux-x64": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "darwin-arm64": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "overview_limit_gz_bytes": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "fork": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tag",
+          "date",
+          "sha",
+          "base_tag",
+          "base_date",
+          "prev_tag",
+          "base_sha",
+          "base_record",
+          "platforms"
+        ],
+        "properties": {
+          "tag": {
+            "$ref": "#/$defs/fork_tag"
+          },
+          "date": {
+            "$ref": "#/$defs/date"
+          },
+          "sha": {
+            "$ref": "#/$defs/sha"
+          },
+          "base_tag": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^v\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}-nightly\\.20\\d{6}\\.\\d{1,6}$"
+          },
+          "base_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^20\\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+          },
+          "prev_tag": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^v\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}-perf\\.\\d{1,3}$"
+          },
+          "base_sha": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "base_record": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^base/[0-9a-f]{12}\\.(linux-x64|darwin-arm64)\\.json$"
+          },
+          "platforms": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "linux-x64": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "record_id",
+                  "status",
+                  "path"
+                ],
+                "properties": {
+                  "record_id": {
+                    "$ref": "#/$defs/record_id"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "complete",
+                      "partial",
+                      "missing"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^(records/(linux-x64|darwin-arm64)/[A-Za-z0-9.-]+|fork/[A-Za-z0-9.-]+|base/[A-Za-z0-9.-]+)\\.json$"
+                  }
+                }
+              },
+              "darwin-arm64": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "record_id",
+                  "status",
+                  "path"
+                ],
+                "properties": {
+                  "record_id": {
+                    "$ref": "#/$defs/record_id"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "complete",
+                      "partial",
+                      "missing"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^(records/(linux-x64|darwin-arm64)/[A-Za-z0-9.-]+|fork/[A-Za-z0-9.-]+|base/[A-Za-z0-9.-]+)\\.json$"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "bases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sha",
+          "date",
+          "tag",
+          "platforms"
+        ],
+        "properties": {
+          "sha": {
+            "$ref": "#/$defs/sha"
+          },
+          "date": {
+            "$ref": "#/$defs/date"
+          },
+          "tag": {
+            "$ref": "#/$defs/tag"
+          },
+          "platforms": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "linux-x64": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "record_id",
+                  "status",
+                  "path"
+                ],
+                "properties": {
+                  "record_id": {
+                    "$ref": "#/$defs/record_id"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "complete",
+                      "partial",
+                      "missing"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^(records/(linux-x64|darwin-arm64)/[A-Za-z0-9.-]+|fork/[A-Za-z0-9.-]+|base/[A-Za-z0-9.-]+)\\.json$"
+                  }
+                }
+              },
+              "darwin-arm64": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "record_id",
+                  "status",
+                  "path"
+                ],
+                "properties": {
+                  "record_id": {
+                    "$ref": "#/$defs/record_id"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "complete",
+                      "partial",
+                      "missing"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^(records/(linux-x64|darwin-arm64)/[A-Za-z0-9.-]+|fork/[A-Za-z0-9.-]+|base/[A-Za-z0-9.-]+)\\.json$"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "series": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "linux-x64": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/metric_id"
+          },
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^(all|latest|20\\d{2})$"
+            }
+          }
+        },
+        "darwin-arm64": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/metric_id"
+          },
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^(all|latest|20\\d{2})$"
+            }
+          }
+        }
+      }
+    },
+    "compare": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^compare/[A-Za-z0-9.-]+__[A-Za-z0-9.-]+\\.(linux-x64|darwin-arm64)\\.json$"
+      }
+    },
+    "downloads": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "bytes",
+          "sha256"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^downloads/[a-z0-9.-]+$"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sha256": {
+            "$ref": "#/$defs/sha256"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "date": {
+      "type": "string",
+      "pattern": "^20\\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+    },
+    "datetime": {
+      "type": "string",
+      "pattern": "^20\\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])T([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(\\.\\d{1,3})?Z$"
+    },
+    "fork_tag": {
+      "type": "string",
+      "pattern": "^v\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}-perf\\.\\d{1,3}$"
+    },
+    "metric_id": {
+      "type": "string",
+      "enum": [
+        "turns_completed",
+        "agents_served",
+        "turn_p50_ms",
+        "turn_p95_ms",
+        "dispatch_p50_ms",
+        "dispatch_p95_ms",
+        "first_item_p50_ms",
+        "push_p95_ms",
+        "switch_open_p50_ms",
+        "switch_sync_p95_ms",
+        "shell_sync_p95_ms",
+        "poll_thread_read_p95_ms",
+        "poll_project_list_p95_ms",
+        "poll_http_bounded_p95_ms",
+        "session_mcp_p95_ms",
+        "thread_events_per_s",
+        "shell_events_per_s",
+        "client_errors",
+        "client_unfinished",
+        "main_busy_pct",
+        "main_user_pct",
+        "main_sys_pct",
+        "proc_cpu_pct",
+        "workers_cpu_pct",
+        "children_cpu_pct",
+        "children_n",
+        "elu",
+        "elu_max",
+        "eld_p50_ms",
+        "eld_p99_ms",
+        "eld_max_ms",
+        "server_eld_max_ms",
+        "gc_ms_per_s",
+        "stall_share_40ms",
+        "stall_share_100ms",
+        "stall_share_500ms",
+        "main_busy_1s_p95",
+        "main_runq_wait_ms_per_s",
+        "main_minflt_per_s",
+        "main_vcs_per_s",
+        "main_nvcs_per_s",
+        "main_syscr_per_s",
+        "main_syscw_per_s",
+        "proc_syscr_per_s",
+        "cpu_per_session_pct",
+        "rss_peak_mib",
+        "heap_peak_mib",
+        "heap_floor_mib",
+        "pss_total_mib",
+        "uss_total_mib",
+        "rss_slope_mib_per_h",
+        "heap_slope_mib_per_h",
+        "wal_max_mib",
+        "wal_median_mib",
+        "reader_tx_avg_ms",
+        "reader_tx_p95_ms",
+        "reader_tx_wait_avg_ms",
+        "reader_tx_wait_p95_ms",
+        "reader_stmt_p95_ms",
+        "writer_tx_avg_ms",
+        "writer_tx_p95_ms",
+        "writer_tx_wait_p95_ms",
+        "reader_tx_per_s",
+        "writer_tx_per_s",
+        "reader_pool_occupancy",
+        "reader_free_while_waiting_s",
+        "sql_time_ms_per_s",
+        "get_thread_shell_p95_ms",
+        "snapshot_window_p95_ms",
+        "mcp_auth_p95_ms",
+        "turn_start_p50_ms",
+        "handle_run_update_p95_ms",
+        "finalize_subagent_p50_ms",
+        "effect_queue_wait_p50_ms",
+        "effect_queue_wait_p90_ms",
+        "events_per_commit",
+        "spans_in_window",
+        "trace_dropped",
+        "git_commands_per_turn",
+        "git_ms_per_turn",
+        "forks_per_turn",
+        "ps_gap_ms_per_h",
+        "listening_first_ms",
+        "listening_warm_ms",
+        "accept_first_ms",
+        "accept_warm_ms",
+        "db_ready_first_ms",
+        "db_ready_warm_ms",
+        "first_boot_migrations_ms",
+        "migration_s",
+        "migration_extra_disk_mib",
+        "shutdown_s",
+        "compaction_probe_max_ms",
+        "compaction_pages_per_min",
+        "snapshot_full_get_ms",
+        "snapshot_full_get_bytes",
+        "idle_cpu_pct",
+        "idle_wakeups_per_s",
+        "idle_pss_30min_mib",
+        "first_turn_after_start_ms",
+        "queue_start_p50_s",
+        "queue_start_p90_s",
+        "queue_start_max_s",
+        "consumer_backlog_max",
+        "consumer_drain_s",
+        "delivery_by_state_p50_s",
+        "buffer_full_warnings",
+        "server_warn_lines",
+        "server_error_lines",
+        "stream_resyncs",
+        "attempts_valid",
+        "attempts_total",
+        "host_busy_pct",
+        "host_steal_pct",
+        "host_iowait_pct",
+        "contaminated",
+        "fork_effect_queue_wait_p95_ms",
+        "fork_run_effect_p95_ms",
+        "fork_decode_projection_p95_ms",
+        "fork_admission_changes"
+      ]
+    },
+    "platform_id": {
+      "type": "string",
+      "enum": [
+        "linux-x64",
+        "darwin-arm64"
+      ]
+    },
+    "record_id": {
+      "type": "string",
+      "pattern": "^(20\\d{2}-\\d{2}-\\d{2}\\.(linux-x64|darwin-arm64)\\.nightly|\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}-perf\\.\\d{1,3}\\.(linux-x64|darwin-arm64)\\.fork|[0-9a-f]{12}\\.(linux-x64|darwin-arm64)\\.base)$"
+    },
+    "sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "tag": {
+      "type": "string",
+      "pattern": "^v\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}(-nightly\\.20\\d{6}\\.\\d{1,6}|-perf\\.\\d{1,3})?$"
+    }
+  }
+}

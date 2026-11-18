@@ -1,0 +1,61 @@
+# publish: builds t3cp.io from the committed inputs and checks it. It deploys nothing: the deploy runs from the private
+# ops repository, which holds the Pages token, checks this repository out at a pinned commit and runs these same steps
+# before its wrangler-only deploy. Nothing here names a secret, an environment or a deploy.
+#
+# The checks: two builds that must be byte-identical, the size budgets, _headers against design Appendix C, the
+# synthetic-data gate and the whole-output scan. Commits nothing: every derived file exists only in dist/.
+#
+# tools/t3cp/scan-tree.mjs is the only scan of the built site. The public audit (tools/audit) reads the repository:
+# tracked files, diffs and commit messages, never dist/. Run over a built site it reports the configured Plausible
+# pa- script URL in every page's head, by design, and its patterns hold no exception for dist/.
+#
+# Run by hand, to spare the private repository's Actions minutes; the same checks run in every local pre-push through
+# node --test.
+name: publish
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: npm ci
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      # Once per run and outside the determinism check: the list changes with every fetch. A GitHub failure keeps
+      # the last published list (stale); a forbidden pattern in a title or URL fails the job.
+      - name: Pull requests to upstream
+        run: node site/build/mrs.mjs --out "$RUNNER_TEMP/mrs.json" --previous https://t3cp.io/data/v1/mrs.json
+
+      - name: Build (first run)
+        run: node site/build/build.mjs --out dist --in data/v1 --posts news/posts --mrs "$RUNNER_TEMP/mrs.json" --verbose
+      - name: Build (second run)
+        run: node site/build/build.mjs --out "$RUNNER_TEMP/dist-2" --in data/v1 --posts news/posts --mrs "$RUNNER_TEMP/mrs.json"
+      - name: The two builds are byte-identical
+        run: node site/build/same-tree.mjs dist "$RUNNER_TEMP/dist-2"
+      - name: Budgets (HTML 20, CSS 10, JS 21 KB gzipped)
+        run: node site/build/budgets.mjs dist
+      - name: _headers is Appendix C as written
+        run: node site/build/check-headers.mjs dist
+      - name: No synthetic data in the output
+        run: node tools/t3cp/lib/synthetic.mjs check dist
+      - name: Whole-output scan (every file, .gz included)
+        run: node tools/t3cp/scan-tree.mjs dist

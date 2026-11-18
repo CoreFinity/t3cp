@@ -1,0 +1,110 @@
+{
+  "schema": "t3cp/profiles/1",
+  "description": "Load profiles of the record suite. A spec names one (suite.profile; default: the one named by default); every attempt records the cell's entry. single = the 1-agent cell on the era fixture (mixed, like every fixture-backed cell: one session continuing the fixture's history; the driver's size-aware distribution test decides a sample of one), empty = the 1-agent cell on an empty database (1e), ladder = every other level, where L is the level (agents) and {\"ceil_div\": n} is ceil(L / n). A record without an era fixture runs every cell fresh (history and mixed need fixture threads). common_driver_args go to the driver of every cell, after the profile's own. levels, where a profile has it, writes a level's counts out and wins over ladder's rule.",
+  "default": "real3",
+  "common_driver_args": [
+    "--call-timeout",
+    "300s",
+    "--stall-timeout",
+    "600s",
+    "--max-error-rate",
+    "0.2",
+    "--setup-concurrency",
+    "16"
+  ],
+  "profiles": {
+    "real3": {
+      "description": "Closer to real use: N agents watched by 3 subscribers (a desktop and a phone, say) that switch threads every 300 s, and pollers scaled as in the primary profile, ceil(N/4) at 0.01 calls/s, with a 60 s turn gap. levels writes the five published levels out; any other level follows ladder.",
+      "single": {
+        "sessions": 1,
+        "subscribers": 1,
+        "pollers": 0,
+        "mode": "mixed",
+        "turn_gap": "5s",
+        "switch_interval": "30s",
+        "poll_rate": "1"
+      },
+      "empty": {
+        "sessions": 1,
+        "subscribers": 1,
+        "pollers": 0,
+        "mode": "fresh",
+        "turn_gap": "5s",
+        "switch_interval": "30s",
+        "poll_rate": "1"
+      },
+      "ladder": {
+        "sessions": "L",
+        "subscribers": 3,
+        "pollers": {
+          "ceil_div": 4
+        },
+        "mode": "mixed",
+        "turn_gap": "60s",
+        "switch_interval": "300s",
+        "poll_rate": "0.01"
+      },
+      "levels": {
+        "50": {
+          "sessions": 50,
+          "subscribers": 3,
+          "pollers": 13
+        },
+        "100": {
+          "sessions": 100,
+          "subscribers": 3,
+          "pollers": 25
+        },
+        "150": {
+          "sessions": 150,
+          "subscribers": 3,
+          "pollers": 38
+        },
+        "200": {
+          "sessions": 200,
+          "subscribers": 3,
+          "pollers": 50
+        },
+        "250": {
+          "sessions": 250,
+          "subscribers": 3,
+          "pollers": 63
+        }
+      }
+    },
+    "primary-scaled": {
+      "description": "The scaled primary profile: subscribers ceil(agents/10), pollers ceil(agents/4) at 0.01 calls/s, a thread switch every 300 s and a 60 s turn gap.",
+      "single": {
+        "sessions": 1,
+        "subscribers": 1,
+        "pollers": 0,
+        "mode": "mixed",
+        "turn_gap": "5s",
+        "switch_interval": "30s",
+        "poll_rate": "1"
+      },
+      "empty": {
+        "sessions": 1,
+        "subscribers": 1,
+        "pollers": 0,
+        "mode": "fresh",
+        "turn_gap": "5s",
+        "switch_interval": "30s",
+        "poll_rate": "1"
+      },
+      "ladder": {
+        "sessions": "L",
+        "subscribers": {
+          "ceil_div": 10
+        },
+        "pollers": {
+          "ceil_div": 4
+        },
+        "mode": "mixed",
+        "turn_gap": "60s",
+        "switch_interval": "300s",
+        "poll_rate": "0.01"
+      }
+    }
+  }
+}

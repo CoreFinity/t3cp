@@ -1,0 +1,767 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://t3cp.io/schema/series-1.json",
+  "title": "t3cp/series/1: one metric on one platform over time, with verdicts computed at build time",
+  "description": "Arrays under levels.<L> align with dates. delta and dod_delta are the raw relative change (v - r) / r in percent with its real sign; verdicts are already sign-adjusted for the metric's direction. fork.levels.<L>.step aligns with dates (the latest fork release on or before each date, held until the next); the other fork arrays align with fork.tags.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "id",
+    "platform",
+    "shard",
+    "generated_at",
+    "from",
+    "to",
+    "band",
+    "threshold",
+    "dates",
+    "tags",
+    "status",
+    "levels",
+    "fork",
+    "eras"
+  ],
+  "properties": {
+    "schema": {
+      "const": "t3cp/series/1"
+    },
+    "synthetic": {
+      "const": true,
+      "description": "Present only on development data from tools/t3cp/dev/synth-data.mjs; refused under data/."
+    },
+    "id": {
+      "$ref": "#/$defs/metric_id"
+    },
+    "platform": {
+      "$ref": "#/$defs/platform_id"
+    },
+    "shard": {
+      "type": "string",
+      "pattern": "^(all|latest|20\\d{2})$"
+    },
+    "generated_at": {
+      "$ref": "#/$defs/datetime"
+    },
+    "from": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^20\\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+    },
+    "to": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^20\\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+    },
+    "band": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "threshold": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "dates": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/date"
+      }
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/nightly_tag"
+      }
+    },
+    "status": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "complete",
+          "partial",
+          "missing"
+        ]
+      }
+    },
+    "levels": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "1": {
+          "$ref": "#/$defs/level_series"
+        },
+        "50": {
+          "$ref": "#/$defs/level_series"
+        },
+        "100": {
+          "$ref": "#/$defs/level_series"
+        },
+        "150": {
+          "$ref": "#/$defs/level_series"
+        },
+        "200": {
+          "$ref": "#/$defs/level_series"
+        },
+        "250": {
+          "$ref": "#/$defs/level_series"
+        },
+        "1e": {
+          "$ref": "#/$defs/level_series"
+        },
+        "once": {
+          "$ref": "#/$defs/level_series"
+        }
+      }
+    },
+    "fork": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "tags",
+        "dates",
+        "base_tags",
+        "base_dates",
+        "base_shas",
+        "prev_tags",
+        "step_tags",
+        "levels"
+      ],
+      "properties": {
+        "tags": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/fork_tag"
+          }
+        },
+        "dates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/date"
+          }
+        },
+        "base_tags": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^v\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}-nightly\\.20\\d{6}\\.\\d{1,6}$"
+          }
+        },
+        "base_dates": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^20\\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+          }
+        },
+        "base_shas": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9a-f]{40}$"
+          }
+        },
+        "prev_tags": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^v\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}-perf\\.\\d{1,3}$"
+          }
+        },
+        "step_tags": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^v\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}-perf\\.\\d{1,3}$"
+          }
+        },
+        "levels": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "1": {
+              "$ref": "#/$defs/fork_level"
+            },
+            "50": {
+              "$ref": "#/$defs/fork_level"
+            },
+            "100": {
+              "$ref": "#/$defs/fork_level"
+            },
+            "150": {
+              "$ref": "#/$defs/fork_level"
+            },
+            "200": {
+              "$ref": "#/$defs/fork_level"
+            },
+            "250": {
+              "$ref": "#/$defs/fork_level"
+            },
+            "1e": {
+              "$ref": "#/$defs/fork_level"
+            },
+            "once": {
+              "$ref": "#/$defs/fork_level"
+            }
+          }
+        }
+      }
+    },
+    "eras": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "date",
+          "kind",
+          "label"
+        ],
+        "properties": {
+          "date": {
+            "$ref": "#/$defs/date"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "fixture",
+              "harness",
+              "profile",
+              "compaction",
+              "metric"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9 .:/()-]{1,64}$"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "date": {
+      "type": "string",
+      "pattern": "^20\\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+    },
+    "datetime": {
+      "type": "string",
+      "pattern": "^20\\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])T([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(\\.\\d{1,3})?Z$"
+    },
+    "fork_level": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "min",
+        "max",
+        "n",
+        "vs_base",
+        "vs_base_verdict",
+        "vs_base_note",
+        "vs_prev",
+        "vs_prev_verdict",
+        "vs_prev_note",
+        "saturated",
+        "step"
+      ],
+      "properties": {
+        "value": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "min": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "max": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "n": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9
+          }
+        },
+        "vs_base": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "vs_base_verdict": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/verdict"
+          }
+        },
+        "vs_base_note": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/note"
+          }
+        },
+        "vs_prev": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "vs_prev_verdict": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/verdict"
+          }
+        },
+        "vs_prev_note": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/note"
+          }
+        },
+        "saturated": {
+          "type": "array",
+          "items": {
+            "type": "boolean"
+          }
+        },
+        "saturated_by": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/saturated_by"
+          }
+        },
+        "step": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "fork_tag": {
+      "type": "string",
+      "pattern": "^v\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}-perf\\.\\d{1,3}$"
+    },
+    "level_series": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "band",
+        "threshold",
+        "median",
+        "min",
+        "max",
+        "n",
+        "ref",
+        "delta",
+        "verdict",
+        "note",
+        "thin",
+        "dod_delta",
+        "dod_verdict",
+        "saturated"
+      ],
+      "properties": {
+        "band": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "threshold": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "median": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "min": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "max": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "n": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9
+          }
+        },
+        "ref": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "delta": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "verdict": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/verdict"
+          }
+        },
+        "note": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/note"
+          }
+        },
+        "thin": {
+          "type": "array",
+          "items": {
+            "type": "boolean"
+          }
+        },
+        "dod_delta": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "dod_verdict": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/verdict"
+          }
+        },
+        "saturated": {
+          "type": "array",
+          "items": {
+            "type": "boolean"
+          }
+        },
+        "saturated_by": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/saturated_by"
+          }
+        },
+        "reason": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/series_reason"
+          }
+        }
+      }
+    },
+    "metric_id": {
+      "type": "string",
+      "enum": [
+        "turns_completed",
+        "agents_served",
+        "turn_p50_ms",
+        "turn_p95_ms",
+        "dispatch_p50_ms",
+        "dispatch_p95_ms",
+        "first_item_p50_ms",
+        "push_p95_ms",
+        "switch_open_p50_ms",
+        "switch_sync_p95_ms",
+        "shell_sync_p95_ms",
+        "poll_thread_read_p95_ms",
+        "poll_project_list_p95_ms",
+        "poll_http_bounded_p95_ms",
+        "session_mcp_p95_ms",
+        "thread_events_per_s",
+        "shell_events_per_s",
+        "client_errors",
+        "client_unfinished",
+        "main_busy_pct",
+        "main_user_pct",
+        "main_sys_pct",
+        "proc_cpu_pct",
+        "workers_cpu_pct",
+        "children_cpu_pct",
+        "children_n",
+        "elu",
+        "elu_max",
+        "eld_p50_ms",
+        "eld_p99_ms",
+        "eld_max_ms",
+        "server_eld_max_ms",
+        "gc_ms_per_s",
+        "stall_share_40ms",
+        "stall_share_100ms",
+        "stall_share_500ms",
+        "main_busy_1s_p95",
+        "main_runq_wait_ms_per_s",
+        "main_minflt_per_s",
+        "main_vcs_per_s",
+        "main_nvcs_per_s",
+        "main_syscr_per_s",
+        "main_syscw_per_s",
+        "proc_syscr_per_s",
+        "cpu_per_session_pct",
+        "rss_peak_mib",
+        "heap_peak_mib",
+        "heap_floor_mib",
+        "pss_total_mib",
+        "uss_total_mib",
+        "rss_slope_mib_per_h",
+        "heap_slope_mib_per_h",
+        "wal_max_mib",
+        "wal_median_mib",
+        "reader_tx_avg_ms",
+        "reader_tx_p95_ms",
+        "reader_tx_wait_avg_ms",
+        "reader_tx_wait_p95_ms",
+        "reader_stmt_p95_ms",
+        "writer_tx_avg_ms",
+        "writer_tx_p95_ms",
+        "writer_tx_wait_p95_ms",
+        "reader_tx_per_s",
+        "writer_tx_per_s",
+        "reader_pool_occupancy",
+        "reader_free_while_waiting_s",
+        "sql_time_ms_per_s",
+        "get_thread_shell_p95_ms",
+        "snapshot_window_p95_ms",
+        "mcp_auth_p95_ms",
+        "turn_start_p50_ms",
+        "handle_run_update_p95_ms",
+        "finalize_subagent_p50_ms",
+        "effect_queue_wait_p50_ms",
+        "effect_queue_wait_p90_ms",
+        "events_per_commit",
+        "spans_in_window",
+        "trace_dropped",
+        "git_commands_per_turn",
+        "git_ms_per_turn",
+        "forks_per_turn",
+        "ps_gap_ms_per_h",
+        "listening_first_ms",
+        "listening_warm_ms",
+        "accept_first_ms",
+        "accept_warm_ms",
+        "db_ready_first_ms",
+        "db_ready_warm_ms",
+        "first_boot_migrations_ms",
+        "migration_s",
+        "migration_extra_disk_mib",
+        "shutdown_s",
+        "compaction_probe_max_ms",
+        "compaction_pages_per_min",
+        "snapshot_full_get_ms",
+        "snapshot_full_get_bytes",
+        "idle_cpu_pct",
+        "idle_wakeups_per_s",
+        "idle_pss_30min_mib",
+        "first_turn_after_start_ms",
+        "queue_start_p50_s",
+        "queue_start_p90_s",
+        "queue_start_max_s",
+        "consumer_backlog_max",
+        "consumer_drain_s",
+        "delivery_by_state_p50_s",
+        "buffer_full_warnings",
+        "server_warn_lines",
+        "server_error_lines",
+        "stream_resyncs",
+        "attempts_valid",
+        "attempts_total",
+        "host_busy_pct",
+        "host_steal_pct",
+        "host_iowait_pct",
+        "contaminated",
+        "fork_effect_queue_wait_p95_ms",
+        "fork_run_effect_p95_ms",
+        "fork_decode_projection_p95_ms",
+        "fork_admission_changes"
+      ]
+    },
+    "nightly_tag": {
+      "type": "string",
+      "pattern": "^v\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}-nightly\\.20\\d{6}\\.\\d{1,6}$"
+    },
+    "note": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "context",
+        "no_band",
+        "wide_band",
+        "hollow",
+        "gated",
+        "no_reference",
+        "no_data",
+        "not_comparable",
+        "no_base",
+        "zero_reference",
+        "saturated",
+        null
+      ]
+    },
+    "platform_id": {
+      "type": "string",
+      "enum": [
+        "linux-x64",
+        "darwin-arm64"
+      ]
+    },
+    "problem": {
+      "type": "string",
+      "enum": [
+        "server_start_failed",
+        "server_auth_failed",
+        "server_exited",
+        "driver_failed",
+        "driver_timeout",
+        "pid_gone",
+        "window_too_short",
+        "main_thread_missing",
+        "trace_missing",
+        "trace_coverage",
+        "trace_rotated_during_read",
+        "trace_stale",
+        "otlp_no_samples",
+        "db_ready_timeout",
+        "db_setup_failed",
+        "node_flags_mismatch",
+        "node_flags_unverified",
+        "preload_not_loaded",
+        "per_thread_unavailable",
+        "sessions_starved",
+        "driver_saturated",
+        "session_mcp_missing",
+        "call_timeouts",
+        "error_rate",
+        "distribution_mismatch",
+        "maintenance_in_window",
+        "maintenance_unverified",
+        "contaminated",
+        "host_guard_unavailable",
+        "attempt_invalid",
+        "other_problem"
+      ]
+    },
+    "saturated_by": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/$defs/problem"
+      },
+      "maxItems": 16,
+      "uniqueItems": true,
+      "description": "A saturated level's symptoms: the union of the cell's attempts' saturated_by problem codes, sorted; null where the level is not saturated."
+    },
+    "series_reason": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "no_setup_span",
+        "extra_timeout",
+        "timeout",
+        null
+      ],
+      "description": "Why the value is missing, where a public reason exists; set only beside the note no_data, else null. extra_timeout: the measurement timed out; no_setup_span: the release writes no database setup span, so db_ready cannot be measured; timeout: the record did not finish in time, and this level or extra was never measured."
+    },
+    "verdict": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "regressed",
+        "improved",
+        "within",
+        null
+      ]
+    }
+  }
+}

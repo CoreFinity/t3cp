@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://t3cp.io/schema/release-1.json",
+  "title": "t3cp/release/1: one fork release's post, dist/data/v1/releases/<tag>.json, written by site/build/release-build.mjs from news/posts/<tag>.json",
+  "description": "A fork release measured against its upstream base nightly and its previous fork release. Exactly one of checker.written_in_session and checker.prompt_sha256 is present (release-post.mjs enforces it). The build re-runs the checker on the committed text (news/posts/<tag>.json) against the bundle rebuilt from data. charts_only true: no written sentence; post.summary holds rendered claims only (or null) and post.sections are the eight headline charts with their machine captions; charts_only_reason says why (checker_failed: the written text failed twice; stale: the text that passed no longer passes against the measured record; no_text_yet: no text has passed yet; pending: a fork, base or previous record is not complete, so the post shows tag, date, changelog and charts with no claim, counts {} and deltas []; no_base: the base was measured in another era of the benchmark and no verdict crosses an era boundary, so the post has the same form as pending, titled <tag>: no comparable base). Every delta carries saturated (which records could not serve every agent at its level); at a saturated level only turns_completed and agents_served keep a verdict, every other metric has note saturated. Chart ids: fork-vs-base.<metric>.ladder.<platform> (fork and base against agents, every level), series.<metric>.<platform> (the metric by nightly with this release marked, at the page's agents level), fork-vs-prev.<metric>.<platform> (each fork release in turn, this one against the previous).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "tag", "short", "date", "sha", "base", "prev", "platforms", "levels", "headline_level", "counts", "deltas", "charts_only", "charts_only_reason", "post", "changelog", "checker"],
+  "properties": {
+    "schema": { "const": "t3cp/release/1" },
+    "synthetic": { "const": true, "description": "Present only on development output from synthetic data; release-post.mjs refuses to write it under data/." },
+    "tag": { "$ref": "#/$defs/fork_tag" },
+    "short": { "type": "string", "pattern": "^perf\\.\\d{1,3}$" },
+    "date": { "$ref": "#/$defs/date" },
+    "sha": { "$ref": "#/$defs/sha" },
+    "base": { "$ref": "#/$defs/side" },
+    "prev": { "$ref": "#/$defs/side" },
+    "platforms": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/platform_id" } },
+    "levels": {
+      "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/headline_level" },
+      "description": "The agent levels the counts and deltas cover (the overview's 1 | 50 | 100 | 250 switch)."
+    },
+    "headline_level": { "$ref": "#/$defs/headline_level" },
+    "counts": {
+      "type": "object",
+      "description": "Per agent level: verdicts of the platform's eight headline metrics against the base nightly. A record-level headline metric (scope once) counts at every level.",
+      "additionalProperties": false,
+      "properties": {
+        "1": { "$ref": "#/$defs/count" },
+        "50": { "$ref": "#/$defs/count" },
+        "100": { "$ref": "#/$defs/count" },
+        "250": { "$ref": "#/$defs/count" }
+      }
+    },
+    "deltas": {
+      "type": "array",
+      "maxItems": 400,
+      "description": "The headline metrics at every level, and every other metric that moved beyond noise against the base or the previous release at any level. delta_pct = (fork - base) / base in percent with its real sign; the verdict already applies the metric's direction. text holds the display strings the post's prose copies.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["metric", "platform", "level", "headline", "fork", "base", "prev", "delta_pct", "threshold_pct", "verdict", "note", "delta_vs_prev_pct", "verdict_vs_prev", "note_vs_prev", "saturated", "text"],
+        "properties": {
+          "metric": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,63}$" },
+          "platform": { "$ref": "#/$defs/platform_id" },
+          "level": { "type": "string", "enum": ["1", "50", "100", "250", "once"] },
+          "headline": { "type": ["integer", "null"], "minimum": 1, "maximum": 8 },
+          "fork": { "type": ["number", "null"] },
+          "base": { "type": ["number", "null"] },
+          "prev": { "type": ["number", "null"] },
+          "delta_pct": { "type": ["number", "null"] },
+          "threshold_pct": { "type": ["number", "null"] },
+          "verdict": { "$ref": "#/$defs/verdict" },
+          "note": { "$ref": "#/$defs/note" },
+          "delta_vs_prev_pct": { "type": ["number", "null"] },
+          "verdict_vs_prev": { "$ref": "#/$defs/verdict" },
+          "note_vs_prev": { "$ref": "#/$defs/note" },
+          "saturated": {
+            "type": "object", "additionalProperties": false, "required": ["fork", "base", "prev"],
+            "properties": { "fork": { "type": "boolean" }, "base": { "type": ["boolean", "null"] }, "prev": { "type": ["boolean", "null"] } }
+          },
+          "text": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["fork", "base", "prev", "delta_pct", "threshold_pct", "delta_vs_prev_pct"],
+            "properties": {
+              "fork": { "$ref": "#/$defs/display" },
+              "base": { "$ref": "#/$defs/display" },
+              "prev": { "$ref": "#/$defs/display" },
+              "delta_pct": { "$ref": "#/$defs/display" },
+              "threshold_pct": { "$ref": "#/$defs/display" },
+              "delta_vs_prev_pct": { "$ref": "#/$defs/display" }
+            }
+          }
+        }
+      }
+    },
+    "charts_only": { "type": "boolean" },
+    "charts_only_reason": { "type": ["string", "null"], "enum": ["checker_failed", "stale", "no_text_yet", "pending", "no_base", null] },
+    "post": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "summary", "sections", "quotes"],
+      "properties": {
+        "title": { "type": "string", "minLength": 1, "maxLength": 120, "description": "Always the template: <tag>: <a> regressed, <b> improved, <c> within noise (vs <base tag>), counts at headline_level." },
+        "summary": { "type": ["string", "null"], "minLength": 1, "maxLength": 400, "description": "The rendered summary (placeholders filled with their clauses). charts_only: the largest headline claims at the headline level, rendered, or null when none moved." },
+        "quotes": {
+          "type": "array", "maxItems": 10,
+          "description": "Whole lines of the public changelog the text chose, each once: render them in one 'From the changelog' block at the end of the post, never by a chart or a claim. Empty for charts-only and pending.",
+          "items": { "type": "string", "minLength": 1, "maxLength": 400 }
+        },
+        "sections": {
+          "type": "array", "minItems": 1, "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["chart_id", "caption"],
+            "properties": {
+              "chart_id": { "type": "string", "pattern": "^(fork-vs-base\\.[a-z][a-z0-9_]{1,63}\\.ladder|series\\.[a-z][a-z0-9_]{1,63}|fork-vs-prev\\.[a-z][a-z0-9_]{1,63})\\.(linux-x64|darwin-arm64)$" },
+              "caption": { "type": "string", "minLength": 1, "maxLength": 200 }
+            }
+          }
+        }
+      }
+    },
+    "changelog": {
+      "type": "array", "maxItems": 40,
+      "description": "The release's lines from the fork's public changelog (CHANGELOG-public.md), verbatim; empty until it is published.",
+      "items": { "type": "string", "minLength": 1, "maxLength": 400 }
+    },
+    "checker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed", "version", "numbers_checked", "charts", "attempts", "findings", "bundle_sha256", "footer"],
+      "properties": {
+        "passed": { "type": "boolean" },
+        "version": { "type": "string", "pattern": "^\\d{1,3}$" },
+        "written_in_session": { "const": true, "description": "The text was written by hand from the bundle and checked by news/check.mjs (the launch path)." },
+        "prompt_sha256": { "$ref": "#/$defs/sha256", "description": "The text came from the model with this prompt file (the later CI path)." },
+        "numbers_checked": { "type": "integer", "minimum": 0 },
+        "charts": { "type": "integer", "minimum": 0, "maximum": 8 },
+        "attempts": { "type": "integer", "minimum": 0, "maximum": 2, "description": "Attempts recorded for the deciding bundle; 0 when no text was written." },
+        "findings": {
+          "type": "array", "maxItems": 0,
+          "description": "Always empty: a release never carries findings (the footer gives their number). A finding is recorded only in news/posts/<tag>.json, without the refused text.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["rule", "field"],
+            "properties": {
+              "rule": { "type": "string", "enum": ["schema", "length", "summary-sentences", "sections-max", "sections-min", "chart-id", "chart-duplicate", "order", "number-not-allowed", "number-unit", "number-unbound", "ratio", "two-metrics", "row-ambiguous", "summary-order", "bundle-mismatch", "refusal", "unparseable", "claim-unknown", "claim-two", "free-number", "free-unit", "free-verdict-word", "free-metric-name", "free-word", "free-char", "summary-binding", "metric-by-id", "metric-no-verdict", "verdict-class", "verdict-without-metric", "direction-word", "count", "caption-metric", "banned", "emoji", "exclamation", "markup", "platform", "quote", "cause", "future", "internal-name", "scanner-missing"] },
+              "field": { "type": "string", "pattern": "^(post|title|summary|sections(\\[\\d{1,2}\\](\\.(caption|chart_id))?)?)$" },
+              "sentence": { "type": "integer", "minimum": 0 },
+              "index": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        "bundle_sha256": { "$ref": "#/$defs/sha256", "description": "sha256 of the post bundle the text was checked against; release-bundle.mjs rebuilds it from data/." },
+        "footer": { "type": "string", "maxLength": 160 }
+      }
+    }
+  },
+  "$defs": {
+    "date": { "type": "string", "pattern": "^20\\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$" },
+    "fork_tag": { "type": "string", "pattern": "^v\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}-perf\\.\\d{1,3}$" },
+    "tag": { "type": "string", "pattern": "^v\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}(-nightly\\.20\\d{6}\\.\\d{1,6}|-perf\\.\\d{1,3})?$" },
+    "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "side": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["tag", "date"],
+      "properties": {
+        "tag": { "type": ["string", "null"], "pattern": "^v\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}(-nightly\\.20\\d{6}\\.\\d{1,6}|-perf\\.\\d{1,3})?$" },
+        "date": { "$ref": "#/$defs/date" },
+        "sha": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$", "description": "base only: the merge-base SHA the base record was built from; null before that record exists" },
+        "sha7": { "type": ["string", "null"], "pattern": "^[0-9a-f]{7}$", "description": "base only: the first seven characters of sha, for 'upstream base, built from source at <sha7>'" }
+      }
+    },
+    "platform_id": { "type": "string", "enum": ["linux-x64", "darwin-arm64"] },
+    "headline_level": { "type": "string", "enum": ["1", "50", "100", "250"] },
+    "count": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["improved", "regressed", "within", "no_verdict", "total"],
+      "properties": {
+        "improved": { "type": "integer", "minimum": 0 },
+        "regressed": { "type": "integer", "minimum": 0 },
+        "within": { "type": "integer", "minimum": 0 },
+        "no_verdict": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "verdict": { "type": ["string", "null"], "enum": ["regressed", "improved", "within", null] },
+    "note": { "type": ["string", "null"], "enum": ["context", "no_band", "wide_band", "hollow", "gated", "no_reference", "no_data", "not_comparable", "no_base", "saturated", "zero_reference", null] },
+    "display": { "type": ["string", "null"], "maxLength": 32 }
+  }
+}

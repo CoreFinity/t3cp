@@ -1,0 +1,48 @@
+<header class="page-h"><h1>How it is measured.</h1><p class="lede">Every number on this site comes from one suite, run the same way on every upstream nightly and on every fork release, and published with the files that reproduce it.</p></header>
+
+<div class="prose">
+<h2>The suite.</h2>
+<p>Six load levels: <b>1, 50, 100, 150, 200 and 250 agents</b>. At each level N the server carries <b>N agents, 3 people watching live, switching threads every 300 s, and status polling that grows with N</b> (N/4 pollers, rounded up, each calling 0.01 times a second); each agent waits 60 s between turns, and 5 s between turns at 1 agent. An agent is one streaming session on the server, the harness's <code>--sessions</code> count. The 1-agent level is <b>one developer starting a new thread</b> on the same large database, with 1 person watching.</p>
+<p>At the higher levels the server may saturate: not every agent is served within the window. A level counts as saturated only when the server's own event loop was at least 95% busy; the signs are agents not served, calls timed out, and MCP not ready by the start of the window. Such an attempt on a clean host is still published, and flagged "saturated: n of N agents served" on the charts, on Records and in compare. Its latency figures are context only, never a verdict; turns completed and agents served keep their verdicts there.</p>
+<p>The server runs on real wall-clock time; the fixture's own dates are fixed by its seed and recipe, and background maintenance that depends on dates is seeded so it behaves the same in every run.</p>
+{{loadtable}}
+<p>Each level runs a <b>60 s warm-up and a 300 s measured window, three times</b>, the levels interleaved so that a slow minute on the machine cannot land on one level only. A seventh cell is <b>a fresh install, one agent</b>: an empty database, for start-up, the baseline and single-turn latency. 21 attempts per record. Start-up, migrations and the full-snapshot read are measured once per record, outside the ladder.</p>
+
+<h2>The machine.</h2>
+<p>Linux x64: a cloud VM (n2d-standard-16, AMD EPYC 7B13, spot), a new one for every record, running Debian 13. A record whose CPU model is not the pinned one is discarded. {{macos}}</p>
+
+<h2>The database.</h2>
+<p>A synthetic fixture, written through the server's own code from a published shape and seed; nothing in it comes from any real deployment. {{shape}} One fixture serves each schema era, and every nightly migrates its era's fixture forward once per record (the migration time is itself a metric):</p>
+<ul>{{fixtures}}</ul>
+<p>The recipe, for anyone who wants to build it instead of downloading it:</p>
+<pre>{{recipe}}</pre>
+
+<h2>Validity.</h2>
+<p>An attempt counts only when no client call failed, none was left unfinished, the host stayed quiet (busy, steal and I/O wait under their limits) and the CPU model, harness and fixture match the series. A level needs two valid attempts for a verdict; a value from fewer is drawn hollow and gets none.</p>
+<p>From {{maintfrom}}, an attempt during which the server's background maintenance ran inside the measured window is invalid. Builds whose maintenance pass emits no named span cannot be checked for maintenance inside the window.</p>
+
+<h2>Aggregation.</h2>
+<p>A level's value is the <b>median of its valid attempts</b>; the minimum and the maximum are kept and drawn as the range of attempts. Every attempt's value is in the record file.</p>
+
+<h2>The regression rule.</h2>
+<p>Each record is compared with the <b>median of up to seven previous complete records</b> on the same platform and level; while fewer than three exist, with the previous record alone, marked as a thin reference. The change counts only <b>beyond the metric's noise band plus five percentage points</b>: regressed beyond noise, improved beyond noise, otherwise within noise. The reference never crosses a fixture era or a harness version, and the first record after an era boundary gets no verdict. Metrics shown for context, and metrics without a measured band, are drawn and never judged.</p>
+<p>On the charts a record beyond the band carries a triangle pointing the way the value moved, green when that is better and red when it is worse. A fork release is compared with {{forkbase}}, and with the previous fork release, by the same rule.</p>
+
+<h2>Noise bands.</h2>
+<p>{{bands}} The band is {{method}}</p>
+
+<h2>Eras.</h2>
+{{compaction}}
+<p>Event-loop delay comes from two sources that are never read as one distribution. The <code>eld_*</code> figures are the harness's preload histogram (10 ms timer intervals, the 10 ms period included); <code>server_eld_max_ms</code> is the server's own gauge (a 1 s timer, the period excluded).</p>
+<p>Each record names the preload it ran with by <code>preload_sha256</code>, the harness's own identity of it: the sha256 over the lines <code>&lt;file name&gt;\0&lt;sha256 of the file&gt;\n</code> for <code>tools/server-bench/preload/bench-preload.cjs</code> and then <code>bench-preload.mjs</code>, each when present. A run that loaded no preload records none.</p>
+<p>Some metrics start later than the window, because the server began to emit them later. Before a metric's era its series is a gap, never a zero.</p>
+<ul>{{features}}</ul>
+<p>Harness versions:</p>
+<ul>{{harness}}</ul>
+
+<h2>Fork builds.</h2>
+<p>The fork's releases are built from their public tags on the same machine type and run through the same suite. {{forkonly}} metrics exist only in fork builds; they are plotted fork release against fork release and never judged against upstream.</p>
+
+<h2>Every metric.</h2>
+<p>The catalogue holds {{count}} metrics, each with its unit, direction, band, era, lane and the harness field it comes from: <a href="/metrics/">Metrics</a>. {{nacount}} of them need /proc and so are Linux only.</p>
+</div>

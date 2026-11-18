@@ -1,0 +1,1046 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://t3cp.io/schema/bands-1.json",
+  "title": "t3cp/bands/1: measured noise bands per platform and metric (percent), optionally per level",
+  "description": "band = (max - min) / median in percent over repeated identical attempts; the regression threshold is band + 5 points. A metric without an entry has no band and gets no verdict.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "method",
+    "platforms"
+  ],
+  "properties": {
+    "schema": {
+      "const": "t3cp/bands/1"
+    },
+    "synthetic": {
+      "const": true,
+      "description": "Present only on development data from tools/t3cp/dev/synth-data.mjs; refused under data/."
+    },
+    "method": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9 ,.;:()%/+=-]{1,400}$"
+    },
+    "platforms": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "linux-x64": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [],
+          "properties": {
+            "pending": {
+              "const": true,
+              "description": "No bands measured yet for this platform: its records build with no verdicts (note no_band). Without this mark, a platform with records and no bands fails the build."
+            },
+            "measured": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "from",
+                "to",
+                "attempts",
+                "machines",
+                "tag"
+              ],
+              "properties": {
+                "from": {
+                  "$ref": "#/$defs/date"
+                },
+                "to": {
+                  "$ref": "#/$defs/date"
+                },
+                "attempts": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9999
+                },
+                "machines": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 999
+                },
+                "tag": {
+                  "$ref": "#/$defs/tag"
+                }
+              }
+            },
+            "metrics": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "turns_completed": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "agents_served": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "turn_p50_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "turn_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "dispatch_p50_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "dispatch_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "first_item_p50_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "push_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "switch_open_p50_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "switch_sync_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "shell_sync_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "poll_thread_read_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "poll_project_list_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "poll_http_bounded_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "session_mcp_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "thread_events_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "shell_events_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "client_errors": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "client_unfinished": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "main_busy_pct": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "main_user_pct": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "main_sys_pct": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "proc_cpu_pct": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "workers_cpu_pct": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "children_cpu_pct": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "children_n": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "elu": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "elu_max": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "eld_p50_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "eld_p99_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "eld_max_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "server_eld_max_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "gc_ms_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "stall_share_40ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "stall_share_100ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "stall_share_500ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "main_busy_1s_p95": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "main_runq_wait_ms_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "main_minflt_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "main_vcs_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "main_nvcs_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "main_syscr_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "main_syscw_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "proc_syscr_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "cpu_per_session_pct": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "rss_peak_mib": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "heap_peak_mib": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "heap_floor_mib": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "pss_total_mib": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "uss_total_mib": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "rss_slope_mib_per_h": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "heap_slope_mib_per_h": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "wal_max_mib": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "wal_median_mib": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "reader_tx_avg_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "reader_tx_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "reader_tx_wait_avg_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "reader_tx_wait_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "reader_stmt_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "writer_tx_avg_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "writer_tx_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "writer_tx_wait_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "reader_tx_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "writer_tx_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "reader_pool_occupancy": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "reader_free_while_waiting_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "sql_time_ms_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "get_thread_shell_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "snapshot_window_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "mcp_auth_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "turn_start_p50_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "handle_run_update_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "finalize_subagent_p50_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "effect_queue_wait_p50_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "effect_queue_wait_p90_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "events_per_commit": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "spans_in_window": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "trace_dropped": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "git_commands_per_turn": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "git_ms_per_turn": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "forks_per_turn": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "ps_gap_ms_per_h": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "listening_first_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "listening_warm_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "accept_first_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "accept_warm_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "db_ready_first_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "db_ready_warm_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "first_boot_migrations_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "migration_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "migration_extra_disk_mib": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "shutdown_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "compaction_probe_max_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "compaction_pages_per_min": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "snapshot_full_get_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "snapshot_full_get_bytes": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "idle_cpu_pct": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "idle_wakeups_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "idle_pss_30min_mib": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "first_turn_after_start_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "queue_start_p50_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "queue_start_p90_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "queue_start_max_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "consumer_backlog_max": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "consumer_drain_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "delivery_by_state_p50_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "buffer_full_warnings": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "server_warn_lines": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "server_error_lines": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "stream_resyncs": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "attempts_valid": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "attempts_total": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "host_busy_pct": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "host_steal_pct": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "host_iowait_pct": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "contaminated": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "fork_effect_queue_wait_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "fork_run_effect_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "fork_decode_projection_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "fork_admission_changes": {
+                  "$ref": "#/$defs/band_entry"
+                }
+              }
+            }
+          }
+        },
+        "darwin-arm64": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [],
+          "properties": {
+            "pending": {
+              "const": true,
+              "description": "No bands measured yet for this platform: its records build with no verdicts (note no_band). Without this mark, a platform with records and no bands fails the build."
+            },
+            "measured": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "from",
+                "to",
+                "attempts",
+                "machines",
+                "tag"
+              ],
+              "properties": {
+                "from": {
+                  "$ref": "#/$defs/date"
+                },
+                "to": {
+                  "$ref": "#/$defs/date"
+                },
+                "attempts": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9999
+                },
+                "machines": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 999
+                },
+                "tag": {
+                  "$ref": "#/$defs/tag"
+                }
+              }
+            },
+            "metrics": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "turns_completed": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "agents_served": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "turn_p50_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "turn_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "dispatch_p50_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "dispatch_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "first_item_p50_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "push_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "switch_open_p50_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "switch_sync_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "shell_sync_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "poll_thread_read_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "poll_project_list_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "poll_http_bounded_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "session_mcp_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "thread_events_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "shell_events_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "client_errors": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "client_unfinished": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "main_busy_pct": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "main_user_pct": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "main_sys_pct": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "proc_cpu_pct": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "workers_cpu_pct": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "children_cpu_pct": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "children_n": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "elu": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "elu_max": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "eld_p50_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "eld_p99_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "eld_max_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "server_eld_max_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "gc_ms_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "stall_share_40ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "stall_share_100ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "stall_share_500ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "main_busy_1s_p95": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "main_runq_wait_ms_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "main_minflt_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "main_vcs_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "main_nvcs_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "main_syscr_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "main_syscw_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "proc_syscr_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "cpu_per_session_pct": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "rss_peak_mib": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "heap_peak_mib": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "heap_floor_mib": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "pss_total_mib": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "uss_total_mib": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "rss_slope_mib_per_h": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "heap_slope_mib_per_h": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "wal_max_mib": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "wal_median_mib": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "reader_tx_avg_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "reader_tx_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "reader_tx_wait_avg_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "reader_tx_wait_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "reader_stmt_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "writer_tx_avg_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "writer_tx_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "writer_tx_wait_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "reader_tx_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "writer_tx_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "reader_pool_occupancy": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "reader_free_while_waiting_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "sql_time_ms_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "get_thread_shell_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "snapshot_window_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "mcp_auth_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "turn_start_p50_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "handle_run_update_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "finalize_subagent_p50_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "effect_queue_wait_p50_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "effect_queue_wait_p90_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "events_per_commit": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "spans_in_window": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "trace_dropped": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "git_commands_per_turn": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "git_ms_per_turn": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "forks_per_turn": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "ps_gap_ms_per_h": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "listening_first_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "listening_warm_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "accept_first_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "accept_warm_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "db_ready_first_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "db_ready_warm_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "first_boot_migrations_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "migration_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "migration_extra_disk_mib": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "shutdown_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "compaction_probe_max_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "compaction_pages_per_min": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "snapshot_full_get_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "snapshot_full_get_bytes": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "idle_cpu_pct": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "idle_wakeups_per_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "idle_pss_30min_mib": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "first_turn_after_start_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "queue_start_p50_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "queue_start_p90_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "queue_start_max_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "consumer_backlog_max": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "consumer_drain_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "delivery_by_state_p50_s": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "buffer_full_warnings": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "server_warn_lines": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "server_error_lines": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "stream_resyncs": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "attempts_valid": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "attempts_total": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "host_busy_pct": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "host_steal_pct": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "host_iowait_pct": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "contaminated": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "fork_effect_queue_wait_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "fork_run_effect_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "fork_decode_projection_p95_ms": {
+                  "$ref": "#/$defs/band_entry"
+                },
+                "fork_admission_changes": {
+                  "$ref": "#/$defs/band_entry"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "band_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "band",
+        "n"
+      ],
+      "properties": {
+        "band": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "n": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 999
+        },
+        "levels": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "1": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "band",
+                "n"
+              ],
+              "properties": {
+                "band": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 10000
+                },
+                "n": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 999
+                }
+              }
+            },
+            "50": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "band",
+                "n"
+              ],
+              "properties": {
+                "band": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 10000
+                },
+                "n": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 999
+                }
+              }
+            },
+            "100": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "band",
+                "n"
+              ],
+              "properties": {
+                "band": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 10000
+                },
+                "n": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 999
+                }
+              }
+            },
+            "150": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "band",
+                "n"
+              ],
+              "properties": {
+                "band": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 10000
+                },
+                "n": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 999
+                }
+              }
+            },
+            "200": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "band",
+                "n"
+              ],
+              "properties": {
+                "band": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 10000
+                },
+                "n": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 999
+                }
+              }
+            },
+            "250": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "band",
+                "n"
+              ],
+              "properties": {
+                "band": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 10000
+                },
+                "n": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 999
+                }
+              }
+            },
+            "1e": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "band",
+                "n"
+              ],
+              "properties": {
+                "band": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 10000
+                },
+                "n": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 999
+                }
+              }
+            },
+            "once": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "band",
+                "n"
+              ],
+              "properties": {
+                "band": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 10000
+                },
+                "n": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 999
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "date": {
+      "type": "string",
+      "pattern": "^20\\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+    },
+    "tag": {
+      "type": "string",
+      "pattern": "^v\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}(-nightly\\.20\\d{6}\\.\\d{1,6}|-perf\\.\\d{1,3})?$"
+    }
+  }
+}

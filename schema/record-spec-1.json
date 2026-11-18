@@ -1,0 +1,349 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://t3cp.io/schema/record-spec-1.json",
+  "title": "t3cp record spec, version 1",
+  "description": "The input of tools/t3cp/run-record.sh (--spec <file>): one benchmark record of one release on one platform. The launcher writes it; the runner never reads anything else to decide what to measure. Paths in a spec are local to the runner and never published. The attempt layout the runner produces is described under $defs.layout.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "record_id",
+    "kind",
+    "release",
+    "fixture",
+    "suite",
+    "now",
+    "seed"
+  ],
+  "properties": {
+    "schema": {
+      "const": "t3cp/record-spec/1"
+    },
+    "record_id": {
+      "description": "A nightly is <release date>.<platform>.nightly (2026-11-15.linux-x64.nightly); a fork release is <version>.<platform>.fork (0.1.9-perf.8.linux-x64.fork); a base record is <first 12 hex of the merge-base SHA>.<platform>.base (295a0a7332aa.linux-x64.base). The platform part must match the host the runner runs on, and the kind part the spec's kind.",
+      "type": "string",
+      "pattern": "^([0-9]{4}-[0-9]{2}-[0-9]{2}\\.(linux-x64|darwin-arm64)\\.nightly|[0-9]+\\.[0-9]+\\.[0-9]+-perf\\.[0-9]+\\.(linux-x64|darwin-arm64)\\.fork|[0-9a-f]{12}\\.(linux-x64|darwin-arm64)\\.base)$"
+    },
+    "kind": {
+      "enum": [
+        "nightly",
+        "fork",
+        "base"
+      ],
+      "description": "nightly: an upstream release; fork: a performance-fork release; base: an upstream tree built from source at a fork release's exact merge-base SHA, run like a fork record from a release-layout archive."
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tag",
+        "sha",
+        "version",
+        "archive_name",
+        "archive_sha256",
+        "archive_path"
+      ],
+      "properties": {
+        "tag": {
+          "type": "string",
+          "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(-nightly\\.[0-9]{8}\\.[0-9]+|-perf\\.[0-9]+)?$"
+        },
+        "sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-nightly\\.[0-9]{8}\\.[0-9]+|-perf\\.[0-9]+)?$"
+        },
+        "archive_name": {
+          "type": "string",
+          "pattern": "^t3-[0-9A-Za-z.-]+-(linux-x64|darwin-arm64)\\.tar\\.gz$"
+        },
+        "archive_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "archive_path": {
+          "description": "The downloaded archive on the runner. The runner hashes it and refuses the record (reason archive_sha256_mismatch) before anything else starts when it differs from archive_sha256.",
+          "type": "string",
+          "pattern": "^/"
+        },
+        "date": {
+          "description": "Release date (UTC): for a nightly derived from the tag when absent; required for a fork (its release) and a base record (the merge-base commit's date).",
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "build": {
+          "description": "A release built from source (fork and base records): the repository it was built from and the sha256 of the build script. The launcher fills it; the runner copies it into every attempt.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source_repo",
+            "script_sha256"
+          ],
+          "properties": {
+            "source_repo": {
+              "enum": [
+                "github.com/navidnadali/t3code",
+                "github.com/pingdotgg/t3code"
+              ]
+            },
+            "script_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        }
+      }
+    },
+    "fixture": {
+      "description": "The era fixture (a checkpointed statev2.sqlite). id \"none\" runs every cell on an empty database (validation only; no migration chain and no snapshot extra).",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "path",
+            "sha256",
+            "migration"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^large-[0-9]+(-s[0-9]+)?$",
+              "description": "large-<migration head>; large-<n>-s<pct> is a validation build of the same shape at <pct> % scale (never published)."
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^/"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "migration": {
+              "description": "The fixture's migration head at build (76 for large-76).",
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "const": "none"
+            }
+          }
+        }
+      ]
+    },
+    "suite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "levels",
+        "attempts_per_level",
+        "empty_cell",
+        "warmup_s",
+        "window_s"
+      ],
+      "properties": {
+        "id": {
+          "description": "ladder-1 is the published suite; any other id marks a validation record.",
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,40}$"
+        },
+        "profile": {
+          "description": "The load profile, an id in tools/t3cp/runner/profiles.json (default real3). Per cell it gives the sessions, subscribers, pollers, driver mode, turn gap, thread-switch interval and poll rate; every attempt records its cell's entry. real3 at N agents: 3 subscribers switching threads every 300 s, ceil(N/4) pollers at 0.01 calls/s, a 60 s turn gap, mixed mode (50: 3/13, 100: 3/25, 150: 3/38, 200: 3/50, 250: 3/63 subscribers/pollers); primary-scaled (an alternative, never published): subscribers ceil(N/10), pollers ceil(N/4). The 1-agent cell is 1 session, 1 subscriber, 0 pollers, a 5 s turn gap in every profile, and 1e the same on an empty database.",
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,40}$"
+        },
+        "levels": {
+          "description": "Agents per ladder cell, in run order within a round. 1 runs the profile's single-session entry on the fixture; every other level its ladder entry.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          }
+        },
+        "attempts_per_level": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "empty_cell": {
+          "description": "Add the cell 1e (1 agent on an empty database) to every round.",
+          "type": "boolean"
+        },
+        "warmup_s": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3600
+        },
+        "window_s": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 14400
+        },
+        "extras": {
+          "description": "Measure the record extras (startup, migration chain, snapshot GET, first turn). Default true.",
+          "type": "boolean"
+        }
+      }
+    },
+    "now": {
+      "description": "Pinned workload time, passed to run.ts --now (recorded, not a clock change).",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "seed": {
+      "description": "Driver seed (--seed).",
+      "type": "string",
+      "pattern": "^[0-9A-Za-z._-]{1,40}$"
+    },
+    "lease": {
+      "description": "Launch attempt number, echoed into heartbeat.json and done.json.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "cpu_model": {
+      "description": "Expected CPU model string; default \"AMD EPYC 7B13\" on linux-x64. A mismatch exits with reason cpu_mismatch before any attempt.",
+      "type": "string",
+      "pattern": "^[0-9A-Za-z ()@.,_-]{1,80}$"
+    },
+    "base": {
+      "description": "A fork release's upstream base nightly; required for kind fork.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tag",
+        "date",
+        "sha"
+      ],
+      "properties": {
+        "tag": {
+          "type": "string",
+          "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+-nightly\\.[0-9]{8}\\.[0-9]+$"
+        },
+        "date": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    },
+    "host": {
+      "description": "Facts the launcher knows about the machine, copied into attempt-meta.json. When absent on Linux the runner asks the GCP metadata server; anything it cannot learn is null.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "machine": {
+          "type": "string",
+          "pattern": "^[0-9A-Za-z ()._-]{1,60}$"
+        },
+        "provisioning": {
+          "enum": [
+            "spot",
+            "on-demand",
+            "dedicated"
+          ]
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "fork"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "base"
+        ],
+        "properties": {
+          "record_id": {
+            "pattern": "\\.fork$"
+          },
+          "release": {
+            "required": [
+              "date"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "nightly"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "record_id": {
+            "pattern": "\\.nightly$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "base"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "record_id": {
+            "pattern": "\\.base$"
+          },
+          "release": {
+            "required": [
+              "date"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "layout": {
+      "description": "What run-record.sh --spec S --out O --harness H --work W writes. OUTPUT (O, storage-agnostic; the launcher may pre-populate O/attempts from storage, and the runner skips every attempt whose attempt.json exists): O/attempts/<cell>-<n>/attempt.json (the exporter's output; cell is 1, 50, 100, 150, 200, 250 or 1e; n is 1..attempts_per_level) and O/attempts/<cell>-<n>/export.log; O/extras/<name>.json (the exporter's output for startup, migration, snapshot and first_turn); O/heartbeats/<UTC timestamp>.json (a new file at least every 240 s and on every state change; never rewritten); O/done.json (once every attempt and extra is accounted for); O/failures/<UTC timestamp>.json (a refusal or a fatal error, with a reason code; a new file each time). Hooks: after each attempt.json the runner calls $T3CP_ON_ATTEMPT <O/attempts/<cell>-<n>>; after writing each heartbeat, extras, done or failure file it calls $T3CP_ON_UPDATE <file> when set. SCRATCH (W, never published; raw attempt directories are deleted after export on Linux): W/release/<unpacked archive>; W/fixture/ (the era fixture migrated once by the release, the source of every attempt's reflink restore); W/raw/<cell>-<n>/ (one attempt, the exporter's input, below); W/raw-extras/ (the extras' raw inputs, below); W/runner.log; W/diagnostics/<cell>/<UTC timestamp>.json and W/diagnostics/runner/<UTC timestamp>.json (schema t3cp/diagnostics/1: a failed or invalid attempt's, or a failed runner's, scrubbed log tails and problems, at most 256 KiB, handed to $T3CP_ON_DIAGNOSTICS <file> for PRIVATE storage only; never exported or published).",
+      "type": "null"
+    },
+    "attempt_dir": {
+      "description": "W/raw/<cell>-<n>/, the exporter's input for one attempt. attempt-meta.json (schema t3cp/attempt-meta/1, written by the runner: record_id, cell, n, level, profile {sessions, subscribers, pollers, turn_gap_s, mode}, fixture id, release, suite timings, started_at, ended_at, cycle_s, run_ts_exit, label, cpus {server, driver}, host_guard {method, samples, busy_pct_mean, busy_pct_max, foreign_pct_mean, foreign_pct_max, steal_pct_mean, steal_pct_max, iowait_pct_mean, iowait_pct_max, thresholds}, contaminated, contamination_reasons[], maintenance_in_window (compaction or prune passes overlapping the measured window: the count of ProjectionMaintenance.compactEventStore / pruneEventStore spans in the valid run's server trace, or \"unscheduled_pre_marker\" for a server that never reads the compaction marker, \"unobserved_no_span\" for one that reads it but names no pass span, null without a valid run or trace), tries[] (one entry per runner try: a contaminated first try is retried once and both appear here, with their own host_guard, timings and maintenance_in_window), host {cpu_model, cores, memory_gib, kernel, os}); host-guard.ndjson (1 Hz: t, busy_pct, steal_pct, iowait_pct, foreign_pct over the last second, from /proc/stat and the runner's cgroup); release.result.json (run.ts: the attempt's result, label \"release\"); run.log (run.ts output); procmon.log; work/runs/release/attempt-<k>/ (run.ts, one per run.ts try k = 1..3): run.json, driver/driver.json, driver.log, server.log, heap-config.json, loop-1hz.ndjson and loop-window.json (the preload: 1 Hz event loop and the window's delay histogram), proc-1hz.ndjson and server-exit.json and fake-stats/ (procmon.py: 1 Hz /proc counters of the server, its threads and children, and the host), base/userdata/logs/ (server traces; the database copy is deleted when the server exits).",
+      "type": "null"
+    },
+    "extras_dir": {
+      "description": "W/raw-extras/, the exporter's input for the record extras (numbers and names only, written by the runner): startup.json {schema t3cp/extras-startup/1, runs, budget_s, starts[] {fixture era|empty, phase cold|warm, n, listening_ms, accept_ms, db_ready_ms, killed, page_cache_dropped, reasons{<mark>_ms: code}}, summary, timed_out (true, and present only, when the total budget cut a start short or left none for it, or the runner stopped startup.mjs: then starts may be [] and summary {})}; migration.json {schema t3cp/extras-migration/1, fixture_id, from_migration, to_migration, migrations[] {id, name, seconds}, chain_s, run_migrations_span_ms, start_to_ready_ms, peak_extra_disk_bytes, peak_wal_bytes, db_initial_bytes, db_final_bytes, rss_peak_bytes, reasons{}}; migration-sampler.tsv (1 Hz db, -wal, -shm, temp and free bytes); snapshot.json {schema t3cp/extras-snapshot/1, thread_turn_items, ms, wire_bytes, body_bytes, status, started_at, ended_at, window_end, reasons{}, timed_out}; first_turn.json {schema t3cp/extras-first-turn/1, ms, started_at, ended_at, reasons{}, timed_out} (reasons.ms extra_timeout and timed_out true when the extras run timed out or was not started for lack of time; no_fixture takes precedence); run/ (the run.ts directory of the extras run the snapshot and first turn come from). A value that could not be measured is null and its key appears in reasons with a reason code; never 0. The public codes are extra_timeout (out of time) and no_setup_span (db_ready_ms only: the release writes no database setup span): the exporter puts them on a stat whose every value is null, no_setup_span first, and publishes a start pair startup never got to, when timed_out, as null with extra_timeout. Every other code (server_exited, not_reached_within_budget, no_fixture, ...) stays internal.",
+      "type": "null"
+    },
+    "outputs": {
+      "description": "Files the runner writes under O besides attempts. heartbeats/<YYYYMMDDTHHMMSSmmmZ>.json {schema t3cp/heartbeat/1, record_id, lease, state (preparing|migrating|attempt|extras|exporting|done|failed|interrupted), cell (the attempt in flight or null), attempts_done, attempts_total, updated_at}: a new file at least every 240 s while the runner lives and on every state change; the runner never rewrites or deletes one (append-only storage). done.json {schema t3cp/done/1, record_id, lease, status (complete: every attempt has attempt.json and every extra its file; partial: something is missing, listed), attempts [{cell, n, present}], extras [{name, present}], host {cpu_model, cores, memory_gib, kernel, os}, timings {started_at, ended_at, migration_s, attempts_s, extras_s}}: written once, last. failures/<YYYYMMDDTHHMMSSmmmZ>.json {schema t3cp/failure/1, record_id, lease, reason, retryable, at, detail, and on record_timeout deadline_epoch_s and elapsed_s (integers: the deadline it was given, and the seconds this run of the runner ran)}: a refusal before any attempt or a fatal error, a new file each time. Every file the runner hands to a hook has a name no earlier file had, and is never rewritten: attempts/<cell>-<n>/attempt.json and export.log (both present before $T3CP_ON_ATTEMPT runs), extras/<name>.json, heartbeats/*.json, failures/*.json, done.json (once per record). Exit codes: 0 done.json written; 2 spec or arguments invalid (reason spec_invalid); 3 refused before any attempt (cpu_mismatch, platform_mismatch, archive_missing, archive_sha256_mismatch, fixture_missing, fixture_sha256_mismatch, harness_missing, exporter_missing; deadline_missing and deadline_invalid: on a VM, where T3CP_VM or T3CP_BUCKET is set, T3CP_RECORD_DEADLINE is required and must be whole epoch seconds; foreign_attempts: O holds work another runner made, or work without a runner identity, its detail listing up to 5 \"<path> <why>\" with why other_runner, no_runner_identity or unreadable); 4 fatal error after the start (migration_failed, export_failed, hook_failed, unpack_failed, runner_error); 5 record_timeout: the record reached its deadline (T3CP_RECORD_DEADLINE, absolute epoch seconds, set per record by the launcher), its work is stopped, everything exported before it stays in O (a finished but unmoved export may remain in a dot-directory, which nothing reads), no done.json is written, and merge.mjs publishes the record from what O holds as partial with status_reason timeout; 143 or 130 interrupted by a signal (resumable). retryable is true for every reason but spec_invalid, archive_sha256_mismatch, fixture_sha256_mismatch, deadline_missing, deadline_invalid, foreign_attempts and record_timeout.",
+      "type": "null"
+    }
+  }
+}

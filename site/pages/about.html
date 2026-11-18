@@ -1,0 +1,45 @@
+<header class="page-h">
+  <h1>About t3cp.</h1>
+  <p class="lede">An independent record of how T3 Code performs. Every upstream nightly, measured the same way, in seven cells: 1, 50, 100, 150, 200 and 250 agents, plus a fresh install, one agent. The performance fork's releases sit on the same charts.</p>
+  <p class="lede">This project looks at T3 Code the way it is run in production: hundreds of agents, orchestrated across one or more machines, all through one server. At that load the server shows problems a single developer at a laptop never meets: a main thread close to saturation, reads waiting for a connection, memory that grows by the hour, queued runs that start late.</p>
+  <p class="lede">So every nightly is measured the same way, at one agent and at up to 250, and the numbers are published the day they are taken. The <a href="https://github.com/navidnadali/t3code">performance fork</a> works on the server and sends its fixes upstream as pull requests; its releases are measured against their upstream base, built from source, on the same charts as the nightlies.</p>
+  <div class="row"><a class="btn btn-p" href="/" data-nav="/">See the charts</a><a class="btn" href="https://github.com/pingdotgg/t3code">T3 Code on GitHub</a><a class="btn" href="https://github.com/navidnadali/t3code">The fork on GitHub</a></div>
+</header>
+
+<section class="sec" id="method">
+  <div class="sec-h"><h2>How it is measured.</h2></div>
+  <dl class="spec">
+    <dt>Load</dt><dd><b>1, 50, 100, 150, 200 and 250 agents.</b> At each level N: N agents, 3 people watching live, switching threads every 300 s, and status polling that grows with N; each agent waits 60 s between turns (5 s at 1 agent). Each agent is one streaming session on the server; 1 agent is one developer starting a new thread on the same large database. At the higher levels the server may saturate: those attempts are published and flagged with how many agents were served, and their latency is context only.</dd>
+    <dt>Run</dt><dd><b>60 s warm-up, 300 s measured, three attempts</b> per level. The value is the median of the three.</dd>
+    <dt>Machine</dt><dd>{{machines}}</dd>
+    <dt>Levels</dt><dd>The overview leads with <b>1, 50, 100 and 250 agents</b>; every chart page offers all six load levels, and the empty-database cell where it adds information.</dd>
+    <dt>Data</dt><dd><b>{{database}}:</b> {{shape}}The recipe is published on <a href="/methodology/">Methodology</a> and the files on <a href="/downloads/">Downloads</a>.</dd>
+    <dt>Verdict</dt><dd>Each record is compared with the median of the previous seven. A change counts only <b>beyond the metric's measured noise band plus five points</b>. Everything else is within noise.</dd>
+    <dt>Fork</dt><dd><a href="https://github.com/navidnadali/t3code">github.com/navidnadali/t3code</a>, built from its public tag on the same machine, and compared with {{forkbase}}.</dd>
+    <dt>Empty cell</dt><dd>A seventh cell every day: <b>a fresh install, one agent</b>, on an empty database, for startup, baseline and single-turn metrics. {{attempts}}.</dd>
+  </dl>
+</section>
+
+<section class="sec">
+  <div class="sec-h"><h2>Not T3 Code.</h2></div>
+  <p class="lede">t3cp.io is not affiliated with, endorsed by or part of T3 Code or its owners. T3 Code is their brand and copyright. This site measures their published releases and links to them.</p>
+  <p class="lede">Run and funded by <a href="https://corefinity.com">Corefinity</a>, which pays for the machines and has no other role in the numbers.</p>
+</section>
+
+<section class="sec" id="data">
+  <div class="sec-h"><div><h2>Take the data.</h2><p>CC BY 4.0, attributed to t3cp.io. Every file lists its sha256 on <a href="/downloads/">Downloads</a>.</p></div></div>
+  <ul class="plain">{{downloads}}</ul>
+</section>
+
+<section class="sec" id="licences">
+  <div class="sec-h"><h2>Licences.</h2></div>
+  <dl class="spec">
+    <dt>Code</dt><dd><b>MIT</b>, matching T3 Code's own licence (MIT, © 2026 T3 Tools Inc.). Harness code derived from T3 Code keeps that notice; the site, the aggregator and the pipeline carry the project's MIT notice beside it. <code>LICENSE</code> in the repository.</dd>
+    <dt>Data</dt><dd><b>CC BY 4.0</b>, attributed to t3cp.io: "Data: t3cp.io, CC BY 4.0" with a link is enough. <code>data/LICENSE</code> in the repository.</dd>
+  </dl>
+</section>
+
+<section class="sec" id="contact">
+  <div class="sec-h"><h2>Visits and corrections.</h2></div>
+  <p class="lede">{{analytics}} Corrections: open an issue on {{repository}}.</p>
+</section>

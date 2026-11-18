@@ -1,0 +1,72 @@
+# ci: tests, the public-tree audit and the supply-chain checks, as ONE job (one billed job per run)
+# on pushes to main and pull requests to main. Read-only token, no secrets; actions pinned by full
+# commit SHA. Every check runs even when an earlier one fails, so one run reports them all; a newer
+# run on the same ref cancels the older one. tools/audit/pre-push.sh runs the same checks locally.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: ci
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.13.1
+          package-manager-cache: false
+      - name: node --test
+        if: ${{ !cancelled() }}
+        run: node --test --test-timeout=600000
+      - name: "self-scan: audit-public-tree over every file of the repository"
+        if: ${{ !cancelled() }}
+        run: node tools/audit/audit-public-tree.mjs --rev HEAD
+      - name: audit-public-tree (diff and commit messages)
+        if: ${{ !cancelled() }}
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.event.after }}
+        run: |
+          set -euo pipefail
+          # Every pushed commit is public history, so each is also read as its own diff (--each). When the
+          # push's before is not in the clone (a force-push's old head, a new branch), the pushed commits
+          # are unknown: then every commit of the history is read, root included.
+          if [ "$EVENT_NAME" = pull_request ]; then
+            node tools/audit/audit-public-tree.mjs --diff "$PR_BASE...$PR_HEAD" --messages "$PR_BASE..$PR_HEAD" --each "$PR_BASE..$PR_HEAD"
+          elif [ -n "$PUSH_BEFORE" ] && ! [[ "$PUSH_BEFORE" =~ ^0+$ ]] && git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then
+            node tools/audit/audit-public-tree.mjs --diff "$PUSH_BEFORE..$PUSH_AFTER" --messages "$PUSH_BEFORE..$PUSH_AFTER" --each "$PUSH_BEFORE..$PUSH_AFTER"
+          else
+            node tools/audit/audit-public-tree.mjs --messages "$PUSH_AFTER" --each "$PUSH_AFTER"
+          fi
+      - name: actionlint (pinned, sha256-verified)
+        if: ${{ !cancelled() }}
+        run: tools/audit/actionlint.sh
+      - name: action pins
+        if: ${{ !cancelled() }}
+        run: node tools/audit/check-action-pins.mjs
+      - name: workflow permissions
+        if: ${{ !cancelled() }}
+        run: node tools/audit/check-permissions.mjs
+      - name: data/ written only by the pipeline
+        if: ${{ !cancelled() }}
+        run: node tools/audit/check-data-writers.mjs --event "$GITHUB_EVENT_PATH" --event-name "$GITHUB_EVENT_NAME"

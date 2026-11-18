@@ -1,0 +1,390 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://t3cp.io/schema/records-index-1.json",
+  "title": "t3cp/records-index/1: every nightly record, by date and tag (read by the compare page and the site build)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "generated_at",
+    "records"
+  ],
+  "properties": {
+    "schema": {
+      "const": "t3cp/records-index/1"
+    },
+    "synthetic": {
+      "const": true,
+      "description": "Present only on development data from tools/t3cp/dev/synth-data.mjs; refused under data/."
+    },
+    "generated_at": {
+      "$ref": "#/$defs/datetime"
+    },
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "date",
+          "tag",
+          "sha",
+          "platforms"
+        ],
+        "properties": {
+          "date": {
+            "$ref": "#/$defs/date"
+          },
+          "tag": {
+            "$ref": "#/$defs/nightly_tag"
+          },
+          "sha": {
+            "$ref": "#/$defs/sha"
+          },
+          "platforms": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "linux-x64": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "record_id",
+                  "status",
+                  "path",
+                  "segment",
+                  "banded",
+                  "gates"
+                ],
+                "properties": {
+                  "record_id": {
+                    "$ref": "#/$defs/record_id"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "complete",
+                      "partial",
+                      "missing"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^(records/(linux-x64|darwin-arm64)/[A-Za-z0-9.-]+|fork/[A-Za-z0-9.-]+|base/[A-Za-z0-9.-]+)\\.json$"
+                  },
+                  "segment": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "once"
+                    ],
+                    "description": "Per level the record has, an opaque id: two records compare at a level exactly when their ids there are equal (the same fixture era, harness, suite, profile, cell load arguments and compaction era; a record of unknown compaction era shares its ids with no other record). Each id is derived from its segment alone (48 bits of a hash), so adding or removing a record never changes another record's ids. Ids are shared across platforms: the platform is not part of the key, so a reader checks the platform first.",
+                    "properties": {
+                      "1": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 281474976710655
+                      },
+                      "50": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 281474976710655
+                      },
+                      "100": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 281474976710655
+                      },
+                      "150": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 281474976710655
+                      },
+                      "200": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 281474976710655
+                      },
+                      "250": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 281474976710655
+                      },
+                      "1e": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 281474976710655
+                      },
+                      "once": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 281474976710655
+                      }
+                    }
+                  },
+                  "banded": {
+                    "type": "boolean",
+                    "description": "Whether a noise band applies to the record's non-counter metrics: only in the scheduled compaction era. A band applies to a comparison only when both records are banded."
+                  },
+                  "gates": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "once"
+                    ],
+                    "description": "Per level, the validity gates' result: pass (every metric there passes), client (the cell had client errors or unfinished calls: only the gate_exempt metrics pass), fail (no metric passes: the CPU is not the platform's pinned model, the cell has a contaminated valid attempt, or there is no cell). once is the CPU pin alone; a once-per-record metric reads once at either of its levels (once and 1e). The keys are segment's. A missing key fails. Published for nightlies, the records this file lists; a fork release's verdicts come through the aggregator's own compare files.",
+                    "properties": {
+                      "1": {
+                        "type": "string",
+                        "enum": [
+                          "pass",
+                          "client",
+                          "fail"
+                        ]
+                      },
+                      "50": {
+                        "type": "string",
+                        "enum": [
+                          "pass",
+                          "client",
+                          "fail"
+                        ]
+                      },
+                      "100": {
+                        "type": "string",
+                        "enum": [
+                          "pass",
+                          "client",
+                          "fail"
+                        ]
+                      },
+                      "150": {
+                        "type": "string",
+                        "enum": [
+                          "pass",
+                          "client",
+                          "fail"
+                        ]
+                      },
+                      "200": {
+                        "type": "string",
+                        "enum": [
+                          "pass",
+                          "client",
+                          "fail"
+                        ]
+                      },
+                      "250": {
+                        "type": "string",
+                        "enum": [
+                          "pass",
+                          "client",
+                          "fail"
+                        ]
+                      },
+                      "1e": {
+                        "type": "string",
+                        "enum": [
+                          "pass",
+                          "client",
+                          "fail"
+                        ]
+                      },
+                      "once": {
+                        "type": "string",
+                        "enum": [
+                          "pass",
+                          "client",
+                          "fail"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "darwin-arm64": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "record_id",
+                  "status",
+                  "path",
+                  "segment",
+                  "banded",
+                  "gates"
+                ],
+                "properties": {
+                  "record_id": {
+                    "$ref": "#/$defs/record_id"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "complete",
+                      "partial",
+                      "missing"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "pattern": "^(records/(linux-x64|darwin-arm64)/[A-Za-z0-9.-]+|fork/[A-Za-z0-9.-]+|base/[A-Za-z0-9.-]+)\\.json$"
+                  },
+                  "segment": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "once"
+                    ],
+                    "description": "Per level the record has, an opaque id: two records compare at a level exactly when their ids there are equal (the same fixture era, harness, suite, profile, cell load arguments and compaction era; a record of unknown compaction era shares its ids with no other record). Each id is derived from its segment alone (48 bits of a hash), so adding or removing a record never changes another record's ids. Ids are shared across platforms: the platform is not part of the key, so a reader checks the platform first.",
+                    "properties": {
+                      "1": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 281474976710655
+                      },
+                      "50": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 281474976710655
+                      },
+                      "100": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 281474976710655
+                      },
+                      "150": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 281474976710655
+                      },
+                      "200": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 281474976710655
+                      },
+                      "250": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 281474976710655
+                      },
+                      "1e": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 281474976710655
+                      },
+                      "once": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 281474976710655
+                      }
+                    }
+                  },
+                  "banded": {
+                    "type": "boolean",
+                    "description": "Whether a noise band applies to the record's non-counter metrics: only in the scheduled compaction era. A band applies to a comparison only when both records are banded."
+                  },
+                  "gates": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "once"
+                    ],
+                    "description": "Per level, the validity gates' result: pass (every metric there passes), client (the cell had client errors or unfinished calls: only the gate_exempt metrics pass), fail (no metric passes: the CPU is not the platform's pinned model, the cell has a contaminated valid attempt, or there is no cell). once is the CPU pin alone; a once-per-record metric reads once at either of its levels (once and 1e). The keys are segment's. A missing key fails. Published for nightlies, the records this file lists; a fork release's verdicts come through the aggregator's own compare files.",
+                    "properties": {
+                      "1": {
+                        "type": "string",
+                        "enum": [
+                          "pass",
+                          "client",
+                          "fail"
+                        ]
+                      },
+                      "50": {
+                        "type": "string",
+                        "enum": [
+                          "pass",
+                          "client",
+                          "fail"
+                        ]
+                      },
+                      "100": {
+                        "type": "string",
+                        "enum": [
+                          "pass",
+                          "client",
+                          "fail"
+                        ]
+                      },
+                      "150": {
+                        "type": "string",
+                        "enum": [
+                          "pass",
+                          "client",
+                          "fail"
+                        ]
+                      },
+                      "200": {
+                        "type": "string",
+                        "enum": [
+                          "pass",
+                          "client",
+                          "fail"
+                        ]
+                      },
+                      "250": {
+                        "type": "string",
+                        "enum": [
+                          "pass",
+                          "client",
+                          "fail"
+                        ]
+                      },
+                      "1e": {
+                        "type": "string",
+                        "enum": [
+                          "pass",
+                          "client",
+                          "fail"
+                        ]
+                      },
+                      "once": {
+                        "type": "string",
+                        "enum": [
+                          "pass",
+                          "client",
+                          "fail"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "date": {
+      "type": "string",
+      "pattern": "^20\\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+    },
+    "datetime": {
+      "type": "string",
+      "pattern": "^20\\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])T([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(\\.\\d{1,3})?Z$"
+    },
+    "nightly_tag": {
+      "type": "string",
+      "pattern": "^v\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}-nightly\\.20\\d{6}\\.\\d{1,6}$"
+    },
+    "record_id": {
+      "type": "string",
+      "pattern": "^(20\\d{2}-\\d{2}-\\d{2}\\.(linux-x64|darwin-arm64)\\.nightly|\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}-perf\\.\\d{1,3}\\.(linux-x64|darwin-arm64)\\.fork|[0-9a-f]{12}\\.(linux-x64|darwin-arm64)\\.base)$"
+    },
+    "sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    }
+  }
+}

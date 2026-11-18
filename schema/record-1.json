@@ -1,0 +1,2429 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://t3cp.io/schema/record-1.json",
+  "title": "t3cp/record/1: one benchmark record for one release on one platform",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "record_id",
+    "kind",
+    "release",
+    "base",
+    "platform",
+    "harness",
+    "fixture",
+    "workload",
+    "era",
+    "cells",
+    "extras",
+    "host_guard",
+    "status",
+    "status_reason",
+    "compaction_schedule",
+    "pipeline"
+  ],
+  "properties": {
+    "schema": {
+      "const": "t3cp/record/1"
+    },
+    "synthetic": {
+      "const": true,
+      "description": "Present only on development data from tools/t3cp/dev/synth-data.mjs; refused under data/."
+    },
+    "record_id": {
+      "$ref": "#/$defs/record_id"
+    },
+    "kind": {
+      "$ref": "#/$defs/kind"
+    },
+    "release": {
+      "$ref": "#/$defs/release"
+    },
+    "base": {
+      "$ref": "#/$defs/base"
+    },
+    "platform": {
+      "$ref": "#/$defs/platform"
+    },
+    "harness": {
+      "$ref": "#/$defs/harness"
+    },
+    "fixture": {
+      "$ref": "#/$defs/fixture"
+    },
+    "workload": {
+      "$ref": "#/$defs/workload"
+    },
+    "era": {
+      "$ref": "#/$defs/era"
+    },
+    "cells": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "1": {
+          "$ref": "#/$defs/cell_record"
+        },
+        "50": {
+          "$ref": "#/$defs/cell_record"
+        },
+        "100": {
+          "$ref": "#/$defs/cell_record"
+        },
+        "150": {
+          "$ref": "#/$defs/cell_record"
+        },
+        "200": {
+          "$ref": "#/$defs/cell_record"
+        },
+        "250": {
+          "$ref": "#/$defs/cell_record"
+        },
+        "1e": {
+          "$ref": "#/$defs/cell_record"
+        }
+      }
+    },
+    "extras": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fixture",
+        "empty",
+        "migration",
+        "weekly"
+      ],
+      "properties": {
+        "fixture": {
+          "$ref": "#/$defs/extras_part"
+        },
+        "empty": {
+          "$ref": "#/$defs/extras_part"
+        },
+        "migration": {
+          "$ref": "#/$defs/migration"
+        },
+        "weekly": {
+          "type": "null"
+        }
+      }
+    },
+    "host_guard": {
+      "$ref": "#/$defs/host_guard"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "complete",
+        "partial",
+        "missing"
+      ]
+    },
+    "status_reason": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "preempted",
+        "cpu_mismatch",
+        "archive_missing",
+        "export_failed",
+        "contaminated",
+        "runner_offline",
+        "timeout",
+        "attempts_invalid",
+        "migration_failed",
+        "build_failed",
+        null
+      ]
+    },
+    "compaction_schedule": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "unscheduled",
+        "scheduled",
+        null
+      ],
+      "description": "The compaction schedule era: unscheduled releases start a maintenance pass after every start (their own era; no verdict, reference or band crosses it); null when no attempt could tell"
+    },
+    "pipeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "generated_at",
+        "run_id",
+        "lease",
+        "exporter_version",
+        "exporter_files_sha256",
+        "runner_version",
+        "runner_files_sha256"
+      ],
+      "properties": {
+        "generated_at": {
+          "$ref": "#/$defs/datetime"
+        },
+        "run_id": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "lease": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 99
+        },
+        "exporter_version": {
+          "type": "string",
+          "pattern": "^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$"
+        },
+        "exporter_files_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "runner_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^t3cp-runner/\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$"
+        },
+        "runner_files_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "attempt_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "n",
+        "valid",
+        "problems",
+        "started_at",
+        "cycle_s",
+        "contaminated",
+        "maintenance_in_window",
+        "saturated",
+        "saturated_by",
+        "agents_total"
+      ],
+      "properties": {
+        "n": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9
+        },
+        "valid": {
+          "type": "boolean"
+        },
+        "problems": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/problem"
+          },
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "started_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^20\\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])T([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(\\.\\d{1,3})?Z$"
+        },
+        "cycle_s": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "contaminated": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "true: other load on the machine disturbed the attempt; false: the host guard checked it and found it clean; null: the host guard could not judge it (problem host_guard_unavailable)"
+        },
+        "maintenance_in_window": {
+          "type": [
+            "integer",
+            "string",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000,
+          "pattern": "^(unscheduled_pre_marker|unobserved_no_span)$"
+        },
+        "saturated": {
+          "type": "boolean",
+          "description": "valid, but the server did not serve every agent in the window"
+        },
+        "saturated_by": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/problem"
+          },
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "agents_total": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "distribution": {
+          "$ref": "#/$defs/distribution_check"
+        },
+        "metric_reasons": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Per metric whose value is null although the attempt is valid, why: not_measured_saturated (a count taken by start time on a saturated attempt).",
+          "properties": {
+            "turns_completed": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "agents_served": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "turn_p50_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "turn_p95_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "dispatch_p50_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "dispatch_p95_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "first_item_p50_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "push_p95_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "switch_open_p50_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "switch_sync_p95_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "shell_sync_p95_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "poll_thread_read_p95_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "poll_project_list_p95_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "poll_http_bounded_p95_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "session_mcp_p95_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "thread_events_per_s": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "shell_events_per_s": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "client_errors": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "client_unfinished": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "main_busy_pct": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "main_user_pct": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "main_sys_pct": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "proc_cpu_pct": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "workers_cpu_pct": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "children_cpu_pct": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "children_n": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "elu": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "elu_max": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "eld_p50_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "eld_p99_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "eld_max_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "server_eld_max_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "gc_ms_per_s": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "stall_share_40ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "stall_share_100ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "stall_share_500ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "main_busy_1s_p95": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "main_runq_wait_ms_per_s": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "main_minflt_per_s": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "main_vcs_per_s": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "main_nvcs_per_s": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "main_syscr_per_s": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "main_syscw_per_s": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "proc_syscr_per_s": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "rss_peak_mib": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "heap_peak_mib": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "heap_floor_mib": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "wal_max_mib": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "wal_median_mib": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "reader_tx_avg_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "reader_tx_p95_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "reader_tx_wait_avg_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "reader_tx_wait_p95_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "reader_stmt_p95_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "writer_tx_avg_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "writer_tx_p95_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "writer_tx_wait_p95_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "reader_tx_per_s": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "writer_tx_per_s": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "reader_pool_occupancy": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "reader_free_while_waiting_s": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "sql_time_ms_per_s": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "get_thread_shell_p95_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "snapshot_window_p95_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "mcp_auth_p95_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "turn_start_p50_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "handle_run_update_p95_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "effect_queue_wait_p50_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "effect_queue_wait_p90_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "spans_in_window": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "trace_dropped": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "git_commands_per_turn": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "git_ms_per_turn": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "shutdown_s": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "buffer_full_warnings": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "server_warn_lines": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "server_error_lines": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "stream_resyncs": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "host_busy_pct": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "host_steal_pct": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "host_iowait_pct": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "fork_effect_queue_wait_p95_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "fork_run_effect_p95_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "fork_decode_projection_p95_ms": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            },
+            "fork_admission_changes": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "base": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "tag",
+        "date",
+        "sha"
+      ],
+      "properties": {
+        "tag": {
+          "$ref": "#/$defs/nightly_tag"
+        },
+        "date": {
+          "$ref": "#/$defs/date"
+        },
+        "sha": {
+          "$ref": "#/$defs/sha"
+        }
+      }
+    },
+    "cell_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sessions",
+        "subscribers",
+        "pollers",
+        "fixture"
+      ],
+      "properties": {
+        "sessions": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "subscribers": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "pollers": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "turn_gap_s": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "switch_interval_s": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "poll_interval_s": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "mode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "fresh",
+            "mixed",
+            null
+          ]
+        },
+        "distribution_tolerance": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 5,
+          "description": "The driver's recorded distribution tolerance for fixture-backed cells; null for fresh cells. A change starts a new reference window."
+        },
+        "fixture": {
+          "type": "string",
+          "enum": [
+            "era",
+            "none"
+          ]
+        }
+      }
+    },
+    "cell_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempts",
+        "valid",
+        "total",
+        "saturated",
+        "agents_total",
+        "metrics"
+      ],
+      "properties": {
+        "attempts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/attempt_summary"
+          },
+          "maxItems": 9
+        },
+        "valid": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9
+        },
+        "saturated": {
+          "type": "boolean",
+          "description": "the median agents served is below agents_total: latencies here are context, without verdicts"
+        },
+        "agents_total": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "metrics": {
+          "$ref": "#/$defs/level_stats"
+        }
+      }
+    },
+    "date": {
+      "type": "string",
+      "pattern": "^20\\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+    },
+    "datetime": {
+      "type": "string",
+      "pattern": "^20\\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])T([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(\\.\\d{1,3})?Z$"
+    },
+    "distribution_check": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "test",
+        "p50_ratio",
+        "p95_ratio",
+        "passed"
+      ],
+      "properties": {
+        "test": {
+          "type": "string",
+          "enum": [
+            "binomial",
+            "ratio_tolerance"
+          ]
+        },
+        "p50_ratio": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "p95_ratio": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "description": "The driver's post-window check that the exercised threads are a plausible sample of the fixture (the sample is drawn with the record's seed, so the attempts of a cell share it): their p50 and p95 turn-item ratios to the fixture's, and its verdict (binomial: an exact two-sided test of the counts below the fixture's p50 and above its p95; ratio_tolerance: both ratios within the cell's distribution_tolerance). A failed check is the problem distribution_mismatch. Null when the cell has no fixture threads to match."
+    },
+    "era": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "has",
+        "missing"
+      ],
+      "properties": {
+        "has": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "effect_queue_wait",
+              "lock_wait",
+              "gauges",
+              "run_metrics"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "missing": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "effect_queue_wait",
+              "lock_wait",
+              "gauges",
+              "run_metrics"
+            ]
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "extras_part": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "metrics"
+      ],
+      "properties": {
+        "metrics": {
+          "$ref": "#/$defs/record_stats"
+        }
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "sha256",
+        "bytes",
+        "migration",
+        "recipe_sha256"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^(large-\\d{2,3}(-s\\d{1,3})?|none)$",
+          "description": "large-<migration>: an era fixture; -s<pct>: a scaled validation build; none: an empty database. Only plain large-<n> records are published."
+        },
+        "sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "migration": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 9999
+        },
+        "recipe_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "harness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "sha",
+        "files_sha256",
+        "driver_sha256",
+        "fakes_sha256",
+        "preload_sha256"
+      ],
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^t3cp-harness/\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$"
+        },
+        "sha": {
+          "$ref": "#/$defs/sha",
+          "description": "In a record: the public commit the harness version's tag points at, as pinned in tools/t3cp/public-refs.json. An attempt carries the commit its run reported; merge checks the four hashes below against the pin and replaces it with that public commit."
+        },
+        "files_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "run.ts's identity.harness_files_sha256, by its exported harnessFilesSha256(): sha256 over the lines '<repository-relative path>\\0<sha256 of the file>\\n' for every file of the harness's run-time closure (package.json, tools/server-bench, apps/server/scripts/dev-replay-agent.ts and the recordings), sorted by path, tests, docs and generated state excluded."
+        },
+        "driver_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "run.ts's knobs.workload.driver_sha256, by its exported driverHash(): sha256 over '<name>\\0<sha256>\\n' lines for the load driver, its module directory and the local modules they import."
+        },
+        "fakes_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "run.ts's knobs.workload.fakes_sha256, by its exported fakesHash(): sha256 over '<path>\\0<sha256>\\n' lines for the replaying fake providers' files (fake-claude, fake-codex, fake-acp, fake-common; tests and READMEs excluded) and the local modules they import."
+        },
+        "preload_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "run.ts's identity.preload.sha256: sha256 over the lines '<file name>\\0<sha256 of the file>\\n' for the preload file the run loaded (by default tools/server-bench/preload/bench-preload.cjs; run.ts --preload names another) and then bench-preload.mjs in that file's directory, each when present; null when the run loaded no preload."
+        }
+      }
+    },
+    "host_guard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contaminated",
+        "host_busy_pct_max",
+        "host_steal_pct_max",
+        "host_iowait_pct_max",
+        "foreign_pct_mean_max",
+        "thermal_limit_min"
+      ],
+      "properties": {
+        "contaminated": {
+          "type": "boolean"
+        },
+        "host_busy_pct_max": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "host_steal_pct_max": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "host_iowait_pct_max": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "foreign_pct_mean_max": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "thermal_limit_min": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      }
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "nightly",
+        "fork",
+        "base"
+      ],
+      "description": "base: an upstream tree built from source at a fork release's merge-base SHA"
+    },
+    "level_stats": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "turns_completed": {
+          "$ref": "#/$defs/stat_int_0_1000000000"
+        },
+        "agents_served": {
+          "$ref": "#/$defs/stat_int_0_1000000000"
+        },
+        "turn_p50_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "turn_p95_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "dispatch_p50_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "dispatch_p95_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "first_item_p50_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "push_p95_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "switch_open_p50_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "switch_sync_p95_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "shell_sync_p95_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "poll_thread_read_p95_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "poll_project_list_p95_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "poll_http_bounded_p95_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "session_mcp_p95_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "thread_events_per_s": {
+          "$ref": "#/$defs/stat_num_0_1000000000"
+        },
+        "shell_events_per_s": {
+          "$ref": "#/$defs/stat_num_0_1000000000"
+        },
+        "client_errors": {
+          "$ref": "#/$defs/stat_int_0_1000000000"
+        },
+        "client_unfinished": {
+          "$ref": "#/$defs/stat_int_0_1000000000"
+        },
+        "main_busy_pct": {
+          "$ref": "#/$defs/stat_num_0_100000"
+        },
+        "main_user_pct": {
+          "$ref": "#/$defs/stat_num_0_100000"
+        },
+        "main_sys_pct": {
+          "$ref": "#/$defs/stat_num_0_100000"
+        },
+        "proc_cpu_pct": {
+          "$ref": "#/$defs/stat_num_0_100000"
+        },
+        "workers_cpu_pct": {
+          "$ref": "#/$defs/stat_num_0_100000"
+        },
+        "children_cpu_pct": {
+          "$ref": "#/$defs/stat_num_0_100000"
+        },
+        "children_n": {
+          "$ref": "#/$defs/stat_int_0_1000000000"
+        },
+        "elu": {
+          "$ref": "#/$defs/stat_num_0_1"
+        },
+        "elu_max": {
+          "$ref": "#/$defs/stat_num_0_1"
+        },
+        "eld_p50_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "eld_p99_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "eld_max_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "server_eld_max_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "gc_ms_per_s": {
+          "$ref": "#/$defs/stat_num_0_1000000"
+        },
+        "stall_share_40ms": {
+          "$ref": "#/$defs/stat_num_0_100000"
+        },
+        "stall_share_100ms": {
+          "$ref": "#/$defs/stat_num_0_100000"
+        },
+        "stall_share_500ms": {
+          "$ref": "#/$defs/stat_num_0_100000"
+        },
+        "main_busy_1s_p95": {
+          "$ref": "#/$defs/stat_num_0_100000"
+        },
+        "main_runq_wait_ms_per_s": {
+          "$ref": "#/$defs/stat_num_0_1000000"
+        },
+        "main_minflt_per_s": {
+          "$ref": "#/$defs/stat_num_0_1000000000"
+        },
+        "main_vcs_per_s": {
+          "$ref": "#/$defs/stat_num_0_1000000000"
+        },
+        "main_nvcs_per_s": {
+          "$ref": "#/$defs/stat_num_0_1000000000"
+        },
+        "main_syscr_per_s": {
+          "$ref": "#/$defs/stat_num_0_1000000000"
+        },
+        "main_syscw_per_s": {
+          "$ref": "#/$defs/stat_num_0_1000000000"
+        },
+        "proc_syscr_per_s": {
+          "$ref": "#/$defs/stat_num_0_1000000000"
+        },
+        "rss_peak_mib": {
+          "$ref": "#/$defs/stat_num_0_10000000"
+        },
+        "heap_peak_mib": {
+          "$ref": "#/$defs/stat_num_0_10000000"
+        },
+        "heap_floor_mib": {
+          "$ref": "#/$defs/stat_num_0_10000000"
+        },
+        "wal_max_mib": {
+          "$ref": "#/$defs/stat_num_0_10000000"
+        },
+        "wal_median_mib": {
+          "$ref": "#/$defs/stat_num_0_10000000"
+        },
+        "reader_tx_avg_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "reader_tx_p95_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "reader_tx_wait_avg_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "reader_tx_wait_p95_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "reader_stmt_p95_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "writer_tx_avg_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "writer_tx_p95_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "writer_tx_wait_p95_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "reader_tx_per_s": {
+          "$ref": "#/$defs/stat_num_0_1000000000"
+        },
+        "writer_tx_per_s": {
+          "$ref": "#/$defs/stat_num_0_1000000000"
+        },
+        "reader_pool_occupancy": {
+          "$ref": "#/$defs/stat_num_0_1"
+        },
+        "reader_free_while_waiting_s": {
+          "$ref": "#/$defs/stat_num_0_1000000"
+        },
+        "sql_time_ms_per_s": {
+          "$ref": "#/$defs/stat_num_0_1000000"
+        },
+        "get_thread_shell_p95_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "snapshot_window_p95_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "mcp_auth_p95_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "turn_start_p50_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "handle_run_update_p95_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "effect_queue_wait_p50_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "effect_queue_wait_p90_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "spans_in_window": {
+          "$ref": "#/$defs/stat_int_0_1000000000"
+        },
+        "trace_dropped": {
+          "$ref": "#/$defs/stat_int_0_1000000000"
+        },
+        "git_commands_per_turn": {
+          "$ref": "#/$defs/stat_int_0_1000000000"
+        },
+        "git_ms_per_turn": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "shutdown_s": {
+          "$ref": "#/$defs/stat_num_0_1000000"
+        },
+        "buffer_full_warnings": {
+          "$ref": "#/$defs/stat_int_0_1000000000"
+        },
+        "server_warn_lines": {
+          "$ref": "#/$defs/stat_int_0_1000000000"
+        },
+        "server_error_lines": {
+          "$ref": "#/$defs/stat_int_0_1000000000"
+        },
+        "stream_resyncs": {
+          "$ref": "#/$defs/stat_int_0_1000000000"
+        },
+        "host_busy_pct": {
+          "$ref": "#/$defs/stat_num_0_100000"
+        },
+        "host_steal_pct": {
+          "$ref": "#/$defs/stat_num_0_100000"
+        },
+        "host_iowait_pct": {
+          "$ref": "#/$defs/stat_num_0_100000"
+        },
+        "fork_effect_queue_wait_p95_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "fork_run_effect_p95_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "fork_decode_projection_p95_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "fork_admission_changes": {
+          "$ref": "#/$defs/stat_int_0_1000000000"
+        }
+      }
+    },
+    "migration": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "per_migration"
+      ],
+      "properties": {
+        "per_migration": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "s"
+            ],
+            "properties": {
+              "id": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9999
+              },
+              "s": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          },
+          "maxItems": 200
+        }
+      }
+    },
+    "nightly_tag": {
+      "type": "string",
+      "pattern": "^v\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}-nightly\\.20\\d{6}\\.\\d{1,6}$"
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "machine",
+        "cpu_model",
+        "cores",
+        "memory_gib",
+        "os",
+        "kernel",
+        "provisioning",
+        "runtime_node"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/platform_id"
+        },
+        "machine": {
+          "type": "string",
+          "pattern": "^(n2d-standard-16|Mac\\d{1,2},\\d{1,2})$"
+        },
+        "cpu_model": {
+          "type": "string",
+          "pattern": "^(AMD EPYC 7B13|Apple M[1-9]( Pro| Max| Ultra)?)$"
+        },
+        "cores": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 256
+        },
+        "memory_gib": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "os": {
+          "type": "string",
+          "pattern": "^(Debian \\d{1,2}|macOS \\d{2}(\\.\\d{1,2}){0,2})$"
+        },
+        "kernel": {
+          "type": "string",
+          "pattern": "^\\d{1,2}\\.\\d{1,3}(\\.\\d{1,3})?(\\+deb\\d{2})?(-cloud)?(-amd64|-arm64)?$"
+        },
+        "provisioning": {
+          "type": "string",
+          "enum": [
+            "spot",
+            "on-demand",
+            "dedicated"
+          ]
+        },
+        "runtime_node": {
+          "type": "string",
+          "pattern": "^\\d{2}\\.\\d{1,2}\\.\\d{1,2}$"
+        }
+      }
+    },
+    "platform_id": {
+      "type": "string",
+      "enum": [
+        "linux-x64",
+        "darwin-arm64"
+      ]
+    },
+    "problem": {
+      "type": "string",
+      "enum": [
+        "server_start_failed",
+        "server_auth_failed",
+        "server_exited",
+        "driver_failed",
+        "driver_timeout",
+        "pid_gone",
+        "window_too_short",
+        "main_thread_missing",
+        "trace_missing",
+        "trace_coverage",
+        "trace_rotated_during_read",
+        "trace_stale",
+        "otlp_no_samples",
+        "db_ready_timeout",
+        "db_setup_failed",
+        "node_flags_mismatch",
+        "node_flags_unverified",
+        "preload_not_loaded",
+        "per_thread_unavailable",
+        "sessions_starved",
+        "driver_saturated",
+        "session_mcp_missing",
+        "call_timeouts",
+        "error_rate",
+        "distribution_mismatch",
+        "maintenance_in_window",
+        "maintenance_unverified",
+        "contaminated",
+        "host_guard_unavailable",
+        "attempt_invalid",
+        "other_problem"
+      ]
+    },
+    "record_id": {
+      "type": "string",
+      "pattern": "^(20\\d{2}-\\d{2}-\\d{2}\\.(linux-x64|darwin-arm64)\\.nightly|\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}-perf\\.\\d{1,3}\\.(linux-x64|darwin-arm64)\\.fork|[0-9a-f]{12}\\.(linux-x64|darwin-arm64)\\.base)$"
+    },
+    "record_stats": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cpu_per_session_pct": {
+          "$ref": "#/$defs/stat_num_neg100000_100000"
+        },
+        "listening_first_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "listening_warm_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "accept_first_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "accept_warm_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "db_ready_first_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "db_ready_warm_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "first_boot_migrations_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "migration_s": {
+          "$ref": "#/$defs/stat_num_0_1000000"
+        },
+        "migration_extra_disk_mib": {
+          "$ref": "#/$defs/stat_num_0_10000000"
+        },
+        "snapshot_full_get_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        },
+        "snapshot_full_get_bytes": {
+          "$ref": "#/$defs/stat_int_0_10000000000000"
+        },
+        "first_turn_after_start_ms": {
+          "$ref": "#/$defs/stat_num_0_100000000"
+        }
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tag",
+        "sha",
+        "date",
+        "version",
+        "archive",
+        "binary_sha256",
+        "build"
+      ],
+      "properties": {
+        "tag": {
+          "$ref": "#/$defs/tag"
+        },
+        "sha": {
+          "$ref": "#/$defs/sha"
+        },
+        "date": {
+          "$ref": "#/$defs/date"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "archive": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "sha256",
+            "bytes"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "pattern": "^t3-\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}(-nightly\\.20\\d{6}\\.\\d{1,6}|-perf\\.\\d{1,3})?-(linux-x64|darwin-arm64)\\.tar\\.gz$"
+            },
+            "sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "bytes": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            }
+          }
+        },
+        "binary_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "build": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "source_repo",
+            "script_sha256"
+          ],
+          "description": "Fork and base records: the public repository the tree was built from (its commit is release.sha) and the build script's sha256; the built t3 is binary_sha256. Null for nightlies (the upstream archive).",
+          "properties": {
+            "source_repo": {
+              "type": "string",
+              "enum": [
+                "github.com/navidnadali/t3code",
+                "github.com/pingdotgg/t3code"
+              ]
+            },
+            "script_sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        }
+      }
+    },
+    "sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "stat_int_0_1000000000": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "median",
+        "min",
+        "max",
+        "n",
+        "values"
+      ],
+      "properties": {
+        "median": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000
+        },
+        "min": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000
+        },
+        "max": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000
+        },
+        "n": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1000000000
+          },
+          "maxItems": 9
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "fewer_than_two_served_levels",
+            "not_measured_saturated",
+            "extra_timeout",
+            "no_setup_span"
+          ]
+        }
+      }
+    },
+    "stat_int_0_10000000000000": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "median",
+        "min",
+        "max",
+        "n",
+        "values"
+      ],
+      "properties": {
+        "median": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 10000000000000
+        },
+        "min": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 10000000000000
+        },
+        "max": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 10000000000000
+        },
+        "n": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 10000000000000
+          },
+          "maxItems": 9
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "fewer_than_two_served_levels",
+            "not_measured_saturated",
+            "extra_timeout",
+            "no_setup_span"
+          ]
+        }
+      }
+    },
+    "stat_num_0_1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "median",
+        "min",
+        "max",
+        "n",
+        "values"
+      ],
+      "properties": {
+        "median": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "min": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "max": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "n": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1
+          },
+          "maxItems": 9
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "fewer_than_two_served_levels",
+            "not_measured_saturated",
+            "extra_timeout",
+            "no_setup_span"
+          ]
+        }
+      }
+    },
+    "stat_num_0_100000": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "median",
+        "min",
+        "max",
+        "n",
+        "values"
+      ],
+      "properties": {
+        "median": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "min": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "max": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "n": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "maxItems": 9
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "fewer_than_two_served_levels",
+            "not_measured_saturated",
+            "extra_timeout",
+            "no_setup_span"
+          ]
+        }
+      }
+    },
+    "stat_num_0_1000000": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "median",
+        "min",
+        "max",
+        "n",
+        "values"
+      ],
+      "properties": {
+        "median": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "min": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "max": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "n": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "maxItems": 9
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "fewer_than_two_served_levels",
+            "not_measured_saturated",
+            "extra_timeout",
+            "no_setup_span"
+          ]
+        }
+      }
+    },
+    "stat_num_0_10000000": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "median",
+        "min",
+        "max",
+        "n",
+        "values"
+      ],
+      "properties": {
+        "median": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 10000000
+        },
+        "min": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 10000000
+        },
+        "max": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 10000000
+        },
+        "n": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 10000000
+          },
+          "maxItems": 9
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "fewer_than_two_served_levels",
+            "not_measured_saturated",
+            "extra_timeout",
+            "no_setup_span"
+          ]
+        }
+      }
+    },
+    "stat_num_0_100000000": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "median",
+        "min",
+        "max",
+        "n",
+        "values"
+      ],
+      "properties": {
+        "median": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100000000
+        },
+        "min": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100000000
+        },
+        "max": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100000000
+        },
+        "n": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100000000
+          },
+          "maxItems": 9
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "fewer_than_two_served_levels",
+            "not_measured_saturated",
+            "extra_timeout",
+            "no_setup_span"
+          ]
+        }
+      }
+    },
+    "stat_num_0_1000000000": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "median",
+        "min",
+        "max",
+        "n",
+        "values"
+      ],
+      "properties": {
+        "median": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000
+        },
+        "min": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000
+        },
+        "max": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000000
+        },
+        "n": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1000000000
+          },
+          "maxItems": 9
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "fewer_than_two_served_levels",
+            "not_measured_saturated",
+            "extra_timeout",
+            "no_setup_span"
+          ]
+        }
+      }
+    },
+    "stat_num_neg100000_100000": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "median",
+        "min",
+        "max",
+        "n",
+        "values"
+      ],
+      "properties": {
+        "median": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": -100000,
+          "maximum": 100000
+        },
+        "min": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": -100000,
+          "maximum": 100000
+        },
+        "max": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": -100000,
+          "maximum": 100000
+        },
+        "n": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": -100000,
+            "maximum": 100000
+          },
+          "maxItems": 9
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "fewer_than_two_served_levels",
+            "not_measured_saturated",
+            "extra_timeout",
+            "no_setup_span"
+          ]
+        }
+      }
+    },
+    "tag": {
+      "type": "string",
+      "pattern": "^v\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}(-nightly\\.20\\d{6}\\.\\d{1,6}|-perf\\.\\d{1,3})?$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}(-nightly\\.20\\d{6}\\.\\d{1,6}|-perf\\.\\d{1,3})?$"
+    },
+    "workload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "suite",
+        "warmup_s",
+        "window_s",
+        "levels",
+        "empty_cell",
+        "attempts_per_level",
+        "seed",
+        "now"
+      ],
+      "properties": {
+        "profile": {
+          "type": "string",
+          "enum": [
+            "primary-scaled",
+            "real3"
+          ]
+        },
+        "suite": {
+          "type": "string",
+          "pattern": "^(ladder-1|bands-1|val-[a-z0-9-]{1,32})$"
+        },
+        "warmup_s": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3600
+        },
+        "window_s": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
+        },
+        "levels": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "uniqueItems": true,
+          "minItems": 1,
+          "maxItems": 12
+        },
+        "empty_cell": {
+          "type": "boolean"
+        },
+        "attempts_per_level": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9
+        },
+        "seed": {
+          "type": "string",
+          "pattern": "^\\d{1,12}$"
+        },
+        "now": {
+          "$ref": "#/$defs/datetime"
+        },
+        "cells": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Per cell, the load arguments the runner ran it with (agents = sessions); written by the merge, absent on attempts.",
+          "properties": {
+            "1": {
+              "$ref": "#/$defs/cell_profile"
+            },
+            "50": {
+              "$ref": "#/$defs/cell_profile"
+            },
+            "100": {
+              "$ref": "#/$defs/cell_profile"
+            },
+            "150": {
+              "$ref": "#/$defs/cell_profile"
+            },
+            "200": {
+              "$ref": "#/$defs/cell_profile"
+            },
+            "250": {
+              "$ref": "#/$defs/cell_profile"
+            },
+            "1e": {
+              "$ref": "#/$defs/cell_profile"
+            }
+          }
+        }
+      }
+    }
+  }
+}
