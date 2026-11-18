@@ -288,6 +288,12 @@ function makeModel(inputs, catalogue) {
     heads.get(record.platform.id).set(record.paired_nightly.date, record);
   }
   for (const list of nightlies.values()) list.sort(byKey((r) => r.release.date));
+  // A fork-head record is paired with its night's upstream nightly: where that nightly is published, it must be the
+  // build paired_nightly names, or the comparison and the tooltip would name another build.
+  for (const { rel, record } of inputs.forkNightlies ?? []) {
+    const n = (nightlies.get(record.platform.id) ?? []).find((r) => r.release.date === record.paired_nightly.date);
+    if (n && n.release.tag !== record.paired_nightly.tag) throw new BuildError(`${rel}: paired_nightly.tag is not the published nightly of ${record.paired_nightly.date}`);
+  }
   for (const list of forks.values()) list.sort((a, b) => (a.release.date < b.release.date ? -1 : a.release.date > b.release.date ? 1 : versionKey(a.release.tag) < versionKey(b.release.tag) ? -1 : 1));
   const platforms = PLATFORM_IDS.filter((p) => nightlies.has(p) || forks.has(p));
   // Bands are mandatory: a platform with records needs measured bands, or an explicit "pending": true until its
@@ -617,9 +623,9 @@ function forkSeries(model, p, m, L, dates) {
   for (const date of dates) {
     const h = heads?.get(date);
     if (h) {
-      const v = statAt(h, m, L)?.median ?? null;
+      const stat = statAt(h, m, L), v = stat?.median ?? null;
       out.step.push(v);
-      out.head_note.push(v !== null ? null : ranNoValid(h, m, L) ? "hollow" : saturatedAt(h, L) ? "saturated" : "no_data");
+      out.head_note.push(v !== null ? null : stat?.reason === "not_measured_saturated" || saturatedAt(h, L) ? "saturated" : ranNoValid(h, m, L) ? "hollow" : "no_data");
       continue;
     }
     let held = -1;
@@ -1013,11 +1019,12 @@ export function buildOutputs(
   });
   // Every nightly record's entry lives in records-index.json, never in the overview payload.
   // The fork-head records by night, each with the nightly it was paired with; the key only when there are any.
+  // One entry per night, release and paired nightly: platforms that measured different releases on one night get one each.
   const headByNight = new Map();
-  for (const { record: r } of [...(inputs.forkNightlies ?? [])].sort(byKey((x) => `${x.record.paired_nightly.date}|${x.record.platform.id}`))) {
-    const night = r.paired_nightly.date;
-    if (!headByNight.has(night)) headByNight.set(night, { date: night, tag: r.release.tag, sha: r.release.sha, paired_tag: r.paired_nightly.tag, platforms: {} });
-    headByNight.get(night).platforms[r.platform.id] = { record_id: r.record_id, status: r.status, path: recordPath(r) };
+  for (const { record: r } of [...(inputs.forkNightlies ?? [])].sort(byKey((x) => `${x.record.paired_nightly.date}|${versionKey(x.record.release.tag)}|${x.record.platform.id}`))) {
+    const key = `${r.paired_nightly.date}|${r.release.tag}|${r.release.sha}|${r.paired_nightly.tag}`;
+    if (!headByNight.has(key)) headByNight.set(key, { date: r.paired_nightly.date, tag: r.release.tag, sha: r.release.sha, paired_tag: r.paired_nightly.tag, platforms: {} });
+    headByNight.get(key).platforms[r.platform.id] = { record_id: r.record_id, status: r.status, path: recordPath(r) };
   }
   files.set(
     "records-index.json",
