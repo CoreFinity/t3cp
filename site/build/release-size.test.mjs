@@ -126,3 +126,23 @@ test('every release on the committed data builds within the budget as compact JS
     }
   }
 });
+
+test('agents_served at a saturated level is in the release even with no verdict anywhere, so the saturated line has its number', () => {
+  const T = loadApp();
+  const src = wideSource(catalogue, { servedBand: null });
+  const b = buildPostBundle(src, { catalogue });
+  assert.ok(!b.metrics.some((r) => r.id === 'agents_served'), 'the post bundle leaves it out: no verdict at any level');
+  const rel = renderRelease({ bundle: b, source: null, scanText: clean, src });
+  assert.deepEqual(validate(releaseSchema, rel), []);
+  const served = rel.deltas.filter((d) => d.metric === 'agents_served');
+  const at250 = src.metrics.find((m) => m.id === 'agents_served' && m.level === '250');
+  assert.deepEqual(served.map((d) => [d.level, d.verdict, d.note, d.saturated.base, d.base]), [['250', null, 'no_band', true, at250.base.median]]);
+  const ctx = { catalogue: catalogue.metrics, headlines: catalogue.headlines['linux-x64'], platform: 'linux-x64', level: '250' };
+  const html = releaseHTML(T, rel, ctx).html;
+  assert.match(html, new RegExp(`saturated: ${T.fmt(at250.base.median).replace(/[.]/g, '[.]')} of 250 agents served by its base`));
+  assert.doesNotMatch(html, /\? of 250 agents/);
+  // Within the bundle it is the bundle's own row; never twice.
+  const withBand = wideSource(catalogue);
+  const relBand = renderRelease({ bundle: buildPostBundle(withBand, { catalogue }), source: null, scanText: clean, src: withBand });
+  assert.deepEqual(relBand.deltas.filter((d) => d.metric === 'agents_served').map((d) => d.level), ['250']);
+});

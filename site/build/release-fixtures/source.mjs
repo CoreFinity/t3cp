@@ -98,8 +98,9 @@ export function source({ prev = true, spec = SPEC, saturatedBase = [] } = {}) {
  * previous release; a quarter of the rows beyond noise against the base at their own level; the base saturated
  * at 250 agents, where agents_served stays within noise. Every number is invented (base 100 + 10 per metric).
  * @param {{metrics: object[], headlines: object}} catalogue catalogue/catalogue.json
+ * @param {{servedBand?: number|null}} opts servedBand: null gives agents_served no noise band, so no verdict anywhere
  */
-export function wideSource(catalogue) {
+export function wideSource(catalogue, { servedBand = 5 } = {}) {
   const heads = catalogue.headlines['linux-x64'];
   const daily = catalogue.metrics.filter((m) => m.lane === 'daily' && m.scope === 'level' && m.better !== 'context' && (m.upstream === 'yes' || m.upstream === 'yes L'));
   const levels = ['1', '50', '100', '250'];
@@ -114,7 +115,7 @@ export function wideSource(catalogue) {
       rows[L] = [f, b, p];
     });
     const h = heads.indexOf(m.id);
-    return [m.id, m.name, m.unit, m.better, h < 0 ? null : h + 1, 5, rows];
+    return [m.id, m.name, m.unit, m.better, h < 0 ? null : h + 1, m.id === 'agents_served' ? servedBand : 5, rows];
   });
   const once = catalogue.metrics.find((m) => m.id === heads[heads.length - 1]);
   spec.push([once.id, once.name, once.unit, once.better, heads.length, null, { once: [1840, 1850, 1845] }]);

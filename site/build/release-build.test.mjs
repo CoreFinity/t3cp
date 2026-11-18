@@ -263,3 +263,30 @@ test('buildReleases can build a subset of the tags, and a second build of an unc
   assert.ok(sourceCacheStats().hits > before, 'the second build of the same tree hits the cache');
   await assert.rejects(buildReleases({ inDir, outDir: fresh().outDir, postsDir: d.postsDir, dev: true, scanText: clean, tags: ['v0.1.9-perf.99'] }), /perf\.99/);
 });
+
+test('agents_served at a saturated level reaches the release through the aggregator, even with no verdict anywhere', async () => {
+  const { loadApp } = await import('./lib/app-vm.mjs');
+  const { releaseHTML } = await import('./render-post.mjs');
+  const dir = copyData();
+  // agents_served without a noise band: no verdict at any level, against the base or the previous release.
+  editJson(path.join(dir, 'bands.json'), (j) => { delete j.platforms['linux-x64'].metrics.agents_served; });
+  // The fork saturated at 250 agents: every valid attempt saturated, 210 of 250 agents served.
+  editJson(path.join(dir, 'fork', `${PERF8}.linux-x64.json`), (j) => {
+    const c = j.cells['250'];
+    for (const a of c.attempts) if (a.valid) Object.assign(a, { saturated: true, saturated_by: ['sessions_starved'], problems: ['sessions_starved'] });
+    const s = c.metrics.agents_served;
+    c.metrics.agents_served = { ...s, median: 210, min: 210, max: 210, values: s.values.map(() => 210) };
+    c.saturated = true;
+  });
+  const d = fresh();
+  const [r] = await buildReleases({ inDir: dir, outDir: d.outDir, postsDir: d.postsDir, dev: true, scanText: clean, tags: [PERF8] });
+  assert.equal(r.charts_only_reason, 'no_text_yet');
+  const rel = json(path.join(d.outDir, `${PERF8}.json`));
+  assert.deepEqual(validate(releaseSchema, rel), []);
+  const served = rel.deltas.filter((x) => x.metric === 'agents_served');
+  assert.deepEqual(served.map((x) => [x.level, x.verdict, x.note, x.fork, x.saturated.fork]), [['250', null, 'no_band', 210, true]]);
+  const ctx = { catalogue: catalogue.metrics, headlines: catalogue.headlines['linux-x64'], platform: 'linux-x64', level: '250' };
+  const html = releaseHTML(loadApp(), rel, ctx).html;
+  assert.match(html, /saturated: 210 of 250 agents served by the fork/);
+  assert.doesNotMatch(html, /\? of 250 agents/);
+});
