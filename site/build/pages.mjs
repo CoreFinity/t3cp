@@ -39,10 +39,15 @@ export function overview(c) {
   const fk = T.forkFor(H, f ? c.read(T.basePath(f, plat)) : null, cat, f, { plat: c.platName, level: L });
   const latest = c.ix && c.ix.platforms.find(p => p.id === plat);
   const rec = latest && latest.latest_date ? `<p class="dim">Latest nightly <span class="tag">${esc(latest.latest_tag)}</span>, ${T.dLong(latest.latest_date)}, ${esc(c.platName)} ${esc(latest.latest_status)}.</p>` : '';
+  // The compact status line above the graph; before the first record it says what is still to be measured, once.
+  const has = Ms.some(M => M && M.pts.some(Boolean)), pend = c.pending ? esc(pendingLine(c)) : '';
+  const line = has || !pend ? T.stripFor(H, Ms, cat, { level: L, line: 1 }) : pend;
   const body = `<h1 class="sr">T3 Code, performance over time</h1>
+<p class="lede ov-i">Nightly benchmarks of T3 Code under many concurrent agents, comparing upstream with our performance fork whose fixes we send back upstream.</p>
+<p class="lede">We forked T3 Code to optimise it for high-concurrency workloads: one server running many coding agents at once. Every fix we make goes back upstream as a pull request (see our <a href="/mrs/">MRs</a>). Each night we benchmark upstream's nightly against our performance fork under the same load; as upstream merges our fixes, the two lines should meet.</p>
 ${ERR}
-<div class="strip" id="strip-w">${rec}${c.pending ? `<p class="dim">${esc(pendingLine(c))}</p>` : ''}<div id="strip">${T.stripFor(H, Ms, cat, { plat: c.platName, level: L })}</div></div>
 <section class="hero" aria-label="Headline metric over time">
+  <p class="strip ov-s" id="sline">${line}</p>
   <div class="tabs-row">
     <div class="tabs" id="tabs" role="tablist" aria-label="Metric">${tabs}</div>
     ${stepper('metric', 'data-step', `2 / ${H.length}`)}
@@ -55,8 +60,10 @@ ${ERR}
     </div>
   </div>
   <div class="plot h-hero" id="hero"></div>
-  ${LEGEND(`<a id="open" href="/metrics/${m0}/">Open this metric</a>`)}
-  <details class="mt3"><summary id="hcap">Table: the eight headline metrics, 50 agents</summary><div class="tw" id="htable">${T.headTable(Ms)}</div></details>
+  <div class="lg"><a id="open" href="/metrics/${m0}/">Open this metric</a></div>
+  <details class="mt2"><summary>What changed</summary><div class="strip" id="strip-w">${rec}${has && pend ? `<p class="dim">${pend}</p>` : ''}<div id="strip">${T.stripFor(H, Ms, cat, { plat: c.platName, level: L })}</div></div></details>
+  <details><summary>Show the numbers</summary><p class="note" id="hcap">The eight headline metrics, 50 agents</p><div class="tw" id="htable">${T.headTable(Ms)}</div></details>
+  <details class="tg-s"><summary>How to read this</summary>${LEGEND()}</details>
 </section>
 
 <section class="sec">

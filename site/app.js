@@ -484,11 +484,13 @@
   };
 
   // The overview's verdict strip and fork strip from the eight headline models; shared by the build and the browser.
+  // o.line: the compact line above the graph (the nightly, the level, how many moved), else the detail with its badges.
   T.stripFor = (H, Ms, cat, o) => {
     const M0 = Ms.find(M => M && lastPt(M));
-    if (!M0) return '<p>No records yet.</p>';
-    const lp = lastPt(M0), prev = M0.dates[M0.dates.indexOf(lp.date) - 1] || null;
-    return T.stripHTML(H.map((id, i) => ({ m: cat[id], p: Ms[i] && lastPt(Ms[i]), t: Ms[i] && Ms[i].t })), { prev, plat: o.plat, level: o.level });
+    if (!M0) return o.line ? 'No records at this level yet.' : '<p>No records yet.</p>';
+    const lp = lastPt(M0), prev = M0.dates[M0.dates.indexOf(lp.date) - 1] || null, items = H.map((id, i) => ({ m: cat[id], p: Ms[i] && lastPt(Ms[i]), t: Ms[i] && Ms[i].t }));
+    if (o.line) { const n = items.filter(x => x.p && (x.p.verdict === 'bad' || x.p.verdict === 'good')).length; return `Nightly ${dLong(lp.date)}, ${lvLabel(o.level)}: ${n ? `<b>${n} of ${H.length}</b>` : 'none of the ' + H.length} headline metrics moved beyond noise.`; }
+    return T.stripHTML(items, { prev, plat: o.plat, level: o.level });
   };
   // The fork against its upstream base: the precomputed comparison (a = the base, b = the fork) for the headlines.
   T.baseName = f => (f.base_sha ? 'Upstream base ' + f.base_sha.slice(0, 7) : 'Base ' + (f.base_date ? dShort(f.base_date) : ''));
@@ -632,9 +634,9 @@
           const grid = $('#grid');
           grid.innerHTML = H.map((id, i) => T.cardHTML(cat[id], Ms[i], T.href('/metrics/' + id + '/'), { na: naOf(id) })).join('');
           $$('.card:not(.card-na)', grid).forEach(c => { const M = Ms[H.indexOf(c.dataset.id)]; if (M && lastPt(M)) spark(c, M); });
-          if (live()) $('#strip').innerHTML = T.stripFor(H, Ms, cat, { plat: platName(), level: s.l });
+          if (live()) { $('#strip').innerHTML = T.stripFor(H, Ms, cat, { plat: platName(), level: s.l }); $('#sline').innerHTML = T.stripFor(H, Ms, cat, { level: s.l, line: 1 }); }
           const tbl = $('#htable'); if (tbl) tbl.innerHTML = T.headTable(Ms);
-          $('#hcap').textContent = 'Table: the eight headline metrics, ' + lvLabel(s.l);
+          $('#hcap').textContent = 'The eight headline metrics, ' + lvLabel(s.l);
           // The fork strip: the latest fork release against its base, at this level.
           const rels = IX.fork.filter(f => f.platforms[pid()]), fe = $('#fork');
           if (!live()) { fe.innerHTML = T.naBlock('after'); $('#forksub').textContent = ''; return; }

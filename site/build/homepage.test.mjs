@@ -21,7 +21,7 @@ import { loadCatalogue } from '../../tools/t3cp/lib/repo.mjs';
 
 const catalogue = loadCatalogue();
 const ENT = { '&amp;': '&', '&#39;': "'", '&quot;': '"', '&lt;': '<', '&gt;': '>' };
-const txt = s => s.replace(/<[^>]+>/g, ' ').replace(/&(amp|#39|quot|lt|gt);/g, e => ENT[e]).replace(/\s+/g, ' ').trim();
+const txt = s => s.replace(/<[^>]+>/g, ' ').replace(/&(amp|#39|quot|lt|gt);/g, e => ENT[e]).replace(/\s+/g, ' ').replace(/ ([.,;:)])/g, '$1').trim();
 const INTRO = 'Nightly benchmarks of T3 Code under many concurrent agents, comparing upstream with our performance fork whose fixes we send back upstream.';
 const DESC = "We forked T3 Code to optimise it for high-concurrency workloads: one server running many coding agents at once. Every fix we make goes back upstream as a pull request (see our MRs). Each night we benchmark upstream's nightly against our performance fork under the same load; as upstream merges our fixes, the two lines should meet.";
 
