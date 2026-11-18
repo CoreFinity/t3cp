@@ -58,6 +58,9 @@
     "era": {
       "$ref": "#/$defs/era"
     },
+    "paired_nightly": {
+      "$ref": "#/$defs/paired_nightly"
+    },
     "cell": {
       "$ref": "#/$defs/cell"
     },
@@ -1833,6 +1836,23 @@
       "type": "string",
       "pattern": "^v\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}-nightly\\.20\\d{6}\\.\\d{1,6}$"
     },
+    "paired_nightly": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tag",
+        "date"
+      ],
+      "properties": {
+        "tag": {
+          "$ref": "#/$defs/nightly_tag"
+        },
+        "date": {
+          "$ref": "#/$defs/date"
+        }
+      },
+      "description": "Only on a nightly fork-head record (record_id <date>.<platform>.fork): the upstream nightly of the night it was measured beside, whose date is the record id's. Absent on every other record."
+    },
     "platform": {
       "type": "object",
       "additionalProperties": false,
@@ -1936,7 +1956,8 @@
     },
     "record_id": {
       "type": "string",
-      "pattern": "^(20\\d{2}-\\d{2}-\\d{2}\\.(linux-x64|darwin-arm64)\\.nightly|\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}-perf\\.\\d{1,3}\\.(linux-x64|darwin-arm64)\\.fork|[0-9a-f]{12}\\.(linux-x64|darwin-arm64)\\.base)$"
+      "pattern": "^(20\\d{2}-\\d{2}-\\d{2}\\.(linux-x64|darwin-arm64)\\.(nightly|fork)|\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}-perf\\.\\d{1,3}\\.(linux-x64|darwin-arm64)\\.fork|[0-9a-f]{12}\\.(linux-x64|darwin-arm64)\\.base)$",
+      "description": "<date>.<platform>.nightly (a nightly); <version>.<platform>.fork (a fork release); <date>.<platform>.fork (the nightly fork-head record: the fork's latest release measured on that night, with paired_nightly); <first 12 hex of the merge-base SHA>.<platform>.base (a base record)."
     },
     "release": {
       "type": "object",

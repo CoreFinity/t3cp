@@ -97,6 +97,25 @@ export const CELLS = ["1", "50", "100", "150", "200", "250", "1e"];
 export const SERIES_LEVELS = [...CELLS, "once"];
 export const VERDICTS = ["regressed", "improved", "within"];
 export const NOTES = ["context", "no_band", "wide_band", "hollow", "gated", "no_reference", "no_data", "not_comparable", "no_base", "zero_reference", "saturated"];
+const FORK_HEAD_NIGHTLY_TAG = /^v\d{1,3}\.\d{1,3}\.\d{1,4}-nightly\.(20\d{2})(\d{2})(\d{2})\.\d{1,6}$/;
+/** The night of a nightly fork-head record id (<date>.<platform>.fork), or null for any other id. */
+export const forkHeadNight = (recordId) => /^(20\d{2}-\d{2}-\d{2})\.(linux-x64|darwin-arm64)\.fork$/.exec(String(recordId))?.[1] ?? null;
+/**
+ * The nightly fork-head coupling, which the schemas cannot state: a <date>.<platform>.fork record is kind fork, measures
+ * a fork release (a -perf tag), and names in paired_nightly the upstream nightly of that night (its tag's date and
+ * its date are the id's); no other record carries paired_nightly. Returns the problem, or null.
+ */
+export function forkHeadProblem({ record_id: recordId, kind, release, paired_nightly: paired }) {
+  const night = forkHeadNight(recordId);
+  if (night === null) return paired === undefined ? null : "paired_nightly belongs to a nightly fork-head record (<date>.<platform>.fork) only";
+  if (kind !== "fork") return "a fork-head record (<date>.<platform>.fork) is kind fork";
+  if (typeof release?.tag !== "string" || !/-perf\.\d{1,3}$/.test(release.tag)) return "a fork-head record measures a fork release (a -perf tag)";
+  const m = FORK_HEAD_NIGHTLY_TAG.exec(typeof paired?.tag === "string" ? paired.tag : "");
+  if (paired === null || typeof paired !== "object" || !m) return "a fork-head record needs paired_nightly {tag, date}: the upstream nightly of its night";
+  if (paired.date !== night || `${m[1]}-${m[2]}-${m[3]}` !== night) return `paired_nightly is not the nightly of ${night}, the record id's night`;
+  return null;
+}
+
 export const STATUS_REASONS = [
   "preempted", "cpu_mismatch", "archive_missing", "export_failed", "contaminated", "runner_offline", "timeout",
   "attempts_invalid", "migration_failed", "build_failed",
@@ -177,7 +196,9 @@ function definitions(catalogue) {
     platform_id: { type: "string", enum: PLATFORM_IDS },
     record_id: {
       type: "string",
-      pattern: `^(20\\d{2}-\\d{2}-\\d{2}\\.(linux-x64|darwin-arm64)\\.nightly|${VERSION_CORE}-perf\\.\\d{1,3}\\.(linux-x64|darwin-arm64)\\.fork|[0-9a-f]{12}\\.(linux-x64|darwin-arm64)\\.base)$`,
+      pattern: `^(20\\d{2}-\\d{2}-\\d{2}\\.(linux-x64|darwin-arm64)\\.(nightly|fork)|${VERSION_CORE}-perf\\.\\d{1,3}\\.(linux-x64|darwin-arm64)\\.fork|[0-9a-f]{12}\\.(linux-x64|darwin-arm64)\\.base)$`,
+      description:
+        "<date>.<platform>.nightly (a nightly); <version>.<platform>.fork (a fork release); <date>.<platform>.fork (the nightly fork-head record: the fork's latest release measured on that night, with paired_nightly); <first 12 hex of the merge-base SHA>.<platform>.base (a base record).",
     },
     kind: { type: "string", enum: ["nightly", "fork", "base"], description: "base: an upstream tree built from source at a fork release's merge-base SHA" },
     cell: { type: "string", enum: CELLS },
@@ -235,6 +256,14 @@ function definitions(catalogue) {
       additionalProperties: false,
       required: ["tag", "date", "sha"],
       properties: { tag: ref("nightly_tag"), date: ref("date"), sha: ref("sha") },
+    },
+    paired_nightly: {
+      type: "object",
+      additionalProperties: false,
+      required: ["tag", "date"],
+      properties: { tag: ref("nightly_tag"), date: ref("date") },
+      description:
+        "Only on a nightly fork-head record (record_id <date>.<platform>.fork): the upstream nightly of the night it was measured beside, whose date is the record id's. Absent on every other record.",
     },
     platform: obj({
       id: ref("platform_id"),
@@ -445,6 +474,7 @@ export function buildSchemas(catalogue) {
           schema: { const: "t3cp/record/1" },
           synthetic,
           ...identity,
+          paired_nightly: ref("paired_nightly"),
           cells: {
             type: "object",
             additionalProperties: false,
@@ -481,6 +511,7 @@ export function buildSchemas(catalogue) {
           schema: { const: "t3cp/attempt/1" },
           synthetic,
           ...identity,
+          paired_nightly: ref("paired_nightly"),
           cell: ref("cell"),
           n: int(1, 9),
           profile: ref("cell_profile"),

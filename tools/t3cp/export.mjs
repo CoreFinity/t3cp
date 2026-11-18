@@ -20,7 +20,7 @@ import { parseArgs } from "node:util";
 import { validate } from "./lib/validate.mjs";
 import { ScanConfigError, loadPrivatePatterns, scanText, scanValue } from "./lib/scan.mjs";
 import { EXPORTER_VERSION, isMain, loadCatalogue, loadSchema, median, roundValue } from "./lib/repo.mjs";
-import { BUILD_REPOS, EXTRAS_REASONS, PROBLEMS, levelMetricIds, NOT_MEASURED_SATURATED } from "./lib/schemas.mjs";
+import { BUILD_REPOS, EXTRAS_REASONS, PROBLEMS, forkHeadProblem, levelMetricIds, NOT_MEASURED_SATURATED } from "./lib/schemas.mjs";
 import { JsonError, parseNdjsonStrict, parseStrict } from "./lib/json.mjs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -44,6 +44,8 @@ export const EXPORTER_FILES = [
   "tools/t3cp/lib/scan.mjs", "tools/t3cp/lib/schemas.mjs", "tools/t3cp/lib/validate.mjs", "tools/t3cp/runner/profiles.mjs",
   "tools/t3cp/runner/is-main.mjs", "tools/t3cp/runner/profiles.json", "tools/t3cp/public-refs.json",
   "catalogue/catalogue.json", "schema/attempt-1.json", "schema/extras-1.json", "schema/record-1.json",
+  // run-record.sh validates its spec against this on the VM; the runner identity (run-record.sh, runner/*) omits it.
+  "schema/record-spec-1.json",
 ];
 let exporterFilesSha;
 export function exporterFilesSha256() {
@@ -507,6 +509,8 @@ function checkSpec(spec) {
   if (spec?.schema !== "t3cp/record-spec/1") fail("spec: schema is not t3cp/record-spec/1");
   if (typeof spec.release?.tag !== "string" || !TAG.test(spec.release.tag)) fail("spec: release.tag does not match the tag regex");
   if (!["nightly", "fork", "base"].includes(spec.kind)) fail("spec: kind");
+  const headProblem = forkHeadProblem(spec);
+  if (headProblem) fail(`spec: ${headProblem}`);
   if (spec.kind === "fork" && (spec.base === undefined || spec.base === null || spec.release.date === undefined)) fail("spec: fork_base_missing (a fork record needs release.date and base)");
   if (spec.kind === "base") {
     if (spec.release.date === undefined) fail("spec: a base record needs release.date (the merge-base commit's date)");
@@ -559,6 +563,8 @@ function identityOf(spec, meta, result, catalogue) {
       build: buildIdentity(spec, meta),
     },
     base: spec.kind === "fork" ? { tag: spec.base.tag, date: spec.base.date, sha: spec.base.sha } : null,
+    // The nightly fork-head record's night (checkSpec has checked the coupling).
+    ...(spec.paired_nightly ? { paired_nightly: { tag: spec.paired_nightly.tag, date: spec.paired_nightly.date } } : {}),
     platform: {
       id: platformId,
       machine: host.machine,

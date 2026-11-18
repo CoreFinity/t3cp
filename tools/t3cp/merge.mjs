@@ -17,12 +17,13 @@ import * as path from "node:path";
 import { parseArgs } from "node:util";
 import { validate } from "./lib/validate.mjs";
 import { EXPORTER_VERSION, isMain, loadCatalogue, loadSchema, median, roundValue } from "./lib/repo.mjs";
-import { NOT_MEASURED_SATURATED, levelMetricIds } from "./lib/schemas.mjs";
+import { NOT_MEASURED_SATURATED, forkHeadProblem, levelMetricIds } from "./lib/schemas.mjs";
 import { ScanConfigError, scanValue } from "./lib/scan.mjs";
 import { JsonError, parseStrict } from "./lib/json.mjs";
 import { cellProfile, loadProfiles, metaProfile } from "./runner/profiles.mjs";
 
-const IDENTITY_KEYS = ["record_id", "kind", "release", "base", "platform", "harness", "fixture", "workload", "era"];
+// paired_nightly: only on a nightly fork-head record (<date>.<platform>.fork); absent on every other record.
+const IDENTITY_KEYS = ["record_id", "kind", "release", "base", "paired_nightly", "platform", "harness", "fixture", "workload", "era"];
 const canonical = (value) =>
   JSON.stringify(value, (_k, v) => (v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : 1))) : v));
 
@@ -177,6 +178,10 @@ export function mergeRecord({ attempts, extras = [], catalogue = loadCatalogue()
       throw new MergeError(`attempt ${a.cell}-${a.n}: valid without turns_completed`);
     }
   }
+  // The nightly fork-head coupling (the schemas cannot state it): a <date>.<platform>.fork record names that night's
+  // upstream nightly in paired_nightly and measures a fork release; no other record carries paired_nightly.
+  const headProblem = forkHeadProblem(first);
+  if (headProblem) throw new MergeError(`record ${first.record_id}: ${headProblem}`);
   // Only public commits are published: the harness by its pinned public tag, a fork release by its pinned tag commit.
   const harness = publicHarness(first.harness, publicRefs);
   if (first.kind === "fork") {
@@ -265,7 +270,7 @@ export function mergeRecord({ attempts, extras = [], catalogue = loadCatalogue()
   return {
     schema: "t3cp/record/1",
     ...(first.synthetic === true ? { synthetic: true } : {}),
-    ...Object.fromEntries(IDENTITY_KEYS.map((key) => [key, structuredClone(first[key])])),
+    ...Object.fromEntries(IDENTITY_KEYS.filter((key) => first[key] !== undefined).map((key) => [key, structuredClone(first[key])])),
     harness: harness,
     workload: { ...structuredClone(first.workload), cells: profiles },
     cells,

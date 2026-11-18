@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // The aggregator: reads the committed inputs under data/v1 (records/<platform>/<date>.<tag>.json,
-// fork/<tag>.<platform>.json, base/<sha12>.<platform>.json, bands.json, status.json) and nothing else: a derived
-// file there fails the build. It validates and scans every record, computes the design §4 verdicts and writes a
+// fork/<tag>.<platform>.json, base/<sha12>.<platform>.json, fork-nightly/<platform>/<date>.<tag>.json, bands.json,
+// status.json) and nothing else: a derived file there fails the build. Nightly fork-head records (fork-nightly/) are
+// checked and passed through only, not yet drawn. It validates and scans every record, computes the design §4 verdicts and writes a
 // complete public tree into the output directory (never under data/):
 //
 //   index.json, changes.json, series/<platform>/<metric>.latest.json and .all.json (or year shards when .all is
@@ -25,7 +26,7 @@ import { formatSafeErrors, parseJsonStrict, schemaErrors } from "../../tools/t3c
 import { ScanConfigError, scanCsvText, scanJsonText, scanText, scanValue } from "../../tools/t3cp/lib/scan.mjs";
 import { cellSaturated, loadPublicRefs } from "../../tools/t3cp/merge.mjs";
 import { REPO_ROOT, isMain, loadCatalogue as loadCatalogueFile, loadSchema, median } from "../../tools/t3cp/lib/repo.mjs";
-import { EXTRAS_REASONS, PLATFORM_IDS, PROBLEMS } from "../../tools/t3cp/lib/schemas.mjs";
+import { EXTRAS_REASONS, PLATFORM_IDS, PROBLEMS, forkHeadProblem } from "../../tools/t3cp/lib/schemas.mjs";
 
 export class BuildError extends Error {}
 
@@ -137,6 +138,9 @@ export function loadInputs(inDir, { dev = false, catalogue = loadCatalogue(), pu
   const records = [];
   const forks = [];
   const bases = [];
+  // Nightly fork-head records (fork-nightly/<platform>/<date>.<tag>.json): checked and passed through; not yet drawn.
+  const forkNightlies = [];
+  const seenHeads = new Set();
   const copies = new Map();
   let bands = null;
   let synthetic = false;
@@ -156,7 +160,7 @@ export function loadInputs(inDir, { dev = false, catalogue = loadCatalogue(), pu
       throw new BuildError(`${rel}: ${error.message}`);
     }
     if (value === null || typeof value !== "object" || Array.isArray(value)) throw new BuildError(`${rel}: not a JSON object`);
-    if (/^(records|fork|base)\//.test(rel) && value.workload?.suite !== "ladder-1") {
+    if (/^(records|fork|base|fork-nightly)\//.test(rel) && value.workload?.suite !== "ladder-1") {
       throw new BuildError(`${rel}: only the published suite (ladder-1) is accepted here; validation and noise-band records are never published`);
     }
     if (value.synthetic === true) {
@@ -171,13 +175,17 @@ export function loadInputs(inDir, { dev = false, catalogue = loadCatalogue(), pu
     const recordMatch = /^records\/(linux-x64|darwin-arm64)\/(\d{4}-\d{2}-\d{2})\.(v[0-9A-Za-z.-]+)\.json$/.exec(rel);
     const forkMatch = /^fork\/(v[0-9A-Za-z.-]+)\.(linux-x64|darwin-arm64)\.json$/.exec(rel);
     const baseMatch = /^base\/([0-9a-f]{12})\.(linux-x64|darwin-arm64)\.json$/.exec(rel);
-    if (recordMatch || forkMatch || baseMatch) {
+    const headMatch = /^fork-nightly\/(linux-x64|darwin-arm64)\/(\d{4}-\d{2}-\d{2})\.(v[0-9A-Za-z.-]+)\.json$/.exec(rel);
+    if (recordMatch || forkMatch || baseMatch || headMatch) {
       if (refs !== null) publicOnly(rel, value, refs);
       for (const [where, id] of recordMetricIds(value ?? {})) {
         if (!known.has(id)) throw new BuildError(`${rel}: unknown metric id ${id} at ${where}`);
       }
       const errors = schemaErrors(recordSchema, value);
       if (errors.length > 0) throw new BuildError(`${rel}: ${formatSafeErrors(errors, recordSchema, 5)}`);
+      // paired_nightly belongs to a nightly fork-head record, and names that night's upstream nightly.
+      const headProblem = forkHeadProblem(value);
+      if (headProblem) throw new BuildError(`${rel}: ${headProblem}`);
       // A cell's saturated flag is never trusted: it must be the merge's rule over the cell's attempts and agents served.
       for (const [L, cell] of Object.entries(value.cells)) {
         const derived = cellSaturated({ attempts: cell.attempts, agentsServedMedian: cell.metrics.agents_served?.median ?? null, agentsTotal: cell.agents_total });
@@ -193,6 +201,15 @@ export function loadInputs(inDir, { dev = false, catalogue = loadCatalogue(), pu
         if (seen.has(`${platform}|${date}`)) throw new BuildError(`${rel}: a second nightly record for ${date} on ${platform}`);
         seen.add(`${platform}|${date}`);
         records.push({ rel, record: value });
+      } else if (headMatch) {
+        const [, platform, date, tag] = headMatch;
+        if (!/^large-\d{2,3}$/.test(value.fixture.id) || value.fixture.sha256 === null) throw new BuildError(`${rel}: a validation record (no era fixture, or a scaled one) is never published`);
+        if (value.kind !== "fork" || value.platform.id !== platform || value.release.tag !== tag || value.record_id !== `${date}.${platform}.fork` || value.base === null) {
+          throw new BuildError(`${rel}: file name does not match the fork-head record's night, platform and release tag`);
+        }
+        if (seenHeads.has(`${platform}|${date}`)) throw new BuildError(`${rel}: a second fork-head record for ${date} on ${platform}`);
+        seenHeads.add(`${platform}|${date}`);
+        forkNightlies.push({ rel, record: value });
       } else if (baseMatch) {
         const [, sha12, platform] = baseMatch;
         if (!/^large-\d{2,3}$/.test(value.fixture.id) || value.fixture.sha256 === null) throw new BuildError(`${rel}: a validation record (no era fixture, or a scaled one) is never published`);
@@ -239,7 +256,7 @@ export function loadInputs(inDir, { dev = false, catalogue = loadCatalogue(), pu
     }
   }
   if (records.length === 0 && forks.length === 0) throw new BuildError("no records in the input tree");
-  return { records, forks, bases, bands, copies, synthetic };
+  return { records, forks, bases, forkNightlies, bands, copies, synthetic };
 }
 
 // ---------------------------------------------------------------------------------------------------------

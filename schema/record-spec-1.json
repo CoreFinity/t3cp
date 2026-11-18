@@ -20,9 +20,9 @@
       "const": "t3cp/record-spec/1"
     },
     "record_id": {
-      "description": "A nightly is <release date>.<platform>.nightly (2026-11-15.linux-x64.nightly); a fork release is <version>.<platform>.fork (0.1.9-perf.8.linux-x64.fork); a base record is <first 12 hex of the merge-base SHA>.<platform>.base (295a0a7332aa.linux-x64.base). The platform part must match the host the runner runs on, and the kind part the spec's kind.",
+      "description": "A nightly is <release date>.<platform>.nightly (2026-11-15.linux-x64.nightly); a fork release is <version>.<platform>.fork (0.1.9-perf.8.linux-x64.fork); the nightly fork-head record, the fork's latest release measured on night D beside that night's upstream nightly, is <D>.<platform>.fork (2026-11-17.linux-x64.fork) with paired_nightly; a base record is <first 12 hex of the merge-base SHA>.<platform>.base (295a0a7332aa.linux-x64.base). The platform part must match the host the runner runs on, and the kind part the spec's kind.",
       "type": "string",
-      "pattern": "^([0-9]{4}-[0-9]{2}-[0-9]{2}\\.(linux-x64|darwin-arm64)\\.nightly|[0-9]+\\.[0-9]+\\.[0-9]+-perf\\.[0-9]+\\.(linux-x64|darwin-arm64)\\.fork|[0-9a-f]{12}\\.(linux-x64|darwin-arm64)\\.base)$"
+      "pattern": "^([0-9]{4}-[0-9]{2}-[0-9]{2}\\.(linux-x64|darwin-arm64)\\.(nightly|fork)|[0-9]+\\.[0-9]+\\.[0-9]+-perf\\.[0-9]+\\.(linux-x64|darwin-arm64)\\.fork|[0-9a-f]{12}\\.(linux-x64|darwin-arm64)\\.base)$"
     },
     "kind": {
       "enum": [
@@ -243,6 +243,25 @@
         "sha": {
           "type": "string",
           "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    },
+    "paired_nightly": {
+      "description": "Only for the nightly fork-head record (kind fork, record_id <D>.<platform>.fork): the upstream nightly of night D it is measured beside, {tag, date} with date D. The release is the fork's latest published release and base its merge-base nightly, as for a release record; the fixture and now are night D's. Absent for every other record; the exporter refuses a spec that breaks this.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tag",
+        "date"
+      ],
+      "properties": {
+        "tag": {
+          "type": "string",
+          "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+-nightly\\.[0-9]{8}\\.[0-9]+$"
+        },
+        "date": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
         }
       }
     },
