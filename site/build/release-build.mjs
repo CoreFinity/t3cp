@@ -52,12 +52,22 @@ export async function buildReleases({ inDir, outDir, postsDir = path.join(ROOT, 
   if (existsSync(postsDir)) {
     for (const f of readdirSync(postsDir).filter((x) => x.endsWith('.json')).sort()) {
       const tag = f.slice(0, -'.json'.length);
-      if (!known.has(tag)) throw new Error(`release-build: news/posts/${f} has no fork record for ${tag} on ${platform}`);
-      let s;
+      let s = null;
+      let readError = null;
       try {
         s = readSource(path.join(postsDir, f), tag);
       } catch (e) {
-        errors.set(tag, `news/posts/${f}: ${e.message.replace(`${f}: `, '')}`);
+        readError = e;
+      }
+      // A dev build reads only synthetic sources: a real one (the pipeline's) belongs to the real data, never to a
+      // synthetic tree, whose tags it may not even have. The mirror of the rule below.
+      if (dev && s && !s.synthetic) {
+        log(`release-build: news/posts/${f} is not synthetic; a dev build reads only synthetic sources`);
+        continue;
+      }
+      if (!known.has(tag)) throw new Error(`release-build: news/posts/${f} has no fork record for ${tag} on ${platform}`);
+      if (readError) {
+        errors.set(tag, `news/posts/${f}: ${readError.message.replace(`${f}: `, '')}`);
         continue;
       }
       if (s.synthetic && !dev) throw new Error(`release-build: news/posts/${f} is synthetic; a synthetic source is read only by a dev build`);
