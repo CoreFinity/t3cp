@@ -377,3 +377,43 @@ test('over budget, never fatal: when even the charts-only form is over the budge
   const out = execFileSync(process.execPath, [path.join(ROOT, 'site', 'build', 'release-build.mjs'), '--in', inDir, '--out', fresh().outDir, '--posts', d.postsDir, '--dev', '--budget-bytes', String(TINY)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   assert.equal(out.split('\n').filter((l) => l.startsWith('::warning::release ')).length, res.length, out);
 });
+
+// ---- Sources: a dev build reads only synthetic ones; a real build is unchanged. ----
+// A real source, as the pipeline commits them: a passing synthetic one with its synthetic flag removed.
+async function writeRealPost(d) {
+  await writePassingPost(d);
+  editJson(path.join(d.postsDir, `${PERF8}.json`), (j) => { delete j.synthetic; });
+}
+
+test('a dev build skips a real source with a log line, even one whose tag the synthetic tree lacks', async () => {
+  const dir = copyData();
+  rmSync(path.join(dir, 'fork', `${PERF8}.linux-x64.json`));
+  const d = fresh();
+  await writeRealPost(d);
+  const lines = [];
+  const res = await buildReleases({ inDir: dir, outDir: d.outDir, postsDir: d.postsDir, dev: true, scanText: clean, log: (l) => lines.push(l) });
+  assert.ok(!res.some((r) => r.tag === PERF8));
+  assert.ok(lines.includes(`release-build: news/posts/${PERF8}.json is not synthetic; a dev build reads only synthetic sources`), lines.join('\n'));
+});
+
+test('a dev build never applies a real source to synthetic data: that release has no text', async () => {
+  const d = fresh();
+  await writeRealPost(d);
+  const res = await buildReleases({ inDir, outDir: d.outDir, postsDir: d.postsDir, dev: true, scanText: clean });
+  assert.equal(res.find((r) => r.tag === PERF8).charts_only_reason, 'no_text_yet');
+});
+
+test('a real build still refuses a source with no fork record: the committed data with one fork record removed', async (t) => {
+  const posts = path.join(ROOT, 'news', 'posts');
+  const real = existsSync(posts) ? readdirSync(posts).filter((f) => f.endsWith('.json')).sort() : [];
+  if (!real.length) return t.skip('no committed release post yet');
+  const tag = real[0].slice(0, -'.json'.length);
+  const dir = mkdtempSync(path.join(tmpdir(), 'release-build-real-'));
+  cpSync(path.join(ROOT, 'data', 'v1'), dir, { recursive: true });
+  rmSync(path.join(dir, 'fork', `${tag}.linux-x64.json`));
+  const { loadScanner } = await import('../../news/check.mjs');
+  await assert.rejects(
+    buildReleases({ inDir: dir, outDir: fresh().outDir, postsDir: posts, scanText: await loadScanner(ROOT) }),
+    new RegExp(`news/posts/${tag.replace(/\./g, '\\.')}\\.json has no fork record for ${tag.replace(/\./g, '\\.')} on linux-x64`),
+  );
+});
