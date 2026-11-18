@@ -14,7 +14,7 @@ const built = buildAllSchemas(catalogue);
 
 test("schemas: the site-output fields live outside the VM's exporter closure and touch only the site-output schemas", () => {
   assert.ok(!EXPORTER_FILES.includes("tools/t3cp/lib/schemas-site.mjs"), "the VM never runs it, so its changes move no image pin");
-  assert.deepEqual(SITE_EXTENDED, ["index-1.json", "records-index-1.json"]);
+  assert.deepEqual(SITE_EXTENDED, ["index-1.json", "records-index-1.json", "series-1.json", "compare-1.json"]);
   const base = buildSchemas(catalogue);
   assert.deepEqual(Object.keys(built), Object.keys(base), "the same files");
   for (const name of Object.keys(base)) {

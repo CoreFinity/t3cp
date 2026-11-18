@@ -1,9 +1,9 @@
 // The nightly fork-head records (data/v1/fork-nightly/<platform>/<D>.<tag>.json, written by the pipeline) are read,
 // checked and passed through by the aggregator before the site renders them: each validates against record-1, passes
 // the scan, names a release pinned at its public commit, and agrees with its file name (record_id <D>.<platform>.fork,
-// paired_nightly of night D, the release tag), one per platform and night. It is copied to the output as published and
-// enters no series, index or records-index yet. Any other record carrying paired_nightly is refused. Inputs are
-// hand-made synthetic records built by tools/t3cp/lib/fake.mjs.
+// paired_nightly of night D, the release tag), one per platform and night. It is copied to the output as published; it
+// is no nightly and no fork release (its series, records-index and comparison entries are aggregate-fork-head's). Any
+// other record carrying paired_nightly is refused. Inputs are hand-made synthetic records built by tools/t3cp/lib/fake.mjs.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
@@ -55,7 +55,7 @@ const DATES = Array.from({ length: 4 }, (_, i) => addDays("2026-11-14", i));
 const nightlies = DATES.map((d) => merged(fakeIdentity({ date: d })));
 const heads = [head("2026-11-16", nightlies[2], BASE(nightlies[0])), head("2026-11-17", nightlies[3], BASE(nightlies[0]))];
 
-test("fork-head records are accepted and passed through as published, with no series, index or records-index entry", () => {
+test("fork-head records are accepted and passed through as published, counted as no nightly and no fork release", () => {
   const files = build(tree(nightlies, heads));
   for (const r of heads) {
     const rel = `fork-nightly/linux-x64/${r.paired_nightly.date}.${r.release.tag}.json`;
@@ -67,11 +67,6 @@ test("fork-head records are accepted and passed through as published, with no se
   assert.deepEqual(index.fork, [], "no fork release entry from a fork-head record");
   const ri = JSON.parse(files.get("records-index.json").toString("utf8"));
   assert.deepEqual(ri.records.map((r) => r.date), DATES);
-  const series = JSON.parse(files.get("series/linux-x64/turn_p50_ms.all.json").toString("utf8"));
-  assert.equal(series.fork, null, "no fork step series from fork-head records yet");
-  // The same tree without them builds the same series.
-  const without = build(tree(nightlies, []));
-  assert.deepEqual(without.get("series/linux-x64/turn_p50_ms.all.json"), files.get("series/linux-x64/turn_p50_ms.all.json"));
 });
 
 test("a fork-head record that disagrees with its file name, is unpinned or is doubled is refused, naming the file", () => {
