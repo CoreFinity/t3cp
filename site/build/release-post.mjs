@@ -71,7 +71,13 @@ const FOOTER = {
   checker_failed: (r) => `Charts only: the written text did not pass the checker (${r.findings.length} findings).`,
   stale: (r) => `Charts only: the text no longer matches the measured record (${r.findings.length} findings).`,
   no_text_yet: () => 'Charts only: no text has been written for this release yet.',
-  over_budget: () => "Charts only: the full comparison is over this page's size budget, so only the headline metrics are listed.",
+  over_budget: () => "Charts only: this release is over its page's size budget, so only the headline metrics are listed; its changelog is on GitHub.",
+};
+// A pending or no_base release over its budget (only its changelog can make it so): the same form without the changelog.
+const OVER_NOTE = "Its changelog is over this page's size budget; it is on GitHub.";
+const OVER_FOOTER = {
+  pending: () => `${FOOTER.pending()} ${OVER_NOTE}`,
+  no_base: () => `No comparison: the upstream base is from another era of the benchmark. ${OVER_NOTE}`,
 };
 
 /** The pending (and no_base) form: tag, date, changelog and the charts that exist, with no claim (no number). */
@@ -200,6 +206,11 @@ export function renderRelease({ bundle, source = null, scanText, scanValues, bud
       : record(bundle, { reason: 'stale', result, attempts: source.checker.n, provenance });
   }
   if (src && !bundle.pending && rec.deltas.length) rec.deltas = withServed(rec.deltas, bundle, servedRows(src, { platforms: bundle.platforms }));
+  // Over budget: no changelog either (its only other unbounded part), so the form is bounded by construction.
+  if (overBudget) {
+    rec.changelog = [];
+    if (OVER_FOOTER[rec.charts_only_reason]) rec.checker.footer = OVER_FOOTER[rec.charts_only_reason]();
+  }
   const errors = schemaErrors(schema('schema/release-1.json'), rec);
   if (errors.length) throw new Error(`release ${bundle.release.tag}: does not validate against t3cp/release/1: ${formatSafeErrors(errors, schema('schema/release-1.json'), 3)}`);
   // Keys and string leaves (the bundle's numbers masked only for a values list passed in); number leaves are measured data.
