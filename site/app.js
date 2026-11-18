@@ -98,7 +98,7 @@
     rel.forEach(r => { r.dx = r.j < 0 ? 0 : -8 * rel.filter(q => q.j === r.j && q.k > r.k).length; });
     const last = dates[dates.length - 1];
     return {
-      meta: m, L, n: dates.length, dates, tags: S.tags.slice(a), notes: lv.note.slice(a), reasons: lv.reason ? lv.reason.slice(a) : [], pts, step, stepTags, rel, platform: S.platform,
+      meta: m, L, n: dates.length, dates, tags: S.tags.slice(a), notes: lv.note.slice(a), reasons: lv.reason ? lv.reason.slice(a) : [], ns: lv.n.slice(a), sats: (lv.saturated || []).slice(a), srv: served && served.levels[L] ? served.levels[L].median.slice(a) : [], pts, step, stepTags, rel, platform: S.platform,
       t: m.better === 'context' ? null : lv.threshold, eras: T.eraRoles(S.eras || []).filter(e => e.date > dates[0] && e.date <= last),
     };
   };
@@ -271,8 +271,10 @@
   T.tsSVG = (M, W, H) => draw(T.tsChart(M, { h: H, w: W }), W);
   // The reference as the aggregator computes it: partial records are skipped.
   const refOf = p => (p.thin ? 'the previous complete nightly' : 'the median of up to 7 previous complete nightlies');
-  // A gap's reason: a level run with no valid attempt, or a value missing for a public reason; else ''.
-  const gap = (M, j) => (M.notes[j] === 'hollow' ? say('none', 'hollow') : M.notes[j] === 'no_data' && REASON.hasOwnProperty(M.reasons[j]) ? REASON[M.reasons[j]] : '');
+  // A gap's reason, from the series alone (no cause is claimed): a level run with no valid attempt failed; a
+  // saturated level with no value was not measured; a value missing for a public reason; else ''.
+  const FAILED = 'failed: no valid attempt';
+  const gap = (M, j) => (M.notes[j] === 'hollow' ? (M.ns[j] ? say('none', 'hollow') : FAILED) : M.sats[j] ? `saturated${M.srv[j] == null ? '' : `: ${fmt(M.srv[j])} of ${M.L} agents served`}, not measured` : M.notes[j] === 'no_data' && REASON.hasOwnProperty(M.reasons[j]) ? REASON[M.reasons[j]] : '');
   T.tipHTML = function (M, j) {
     const m = M.meta, p = M.pts[j], date = M.dates[j], u = esc(sfx(m));
     let h = `<div class="tip-d">${dLong(date)}<span class="tag">${esc(M.tags[j])}</span></div>`;
@@ -296,7 +298,7 @@
     const m = M.meta, rows = [];
     for (let j = M.n - 1; j >= 0; j--) {
       const p = M.pts[j];
-      if (!p) { const w = gap(M, j); if (w) rows.push(`<tr><td>${dLong(M.dates[j])}</td><td class="hs dim tag">${esc(M.tags[j])}</td><td class="n">–</td><td class="n hs mut">–</td><td class="n hs mut">${M.notes[j] === 'hollow' ? 0 : '–'}</td><td class="n"></td><td class="mut">${w}</td></tr>`); continue; }
+      if (!p) { const w = gap(M, j); if (w) rows.push(`<tr><td>${dLong(M.dates[j])}</td><td class="hs dim tag">${esc(M.tags[j])}</td><td class="n">–</td><td class="n hs mut">–</td><td class="n hs mut">${M.notes[j] === 'hollow' ? M.ns[j] : '–'}</td><td class="n"></td><td class="mut">${w}</td></tr>`); continue; }
       rows.push(`<tr><td>${dLong(p.date)}</td><td class="hs dim tag">${esc(p.tag)}</td><td class="n">${fmtU(p.v, m)}</td><td class="n hs mut">${fmt(p.lo)} to ${fmt(p.hi)}</td><td class="n hs mut">${p.n}</td><td class="n">${glyph(p.verdict, p.dir) + pct(p.d)}</td><td class="mut">${esc(say(p.verdict, p.note))}${p.thin ? ', thin reference' : ''}</td></tr>`);
     }
     return `<table><thead><tr><th>Date</th><th class="hs">Tag</th><th class="n">Median</th><th class="n hs">Min to max</th><th class="n hs">Valid</th><th class="n">vs up to 7 previous</th><th>Verdict</th></tr></thead><tbody>${rows.join('') || '<tr><td colspan="7" class="mut">No records at this level yet.</td></tr>'}</tbody></table>`;
@@ -486,12 +488,16 @@
   // The overview's verdict strip and fork strip from the eight headline models; shared by the build and the browser.
   // o.line: the compact line above the graph (the nightly, the level, how many moved), else the detail with its badges.
   // Both read the newest nightly with a headline value at the level, and what moved on it.
+  // A failure on the newest nightly at the level (its headlines at the level ran with no valid attempt) is named first.
   T.stripFor = (H, Ms, cat, o) => {
+    const lv = Ms.filter(M => M && M.n && M.L === o.level), last = lv.map(M => M.dates[M.n - 1]).sort().pop(), now = lv.filter(M => M.dates[M.n - 1] === last);
+    const fail = now.some(M => M.notes[M.n - 1] === 'hollow' && !M.ns[M.n - 1]) && !now.some(M => M.pts[M.n - 1]) ? `Nightly ${dLong(last)}, ${lvLabel(o.level)}: ${FAILED.replace(':', ',')}.` : '';
+    if (fail && o.line) return fail;
     const date = Ms.map(M => M && lastPt(M)).filter(Boolean).map(p => p.date).sort().pop();
-    if (!date) return o.line ? 'No records at this level yet.' : '<p>No records yet.</p>';
+    if (!date) return o.line ? 'No records at this level yet.' : fail ? `<p>${fail}</p>` : '<p>No records yet.</p>';
     const at = M => M && M.pts[M.dates.indexOf(date)], M0 = Ms.find(at), prev = M0.dates[M0.dates.indexOf(date) - 1] || null, items = H.map((id, i) => ({ m: cat[id], p: at(Ms[i]), t: Ms[i] && Ms[i].t }));
     if (o.line) { const n = items.filter(x => x.p && (x.p.verdict === 'bad' || x.p.verdict === 'good')).length; return `Nightly ${dLong(date)}, ${lvLabel(o.level)}: ${n ? `<b>${n} of ${H.length}</b>` : 'none of the ' + H.length} headline metrics moved beyond noise.`; }
-    return T.stripHTML(items, { prev, plat: o.plat, level: o.level });
+    return (fail ? `<p>${fail}</p>` : '') + T.stripHTML(items, { prev, plat: o.plat, level: o.level });
   };
   // The fork against its upstream base: the precomputed comparison (a = the base, b = the fork) for the headlines.
   T.baseName = f => (f.base_sha ? 'Upstream base ' + f.base_sha.slice(0, 7) : 'Base ' + (f.base_date ? dShort(f.base_date) : ''));

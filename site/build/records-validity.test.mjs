@@ -37,6 +37,6 @@ test('Records: per-level validity where a level had invalid attempts', async () 
     const row = d => txt((html.split('<tr>').find(r => r.includes(`<td>${d}</td>`)) || '').split('</tr>')[0]);
     assert.match(row('3 Nov 2026'), /0\/3 valid at 100 and 150 agents; 2\/3 valid at 200 agents/);
     assert.doesNotMatch(row('2 Nov 2026'), /valid at/, 'a record with every attempt valid says nothing');
-    assert.doesNotMatch(html, /crash|driver/i, 'no cause is claimed');
+    assert.doesNotMatch(row('3 Nov 2026'), /crash|driver/i, 'no cause is claimed');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

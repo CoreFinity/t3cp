@@ -260,6 +260,17 @@ ${ERR}
 }
 
 // ---------- records ----------
+// Each level whose attempts were not all valid, from the record file: "0/3 valid at 100 and 150 agents; 2/3 valid at
+// 200 agents" (the fresh-install cell as "on the fresh install"). No cause is claimed. '' when every attempt was valid.
+const andList = a => (a.length > 1 ? a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1] : a[0] || '');
+export function validity(cells) {
+  const g = new Map();
+  for (const [L, cl] of Object.entries(cells || {})) if (cl && cl.total > 0 && cl.valid < cl.total) { const k = `${cl.valid}/${cl.total}`; g.set(k, (g.get(k) || []).concat(L)); }
+  return [...g].sort((a, b) => parseInt(a[0], 10) - parseInt(b[0], 10)).map(([k, Ls]) => {
+    const n = Ls.filter(L => L !== '1e');
+    return `${k} valid ${[n.length ? `at ${andList(n)} agent${n.length === 1 && n[0] === '1' ? '' : 's'}` : '', Ls.includes('1e') ? 'on the fresh install' : ''].filter(Boolean).join(' and ')}`;
+  }).join('; ');
+}
 export function records(c) {
   const { T, plat } = c, ix = c.ix;
   // A record that is not complete shows its reason code (status_reason) from the record file.
@@ -269,7 +280,7 @@ export function records(c) {
     const p = r.platforms[plat], rec = p && c.read(p.path), arch = rec && rec.release.archive, tol = c.T.tolerance(rec);
     // Each saturated level: "N agents: n of N served", the symptoms in the flag's tooltip.
     const sat = rec && rec.cells ? Object.keys(rec.cells).filter(L => rec.cells[L] && rec.cells[L].saturated).map(L => { const cl = rec.cells[L], s = cl.metrics && cl.metrics.agents_served, by = [...new Set((cl.attempts || []).flatMap(x => x.saturated_by || []))], N = cl.agents_total || +L; return `<span class="st"${by.length ? ` title="${esc(c.T.satWords(by))}"` : ''}>${esc(L)} agents: ${s ? c.T.fmt(s.median) : '?'} of ${esc(N)} served</span>`; }).join(' ') : '';
-    return `<tr><td>${T.dLong(r.date)}</td><td class="tag">${esc(r.tag)}</td><td class="hs sha" title="${esc(r.sha)}">${esc(r.sha.slice(0, 12))}</td><td class="hs sha"${arch ? ` title="${esc(arch.sha256)}"` : ''}>${arch ? esc(arch.sha256.slice(0, 16)) + '…' : '–'}</td><td class="n hs">${tol == null ? '–' : esc(tol)}</td><td>${status(p && p.status, rec && rec.status_reason)}${sat ? ' ' + sat : ''}</td><td>${p ? `<a href="/data/v1/${esc(p.path)}">JSON</a>` : ''}</td></tr>`;
+    return `<tr><td>${T.dLong(r.date)}</td><td class="tag">${esc(r.tag)}</td><td class="hs sha" title="${esc(r.sha)}">${esc(r.sha.slice(0, 12))}</td><td class="hs sha"${arch ? ` title="${esc(arch.sha256)}"` : ''}>${arch ? esc(arch.sha256.slice(0, 16)) + '…' : '–'}</td><td class="n hs">${tol == null ? '–' : esc(tol)}</td><td>${status(p && p.status, rec && rec.status_reason)}${sat ? ' ' + sat : ''}${rec && validity(rec.cells) ? ` <span class="dim">${esc(validity(rec.cells))}</span>` : ''}</td><td>${p ? `<a href="/data/v1/${esc(p.path)}">JSON</a>` : ''}</td></tr>`;
   }).join('');
   const frows = c.forks.slice().reverse().map(f => {
     const p = f.platforms[plat], rec = p && p.path && c.read(p.path);

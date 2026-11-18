@@ -1,7 +1,8 @@
 // Red first: a level that ran with no valid attempt (the aggregator's note hollow at a null value) is shown as a
 // gap with its reason, a value with no neighbour is still drawn, and the reference is worded as the aggregator
 // computes it (the median of up to seven previous complete nightlies; partial records are skipped).
-// - B1: the records table lists that date with "fewer than two valid attempts, no verdict", never drops it.
+// - B1: the records table lists that date with its reason, never drops it (since the measured-failure change, a
+//   level with no valid attempt reads "failed: no valid attempt").
 // - B2: the chart's tooltip there says the same, not "No record at this level" (which stays for a level not run).
 // - B3: a valid value between two gaps, or first next to one, gets a dot on the chart and on the small multiple.
 // - The tooltip, the readout and the table say "up to 7 previous complete nightlies" / "the previous complete nightly".
@@ -24,13 +25,13 @@ function model() {
 
 test('B1: the records table lists a level run with no valid attempt, with its reason', () => {
   const t = strip(T.recordsTable(model()));
-  assert.match(t, /18 Oct 2026 [^]*?fewer than two valid attempts, no verdict/, 'the hollow date is a row with its reason');
+  assert.match(t, /18 Oct 2026 [^]*?failed: no valid attempt/, 'the hollow date is a row with its reason');
   assert.doesNotMatch(t, /20 Oct 2026/, 'a level not run is not listed');
 });
 
 test('B2: the tooltip names the reason at a level run with no valid attempt', () => {
   const M = model();
-  assert.match(strip(T.tipHTML(M, 1)), /fewer than two valid attempts, no verdict/);
+  assert.match(strip(T.tipHTML(M, 1)), /failed: no valid attempt/);
   assert.doesNotMatch(strip(T.tipHTML(M, 1)), /No record at this level/);
   assert.match(strip(T.tipHTML(M, 3)), /No record at this level/, 'a level not run says so');
 });

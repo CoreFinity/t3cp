@@ -60,7 +60,7 @@ test('a reason counts only beside no_data, and a shard without reasons still ren
   const lv = lv8();
   lv.note[1] = 'hollow';
   const tip = strip(T.tipHTML(model(lv), 1));
-  assert.match(tip, /fewer than two valid attempts, no verdict/);
+  assert.match(tip, /failed: no valid attempt/);
   assert.doesNotMatch(tip, /ran out of time/);
   const old = lv8();
   delete old.reason;
