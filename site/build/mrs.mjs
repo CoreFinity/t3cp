@@ -247,9 +247,14 @@ export function makeDoc(items, fetchedAt) {
   const sorted = [...items].sort(byUpdatedDesc);
   const counts = zeroCounts();
   for (const item of sorted) counts[item.kind][item.state] += 1;
-  const doc = { schema: SCHEMA_ID, fetched_at: fetchedAt, stale: false, source_queries: [...SOURCE_QUERIES], counts, omitted: 0, items: sorted };
+  return fit({ schema: SCHEMA_ID, fetched_at: fetchedAt, stale: false, source_queries: [...SOURCE_QUERIES], counts, omitted: 0, items: sorted });
+}
+
+// A list (newest first) within MAX_BYTES: the oldest items are left out and added to omitted; the counts are unchanged.
+function fit(doc) {
   if (byteLength(serialize(doc)) <= MAX_BYTES) return doc;
-  const keep = (k) => ({ ...doc, items: sorted.slice(0, k), omitted: sorted.length - k });
+  const sorted = doc.items;
+  const keep = (k) => ({ ...doc, items: sorted.slice(0, k), omitted: doc.omitted + sorted.length - k });
   let lo = 0, hi = sorted.length; // the largest k whose file fits; k = 0 always fits
   while (lo < hi) {
     const mid = Math.ceil((lo + hi) / 2);
@@ -303,7 +308,8 @@ export async function loadSchemaV1() {
 }
 
 // A t3cp/mrs/1 list (pull requests only, one query) as t3cp/mrs/2: every item a pull request, no issue read. The first
-// format's own checks first: its counts add up, its items are counted and sorted, its file was within 32 KB.
+// format's own checks first (its schema, its counts adding up); the second format's rows are longer, so the list is fitted
+// to MAX_BYTES again, the oldest left out and counted.
 export function migrateV1(doc, schemaV1) {
   const errors = validateSchema(doc, schemaV1);
   if (errors.length) return { errors };
@@ -311,7 +317,7 @@ export function migrateV1(doc, schemaV1) {
   if (sum !== doc.items.length + doc.omitted) return { errors: ['counts do not add up'] };
   const items = doc.items.map((i) => ({ kind: 'pr', number: i.number, title: i.title, state: i.state, closed_as: null, updated_at: i.updated_at, url: i.url }));
   const next = { schema: SCHEMA_ID, fetched_at: doc.fetched_at, stale: doc.stale, source_queries: [doc.source_query], counts: { pr: { ...doc.counts }, issue: { open: 0, closed: 0 } }, omitted: doc.omitted, items };
-  return { doc: next, errors: [] };
+  return { doc: fit(next), errors: [] };
 }
 
 export function validateDoc(doc, schema) {
