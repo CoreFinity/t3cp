@@ -292,3 +292,28 @@ test('the command line exits 0 on a 503, keeps the previous file stale and write
   assert.deepEqual(await readDoc(out), { ...previousDoc(), stale: true });
   assert.match(await readFile(part, 'utf8'), /list from 12 Nov 2026/);
 });
+
+test('a t3cp/mrs/1 list near its 32 KB cap stays within it once read as t3cp/mrs/2: the oldest are left out and counted', async () => {
+  // A first-format file just under 32 KB; the second format's rows are longer (kind, closed_as), so read as is it would not fit.
+  const items = [];
+  const v1 = () => ({ schema: 't3cp/mrs/1', fetched_at: '2026-11-12T06:00:00Z', stale: false, source_query: QUERY, counts: { open: items.length, merged: 0, closed: 0 }, omitted: 0, items });
+  for (let i = 0; ; i++) {
+    items.push({ number: 5000 - i, title: `perf(server): synthetic near-cap change ${'x'.repeat(120)} ${i}`, state: 'open', updated_at: new Date(Date.UTC(2026, 10, 11) - i * 60e3).toISOString().replace('.000', ''), url: prLink(5000 - i) });
+    if (Buffer.byteLength(`${JSON.stringify(v1())}\n`) > mrs.MAX_BYTES) { items.pop(); break; }
+  }
+  const doc = v1();
+  assert.ok(Buffer.byteLength(`${JSON.stringify(doc)}\n`) > mrs.MAX_BYTES - 400, 'the fixture is near the cap');
+  assert.deepEqual(mrs.validateSchema(doc, await loadSchemaV1()), []);
+  const out = join(await tempDir(), 'mrs.json');
+  await writeFile(out, `${JSON.stringify(doc)}\n`);
+  const result = await mrs.buildMrs(options({ out, fetch: stubFetch(() => new Response('', { status: 503 })) }));
+  assert.equal(result.source, out, 'the kept list is the first-format file, not an empty one');
+  const written = await readDoc(out);
+  assert.ok(result.bytes <= mrs.MAX_BYTES, `${result.bytes} bytes`);
+  assert.deepEqual(written.counts, { pr: { open: items.length, merged: 0, closed: 0 }, issue: { open: 0, closed: 0 } }, 'the counts still cover every pull request');
+  assert.ok(written.omitted > 0);
+  assert.equal(written.items.length + written.omitted, items.length);
+  assert.deepEqual(written.items.map((i) => i.number), items.slice(0, written.items.length).map((i) => i.number), 'the newest are kept');
+  assert.deepEqual(written.source_queries, [QUERY]);
+  assert.deepEqual(mrs.validateDoc(written, await loadSchema()), []);
+});
