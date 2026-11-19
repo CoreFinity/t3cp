@@ -90,6 +90,11 @@ if (process.env.STUB_HANG_CELL === cell) {
     fs.writeFileSync(path.join(logs, "server.trace.ndjson"), spans.map(([a, b]) => JSON.stringify({ name: "ProviderTurnStartService.start", startTimeUnixNano: ns(a), endTimeUnixNano: ns(b), durationMs: b - a })).join("\\n") + "\\n");
     fs.writeFileSync(path.join(run, "loop-1hz.ndjson"), JSON.stringify({ t: s0 + 750, dt_ms: 500, delay: { max_ms: 4321 } }) + "\\n");
   }
+  // STUB_DB_FROM_FIXTURE: the run's database is a copy of the fixture run.ts was given, as its restore makes it.
+  if (process.env.STUB_DB_FROM_FIXTURE === "1" && flag("--fixture") !== "none") {
+    fs.mkdirSync(path.join(run, "base", "userdata"), { recursive: true });
+    fs.copyFileSync(flag("--fixture"), path.join(run, "base", "userdata", "statev2.sqlite"));
+  }
   // STUB_DB_TEMPLATE: the run's database, as a kept run leaves it.
   if (process.env.STUB_DB_TEMPLATE) {
     fs.mkdirSync(path.join(run, "base", "userdata"), { recursive: true });
@@ -1076,12 +1081,24 @@ const TEST_CATALOGUE = {
       metrics: ["event_log_unpruned_days"],
       cells: [{ name: "cmp", mode: "fresh", sessions: 1, subscribers: 1, pollers: 0, turn_gap: "5s", warmup_s: 60, window_s: 300, seed_compacted_at: false, post: "prune-mark" }],
     },
+    {
+      id: "test-compaction-era",
+      version: 1,
+      status: "active",
+      added: "2026-11-19",
+      harness: "t3cp-harness/2.0.2",
+      platforms: ["linux-x64", "darwin-arm64"],
+      fixture: "large-76",
+      attempts: 1,
+      metrics: ["event_log_unpruned_days"],
+      cells: [{ name: "cmp", mode: "fresh", sessions: 1, subscribers: 1, pollers: 0, turn_gap: "5s", warmup_s: 60, window_s: 300, seed_compacted_at: false, post: "prune-mark", mark_age_days: 3 }],
+    },
   ],
 };
 /** A scenario record's setup: the row's suite and a catalogue holding the test rows (T3CP_SCENARIOS). */
-function scenarioSetup(ref) {
+function scenarioSetup(ref, { fixture = false } = {}) {
   const [id, version] = ref.split("@");
-  const t = setup({ scenarioSuite: { id: ref, scenario: { id, version: Number(version) } } });
+  const t = setup({ fixture, scenarioSuite: { id: ref, scenario: { id, version: Number(version) } } });
   const catalogue = join(t.root, "scenarios.json");
   writeFileSync(catalogue, JSON.stringify(TEST_CATALOGUE));
   t.env = { ...t.env, T3CP_SCENARIOS: catalogue };
@@ -1138,10 +1155,18 @@ test("a turn-start row writes its raw scenario file from the run's trace and loo
   const result = runRunner(t, { env: { ...t.env, T3CP_KEEP_RAW: "1", STUB_SCENARIO: "turn-start" } });
   assert.equal(result.status, 0, result.stderr);
   const raw = JSON.parse(readFileSync(join(t.work, "raw", "lt-1", "scenario.json"), "utf8"));
+  // One raw file, every metric of the step: the longest block and the starts' median (nine of 20 ms, one of 400 ms).
   assert.deepEqual(
-    { schema: raw.schema, scenario: raw.scenario, metric: raw.metric, value: raw.value, reason: raw.reason, starts: raw.detail.starts_completed },
-    { schema: "t3cp/scenario-raw/1", scenario: { id: "test-turn-start", version: 1 }, metric: "turn_start_history_gap_ms", value: 4321, reason: null, starts: 10 },
+    { schema: raw.schema, scenario: raw.scenario, post: raw.post, metrics: raw.metrics, starts: raw.detail.starts_completed },
+    {
+      schema: "t3cp/scenario-raw/1",
+      scenario: { id: "test-turn-start", version: 1 },
+      post: "turn-start-gap",
+      metrics: { turn_start_history_gap_ms: { value: 4321, reason: null }, turn_start_long_thread_ms: { value: 20, reason: null } },
+      starts: 10,
+    },
   );
+  assert.ok(!("value" in raw) && !("metric" in raw), "values live under metrics only");
   const meta = JSON.parse(readFileSync(join(t.work, "raw", "lt-1", "attempt-meta.json"), "utf8"));
   assert.deepEqual(meta.scenario, { id: "test-turn-start", version: 1 });
   assert.notEqual(meta.maintenance_expected, true);
@@ -1158,11 +1183,35 @@ test("a compaction row reads the prune mark from the kept run's database, read-o
   const result = runRunner(t, { env: { ...t.env, T3CP_KEEP_RAW: "1", STUB_DB_TEMPLATE: db } });
   assert.equal(result.status, 0, result.stderr);
   const raw = JSON.parse(readFileSync(join(t.work, "raw", "cmp-1", "scenario.json"), "utf8"));
-  assert.equal(raw.metric, "event_log_unpruned_days");
-  assert.equal(raw.value, 2);
+  assert.deepEqual(raw.metrics, { event_log_unpruned_days: { value: 2, reason: null } });
   assert.equal(raw.detail.mark_updated_at, mark);
   const meta = JSON.parse(readFileSync(join(t.work, "raw", "cmp-1", "attempt-meta.json"), "utf8"));
   assert.equal(meta.maintenance_expected, true);
+});
+
+test("a compaction row's prune mark is re-dated on the migrated fixture before each try, so a backfill reads the row's age, not the fixture's", { skip, timeout: 1_800_000 }, () => {
+  const t = scenarioSetup("test-compaction-era@1", { fixture: true });
+  const spec = JSON.parse(readFileSync(join(t.root, "spec.json"), "utf8"));
+  // The release has migrated the era fixture already (a restart finds it): its prune mark is 30 days old.
+  const migrated = join(t.work, "fixture", "base", "userdata", "statev2.sqlite");
+  mkdirSync(dirname(migrated), { recursive: true });
+  const stale = new Date(Date.now() - 30 * 86_400_000).toISOString();
+  const made = spawnSync("python3", ["-I", "-c", "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute(sys.argv[2]); c.execute(sys.argv[3], (sys.argv[4],)); c.commit(); c.close()", migrated,
+    "CREATE TABLE orchestration_v2_projection_metadata (projection_name TEXT PRIMARY KEY, schema_version INTEGER, last_sequence INTEGER, updated_at TEXT)",
+    "INSERT INTO orchestration_v2_projection_metadata VALUES ('event-log-prune-mark', 2, 151, ?)", stale], { encoding: "utf8" });
+  assert.equal(made.status, 0, made.stderr);
+  writeFileSync(join(t.work, "fixture.done"), `${spec.fixture.sha256} ${spec.release.archive_sha256}\n`);
+  const fixtureBefore = createHash("sha256").update(readFileSync(spec.fixture.path)).digest("hex");
+  const before = Date.now();
+  const result = runRunner(t, { env: { ...t.env, T3CP_KEEP_RAW: "1", STUB_DB_FROM_FIXTURE: "1" } });
+  const after = Date.now();
+  assert.equal(result.status, 0, result.stderr);
+  const raw = JSON.parse(readFileSync(join(t.work, "raw", "cmp-1", "scenario.json"), "utf8"));
+  assert.deepEqual(raw.metrics, { event_log_unpruned_days: { value: 2, reason: null } });
+  const mark = Date.parse(raw.detail.mark_updated_at);
+  assert.ok(mark >= before - 3 * 86_400_000 && mark <= after - 3 * 86_400_000, `mark ${raw.detail.mark_updated_at} is 3 days before the try`);
+  assert.equal(createHash("sha256").update(readFileSync(spec.fixture.path)).digest("hex"), fixtureBefore, "the spec's fixture is never written");
+  assert.match(readFileSync(join(t.work, "runner.log"), "utf8"), /cmp-1 try 1: prune mark set 3 days before the try/);
 });
 
 // Last in the file: tests run in order, and each one's end has run by now.

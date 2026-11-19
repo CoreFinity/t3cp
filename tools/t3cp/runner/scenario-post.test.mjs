@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, test } from "node:test";
@@ -96,4 +96,42 @@ test("no prune mark (or no metadata table): null with no_event_prune", () => {
   const empty = join(root, "empty.sqlite");
   spawnSync("python3", ["-I", "-c", "import sqlite3,sys; sqlite3.connect(sys.argv[1]).close()", empty]);
   assert.equal(markOf(empty, end).reason, "no_event_prune");
+});
+
+/** prune-mark.py --set-age-days: the mark re-dated in place, as the runner does on the attempt's fixture copy. */
+const setMark = (db, days, nowMs) => {
+  const r = spawnSync("python3", ["-I", join(here, "prune-mark.py"), "--db", db, "--set-age-days", String(days), "--now-ms", String(nowMs)], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  return JSON.parse(r.stdout);
+};
+
+test("the runner's pre-try step dates the prune mark N days before the try starts, and the post step then reads N - 1", () => {
+  const now = Date.UTC(2026, 11, 18, 12, 0, 0);
+  const stale = database("stale", new Date(now - 30 * 86_400_000).toISOString());
+  const want = new Date(now - 3 * 86_400_000).toISOString();
+  assert.deepEqual(setMark(stale, 3, now), { set: true, reason: null, mark_updated_at: want });
+  assert.deepEqual(markOf(stale, now + 300_000).detail.mark_updated_at, want);
+  assert.equal(markOf(stale, now + 300_000).value, 2);
+});
+
+test("re-dating a database in WAL mode leaves its write-ahead log checkpointed into the database file", () => {
+  const now = Date.UTC(2026, 11, 18, 12, 0, 0);
+  const db = database("wal", new Date(now - 30 * 86_400_000).toISOString());
+  const wal = spawnSync("python3", ["-I", "-c", "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); print(c.execute('PRAGMA journal_mode=WAL').fetchone()[0]); c.close()", db], { encoding: "utf8" });
+  assert.equal(wal.stdout.trim(), "wal");
+  setMark(db, 3, now);
+  const walFile = `${db}-wal`;
+  assert.ok(!existsSync(walFile) || readFileSync(walFile).length === 0, "nothing left in the WAL");
+  // A copy of the database file alone (as a restore copies it) holds the new mark.
+  const copy = join(root, "wal-copy.sqlite");
+  writeFileSync(copy, readFileSync(db));
+  assert.equal(markOf(copy, now).detail.mark_updated_at, new Date(now - 3 * 86_400_000).toISOString());
+});
+
+test("a release with no prune mark is left as it is: nothing to re-date", () => {
+  const now = Date.UTC(2026, 11, 18, 12, 0, 0);
+  const db = database("nomark-set", null);
+  const before = sha(db);
+  assert.deepEqual(setMark(db, 3, now), { set: false, reason: "no_event_prune", mark_updated_at: null });
+  assert.equal(sha(db), before);
 });

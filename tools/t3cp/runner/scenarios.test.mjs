@@ -50,6 +50,7 @@ test("a cell becomes exactly its counts, intervals, compaction seeding, post ste
       window_s: 600,
       seed_compacted_at: true,
       post: "turn-start-gap",
+      mark_age_days: null,
       driver_args: undefined,
     },
   );
@@ -59,6 +60,16 @@ test("a cell becomes exactly its counts, intervals, compaction seeding, post ste
   assert.equal(cmp.post, "prune-mark");
   assert.deepEqual(cmp.driver_args, ["--mode", "history", "--turn-gap", "5s", "--pollers", "0", ...STD]);
   assert.throws(() => scenarioCell(scenarioRow(catalogue, "event-log-compaction@1"), "lt"), /no cell lt/);
+});
+
+test("a prune-mark cell names the age its fixture's prune mark is set to at each try's start; no other cell may", () => {
+  const row = scenarioRow(catalogue, "event-log-compaction@1");
+  assert.equal(scenarioCell(row, "cmp").mark_age_days, 3);
+  const withCell = (patch) => ({ ...row, cells: [{ ...row.cells[0], ...patch }] });
+  for (const bad of [0, 1.5, "3", -1]) {
+    assert.throws(() => scenarioCell(withCell({ mark_age_days: bad }), "cmp"), /mark_age_days/, String(bad));
+  }
+  assert.throws(() => scenarioCell(withCell({ post: "turn-start-gap" }), "cmp"), /mark_age_days/);
 });
 
 test("the command line gives run-record.sh its shell variables, and refuses a row it does not have", () => {
@@ -71,10 +82,12 @@ test("the command line gives run-record.sh its shell variables, and refuses a ro
   const meta = join(root, "cell.json");
   const sh = spawnSync(process.execPath, [cli, "sh", draft, "event-log-compaction@1", "cmp", meta], { encoding: "utf8" });
   assert.equal(sh.status, 0, sh.stderr);
-  for (const line of ["P_SESSIONS='1'", "P_SUBSCRIBERS='1'", "P_POLLERS='0'", "P_WARMUP_S='60'", "P_WINDOW_S='300'", "P_SEED_COMPACTED='0'", "P_POST='prune-mark'"]) {
+  for (const line of ["P_SESSIONS='1'", "P_SUBSCRIBERS='1'", "P_POLLERS='0'", "P_WARMUP_S='60'", "P_WINDOW_S='300'", "P_SEED_COMPACTED='0'", "P_POST='prune-mark'", "P_MARK_AGE_DAYS='3'"]) {
     assert.ok(sh.stdout.split("\n").includes(line), `${line} in\n${sh.stdout}`);
   }
   assert.deepEqual(JSON.parse(readFileSync(meta, "utf8")).scenario, { id: "event-log-compaction", version: 1 });
+  const lt = spawnSync(process.execPath, [cli, "sh", draft, "long-thread-turn-start@1", "lt", join(root, "lt.json")], { encoding: "utf8" });
+  assert.ok(lt.stdout.split("\n").includes("P_MARK_AGE_DAYS=''"), lt.stdout);
   const missing = spawnSync(process.execPath, [cli, "order", draft, "no-such-scenario@1"], { encoding: "utf8" });
   assert.equal(missing.status, 2);
   assert.match(missing.stderr, /not in the catalogue/);
