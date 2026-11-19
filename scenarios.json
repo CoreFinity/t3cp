@@ -1,0 +1,27 @@
+{
+  "schema": "t3cp/scenarios/1",
+  "description": "Every published suite, one row per scenario id and version (schema/scenarios-1.json). A row is never edited: any change is a new version, and scenarios.lock.json holds each row's content hash. Row 1 is today's load ladder, published as suite ladder-1.",
+  "rows": [
+    {
+      "id": "ladder",
+      "version": 1,
+      "suite": "ladder-1",
+      "status": "active",
+      "added": "2026-11-19",
+      "harness": "t3cp-harness/2.0.2",
+      "platforms": ["linux-x64", "darwin-arm64"],
+      "fixture": "era",
+      "attempts": 3,
+      "metrics": "catalogue",
+      "cells": [
+        { "name": "1", "mode": "mixed", "sessions": 1, "subscribers": 1, "pollers": 0, "turn_gap": "5s", "switch_interval": "30s", "poll_rate": "1", "warmup_s": 60, "window_s": 300, "seed_compacted_at": true, "post": "none" },
+        { "name": "50", "mode": "mixed", "sessions": 50, "subscribers": 3, "pollers": 13, "turn_gap": "60s", "switch_interval": "300s", "poll_rate": "0.01", "warmup_s": 60, "window_s": 300, "seed_compacted_at": true, "post": "none" },
+        { "name": "100", "mode": "mixed", "sessions": 100, "subscribers": 3, "pollers": 25, "turn_gap": "60s", "switch_interval": "300s", "poll_rate": "0.01", "warmup_s": 60, "window_s": 300, "seed_compacted_at": true, "post": "none" },
+        { "name": "150", "mode": "mixed", "sessions": 150, "subscribers": 3, "pollers": 38, "turn_gap": "60s", "switch_interval": "300s", "poll_rate": "0.01", "warmup_s": 60, "window_s": 300, "seed_compacted_at": true, "post": "none" },
+        { "name": "200", "mode": "mixed", "sessions": 200, "subscribers": 3, "pollers": 50, "turn_gap": "60s", "switch_interval": "300s", "poll_rate": "0.01", "warmup_s": 60, "window_s": 300, "seed_compacted_at": true, "post": "none" },
+        { "name": "250", "mode": "mixed", "sessions": 250, "subscribers": 3, "pollers": 63, "turn_gap": "60s", "switch_interval": "300s", "poll_rate": "0.01", "warmup_s": 60, "window_s": 300, "seed_compacted_at": true, "post": "none" },
+        { "name": "1e", "fixture": "none", "mode": "fresh", "sessions": 1, "subscribers": 1, "pollers": 0, "turn_gap": "5s", "switch_interval": "30s", "poll_rate": "1", "warmup_s": 60, "window_s": 300, "seed_compacted_at": true, "post": "none" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://t3cp.io/schema/scenarios-1.json",
+  "title": "t3cp scenario catalogue, version 1",
+  "description": "scenarios.json: every published suite as a row keyed by a public scenario id and an integer version. A row is never edited; any change is a new version (scenarios.lock.json holds each id@version's content hash). Also checked by tools/t3cp/scenarios-check.mjs, beyond this schema: id@version is unique; the ladder row (id ladder) publishes as suite ladder-<version> and every other row as <id>@<version>; each metric is a catalogue metric of the daily or record lane, measured by one scenario id only; \"catalogue\" (every catalogue metric no other row names) and the fixture \"era\" are the ladder's alone; the harness version has a pin in tools/t3cp/public-refs.json; cell names are unique within a row; mark_age_days goes with the prune-mark post step only; a cell without a fixture runs fresh; and the ladder's cells are its levels and 1e, with one warm-up and one window.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "rows"],
+  "properties": {
+    "schema": { "const": "t3cp/scenarios/1" },
+    "description": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "rows": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/row" } }
+  },
+  "$defs": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+      "maxLength": 41
+    },
+    "duration": {
+      "description": "A driver duration: a number with ms, s or m.",
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:ms|s|m)$"
+    },
+    "count": { "type": "integer", "minimum": 0, "maximum": 1000 },
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "suite", "status", "added", "harness", "platforms", "fixture", "attempts", "metrics", "cells"],
+      "properties": {
+        "id": { "$ref": "#/$defs/name", "description": "The public scenario id; ladder is today's load ladder." },
+        "version": { "type": "integer", "minimum": 1, "maximum": 999999 },
+        "suite": {
+          "description": "The suite its records publish as (workload.suite): ladder-<version> for the ladder, <id>@<version> for every other row.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:@[1-9][0-9]{0,5})?$",
+          "maxLength": 48
+        },
+        "status": {
+          "description": "active rows run and publish; a retired row stays in the catalogue, with its records, and runs no more.",
+          "enum": ["active", "retired"]
+        },
+        "added": { "description": "The date the row joined the catalogue (UTC).", "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "harness": {
+          "description": "The harness release the row runs, a public tag version pinned in tools/t3cp/public-refs.json.",
+          "type": "string",
+          "pattern": "^t3cp-harness/(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$"
+        },
+        "platforms": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["linux-x64", "darwin-arm64"] }
+        },
+        "fixture": {
+          "description": "The database the cells start from: era (the ladder: the fixture of the record's fixture era), none (an empty database) or a published fixture id.",
+          "$ref": "#/$defs/name"
+        },
+        "attempts": { "description": "Attempts per cell, run round after round.", "type": "integer", "minimum": 1, "maximum": 5 },
+        "metrics": {
+          "description": "The catalogue metric ids the row's records publish, or \"catalogue\" (the ladder: every catalogue metric of the daily and record lanes that no other row names).",
+          "type": ["string", "array"],
+          "pattern": "^catalogue$",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$", "maxLength": 64 }
+        },
+        "cells": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/cell" } }
+      }
+    },
+    "cell": {
+      "description": "One cell: its load arguments, each a driver option, and its runner settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "mode", "sessions", "subscribers", "pollers", "turn_gap", "warmup_s", "window_s", "seed_compacted_at", "post"],
+      "properties": {
+        "name": {
+          "description": "The cell's key in the record and its attempts (<name>-<n>): the ladder's are its levels and 1e.",
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,30}$"
+        },
+        "fixture": { "description": "none: this cell runs on an empty database whatever the row's fixture (the ladder's 1e).", "const": "none" },
+        "mode": { "description": "The driver's --mode: fresh threads, history (the fixture's threads) or mixed.", "enum": ["fresh", "history", "mixed"] },
+        "sessions": { "description": "The driver's --sessions (agents).", "type": "integer", "minimum": 1, "maximum": 1000 },
+        "subscribers": { "description": "The driver's --subscribers.", "$ref": "#/$defs/count" },
+        "pollers": { "description": "The driver's --pollers.", "$ref": "#/$defs/count" },
+        "turn_gap": { "description": "The driver's --turn-gap.", "$ref": "#/$defs/duration" },
+        "switch_interval": { "description": "The driver's --switch-interval (its default when absent).", "$ref": "#/$defs/duration" },
+        "poll_rate": {
+          "description": "The driver's --poll-rate, calls per second per poller (its default when absent).",
+          "type": "string",
+          "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$"
+        },
+        "warmup_s": { "type": "integer", "minimum": 0, "maximum": 3600 },
+        "window_s": { "type": "integer", "minimum": 10, "maximum": 14400 },
+        "seed_compacted_at": { "description": "Seed the fixture's compaction marker before each try (false leaves the history uncompacted).", "type": "boolean" },
+        "post": {
+          "description": "What the runner reads from the kept run after each try: none, turn-start-gap or prune-mark.",
+          "enum": ["none", "turn-start-gap", "prune-mark"]
+        },
+        "mark_age_days": {
+          "description": "A prune-mark cell's mark age: the mark is set to the try's start less this many days before each try.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        }
+      }
+    }
+  }
+}
