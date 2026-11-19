@@ -746,6 +746,8 @@ one_try() { # cell try fixture-arg: one run.ts invocation with its sidecars (the
     disk=$(basename "$(findmnt -no SOURCE --target "$WORK" 2>/dev/null || echo sda)")
     local -a stats=()
     [ -d "$HARNESS/state/fake-stats" ] && stats=(--stats-dir "$HARNESS/state/fake-stats")
+    # The prune-mark post step reads the run's database after the try: the sidecar keeps it for that cell.
+    [ "$P_POST" = prune-mark ] && stats+=(--keep-db)
     launch_group "$WORK" ${pin[@]+"${pin[@]}"} nice -n 5 "$PY" -I "$HERE/runner/procmon.py" --work "$raw/work" \
       --parent-pid "$pid" --disk "$disk" --log "$raw/procmon.log" ${stats[@]+"${stats[@]}"} &
     ppid=$!

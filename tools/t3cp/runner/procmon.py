@@ -9,11 +9,13 @@ the load side (run.ts, driver) grouped by comm, the host (load, /proc/stat cpu, 
 and the run database's db/-wal/-shm sizes. Counters, sizes and comm names only.
 
 When the server exits it writes <runDir>/server-exit.json (when it was gone, 1 s resolution), deletes the run's
-database copy (nothing reads it afterwards, and its page cache would crowd out the fixture's) and, with
+database copy (nothing reads it afterwards, and its page cache would crowd out the fixture's; with --keep-db it is kept,
+for a scenario cell whose post step reads it) and, with
 --stats-dir, moves the fakes' stats files into <runDir>/fake-stats/. It touches <runDir>/ctl/window-start and
 ctl/window-end on the driver's "phase: window" / "phase: drain" lines (run.ts does the same; both are harmless).
 
 usage: procmon.py --work <run.ts work dir> --parent-pid <pid> --log <file> [--disk <name>] [--stats-dir <dir>]
+                  [--keep-db]
 """
 import argparse
 import json
@@ -297,6 +299,7 @@ def main():
     ap.add_argument("--stats-dir", default=None, help="the fakes' stats directory, moved into each run's fake-stats/")
     ap.add_argument("--disk", default="sda", help="block device name for /proc/diskstats (the one holding --work)")
     ap.add_argument("--log", required=True)
+    ap.add_argument("--keep-db", action="store_true", help="keep the run's database when the server is gone (a post step reads it)")
     a = ap.parse_args()
     work = os.path.realpath(a.work)
     logf = open(a.log, "a")
@@ -319,7 +322,7 @@ def main():
         cur["out"].close()
         with open(os.path.join(cur["run_dir"], "server-exit.json"), "w") as f:
             json.dump({"gone_ms": int(time.time() * 1000), "resolution_ms": 1000}, f)
-        for suffix in ("", "-wal", "-shm"):
+        for suffix in ("", "-wal", "-shm") if not a.keep_db else ():
             try:
                 os.remove(os.path.join(cur["run_dir"], "base", "userdata", "statev2.sqlite" + suffix))
             except OSError:
@@ -335,7 +338,7 @@ def main():
                     log(f"move {name}: {e}")
 
     current = None
-    log(f"procmon start clk={CLK} disk={a.disk}")
+    log(f"procmon start clk={CLK} disk={a.disk} keep_db={1 if a.keep_db else 0}")
     next_tick = time.monotonic()
     while not stop:
         now_mono = time.monotonic()

@@ -12,7 +12,8 @@
 //                   Fewer than 10 starts in the window: both turn_start_incomplete.
 //   prune-mark      event_log_unpruned_days: the event log's prune mark in the run's database at the window's end,
 //                   read-only (prune-mark.py): its age past the one retained day, in days; no mark: no_event_prune.
-// No valid run window: every metric of the step null with no_run_window.
+// No valid run.ts run with a window (an invalid run is never measured): every metric of the step null with
+// no_run_window.
 //
 //   node scenario-post.mjs <post> <raw attempt dir> <id@version>
 import { closeSync, existsSync, openSync, readSync } from "node:fs";
@@ -156,7 +157,7 @@ export function scenarioRaw(post, raw, scenario) {
   if (!ids) throw new Error(`unknown post step ${post}`);
   const window = attemptWindow(raw);
   const out = { schema: RAW_SCHEMA, scenario, post, window: { start_ms: window.start, end_ms: window.end, run: window.run, valid: window.valid } };
-  if (!Number.isInteger(window.run) || window.start === null || window.end === null) {
+  if (window.valid !== true || !Number.isInteger(window.run) || window.start === null || window.end === null) {
     return { ...out, metrics: all(ids, "no_run_window"), detail: {} };
   }
   const runDir = join(raw, "work", "runs", "release", `attempt-${window.run}`);
