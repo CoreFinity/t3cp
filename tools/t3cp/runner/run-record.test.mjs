@@ -1169,6 +1169,7 @@ test("a turn-start row writes its raw scenario file from the run's trace and loo
   assert.ok(!("value" in raw) && !("metric" in raw), "values live under metrics only");
   const meta = JSON.parse(readFileSync(join(t.work, "raw", "lt-1", "attempt-meta.json"), "utf8"));
   assert.deepEqual(meta.scenario, { id: "test-turn-start", version: 1 });
+  if (process.platform === "linux") assert.match(readFileSync(join(t.work, "raw", "lt-1", "procmon.log"), "utf8"), /procmon start .*keep_db=0/);
   assert.notEqual(meta.maintenance_expected, true);
 });
 
@@ -1185,6 +1186,8 @@ test("a compaction row reads the prune mark from the kept run's database, read-o
   const raw = JSON.parse(readFileSync(join(t.work, "raw", "cmp-1", "scenario.json"), "utf8"));
   assert.deepEqual(raw.metrics, { event_log_unpruned_days: { value: 2, reason: null } });
   assert.equal(raw.detail.mark_updated_at, mark);
+  // On Linux the /proc sidecar keeps the run's database for this post step (it deletes it for every other cell).
+  if (process.platform === "linux") assert.match(readFileSync(join(t.work, "raw", "cmp-1", "procmon.log"), "utf8"), /procmon start .*keep_db=1/);
   const meta = JSON.parse(readFileSync(join(t.work, "raw", "cmp-1", "attempt-meta.json"), "utf8"));
   assert.equal(meta.maintenance_expected, true);
 });

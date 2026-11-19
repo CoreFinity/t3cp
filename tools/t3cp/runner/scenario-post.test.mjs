@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { turnStartGap } from "./scenario-post.mjs";
+import { scenarioRaw, turnStartGap } from "./scenario-post.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = mkdtempSync(join(tmpdir(), "t3cp-scenario-post-"));
@@ -168,4 +168,21 @@ test("a database without projection metadata is left as it is: no_event_prune", 
   const before = sha(db);
   assert.deepEqual(setMark(db, 3, now), { set: false, inserted: false, reason: "no_event_prune", mark_updated_at: null });
   assert.equal(sha(db), before);
+});
+
+test("a try with no valid run measures nothing: every metric of the step is null with no_run_window", () => {
+  // A raw attempt whose only run.ts run is invalid, though it has a window and a full set of turn starts.
+  const raw = join(root, "invalid-raw");
+  const run = join(raw, "work", "runs", "release", "attempt-1");
+  mkdirSync(join(run, "base", "userdata", "logs"), { recursive: true });
+  writeFileSync(join(run, "run.json"), JSON.stringify({ valid: false, window: { start: new Date(T0).toISOString(), end: new Date(T0 + 600_000).toISOString() } }));
+  const spans = Array.from({ length: 10 }, (_, i) => JSON.stringify({ name: "ProviderTurnStartService.start", startTimeUnixNano: ns(T0 + 10_000 + i * 30_000), endTimeUnixNano: ns(T0 + 11_000 + i * 30_000), durationMs: 1_000 }));
+  writeFileSync(join(run, "base", "userdata", "logs", "server.trace.ndjson"), `${spans.join("\n")}\n`);
+  writeFileSync(join(run, "loop-1hz.ndjson"), `${JSON.stringify({ t: T0 + 11_000, dt_ms: 1_000, delay: { max_ms: 40 } })}\n`);
+  const out = scenarioRaw("turn-start-gap", raw, { id: "x", version: 1 });
+  assert.equal(out.window.valid, false);
+  assert.deepEqual(out.metrics, {
+    turn_start_history_gap_ms: { value: null, reason: "no_run_window" },
+    turn_start_long_thread_ms: { value: null, reason: "no_run_window" },
+  });
 });
