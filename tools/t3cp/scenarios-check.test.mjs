@@ -14,6 +14,7 @@ import {
   LOCK_FILE,
   SCENARIOS_FILE,
   checkLock,
+  checkLockHistory,
   checkRepo,
   checkScenarios,
   ladderWorkload,
@@ -62,7 +63,7 @@ const check = (rows, base = repo.scenarios) => checkScenarios({ ...repo, scenari
 function scratch(scenarios, lock) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "t3cp-scenarios-"));
   temps.push(root);
-  for (const rel of ["schema/scenarios-1.json", "catalogue/catalogue.json", "tools/t3cp/public-refs.json"]) {
+  for (const rel of ["schema/scenarios-1.json", "catalogue/catalogue.json", "tools/t3cp/public-refs.json", "fixture/fixtures.json"]) {
     fs.mkdirSync(path.join(root, path.dirname(rel)), { recursive: true });
     fs.copyFileSync(path.join(REPO_ROOT, rel), path.join(root, rel));
   }
@@ -148,6 +149,43 @@ test("the lock's history: an entry any commit locked keeps its hash, so a row is
   assert.match(checkRepo(root).problems.join("\n"), /test-row@1: commit [0-9a-f]{12} locked it with another hash \(or the entry is gone\)/);
 });
 
+test("the lock's history fails closed: an unreadable committed lock or a git that cannot run is an error, never a pass", () => {
+  const scenarios = { ...clone(repo.scenarios), rows: [...clone(repo.scenarios.rows), testRow()] };
+  const root = scratch(scenarios, null);
+  writeLock(root);
+  git(root, ["init", "-q"]);
+  git(root, ["add", "-A"]);
+  git(root, ["commit", "-q", "-m", "catalogue"]);
+  // Edit the row and its entry together, commit, then lose the first commit's lock object: the history cannot be read.
+  const first = git(root, ["rev-parse", `HEAD:${LOCK_FILE}`]);
+  scenarios.rows[1].cells[0].window_s = 31;
+  fs.writeFileSync(path.join(root, SCENARIOS_FILE), JSON.stringify(scenarios));
+  const lock = JSON.parse(fs.readFileSync(path.join(root, LOCK_FILE), "utf8"));
+  lock.rows["test-row@1"] = rowHash(scenarios.rows[1]);
+  fs.writeFileSync(path.join(root, LOCK_FILE), JSON.stringify(lock));
+  git(root, ["commit", "-q", "-am", "edit"]);
+  fs.rmSync(path.join(root, ".git", "objects", first.slice(0, 2), first.slice(2)), { force: true });
+  assert.throws(() => checkRepo(root), /cannot read/);
+  const r = cli(["--repo", root]);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  // A git that cannot run is an error too; only a directory outside any git work tree skips the history.
+  assert.throws(() => checkLockHistory(root, lock, { gitBin: path.join(root, "no-such-git") }), /git/);
+  const plain = scratch(repo.scenarios, repo.lock);
+  assert.deepEqual(checkLockHistory(plain, repo.lock), { checked: false });
+  // A lock deleted by one commit and written again by a later one: the entries before the deletion still bind.
+  const again = scratch(scenarios, lock);
+  git(again, ["init", "-q"]);
+  git(again, ["add", "-A"]);
+  git(again, ["commit", "-q", "-m", "catalogue"]);
+  git(again, ["rm", "-q", LOCK_FILE]);
+  git(again, ["commit", "-q", "-m", "drop the lock"]);
+  const rewritten = { ...lock, rows: { ...lock.rows, "test-row@1": "0".repeat(64) } };
+  fs.writeFileSync(path.join(again, LOCK_FILE), JSON.stringify(rewritten));
+  git(again, ["add", "-A"]);
+  git(again, ["commit", "-q", "-m", "a new lock"]);
+  assert.match(checkLockHistory(again, rewritten).problems.join("\n"), /^test-row@1: commit [0-9a-f]{12} locked it with another hash/);
+});
+
 test("the validator refuses an unknown metric key", () => {
   assert.deepEqual(check([testRow()]), []);
   assert.deepEqual(check([testRow({ metrics: ["no_such_metric"] })]), ["test-row@1: unknown metric key no_such_metric"]);
@@ -175,7 +213,8 @@ test("the validator refuses a cell argument outside the driver's options", () =>
   assert.match(withCell({ pollers: 1001 }), /cells\[0\]\.pollers: above the maximum 1000/);
   assert.match(withCell({ turn_gap: "5 seconds" }), /cells\[0\]\.turn_gap: does not match pattern/);
   assert.match(withCell({ window_s: 5 }), /cells\[0\]\.window_s: below the minimum 10/);
-  assert.match(withCell({ poll_rate: "0" }), /test-row@1 cell c: poll_rate must be above 0/);
+  assert.match(withCell({ poll_rate: "0" }), /test-row@1 cell c: poll_rate must be a finite number above 0/);
+  assert.match(withCell({ poll_rate: "9".repeat(400) }), /test-row@1 cell c: poll_rate must be a finite number above 0/);
   assert.match(withCell({ mark_age_days: 3 }), /test-row@1 cell c: mark_age_days goes with the prune-mark post step only/);
   assert.match(withCell({ mode: "history" }), /test-row@1 cell c: a cell without a fixture runs fresh/);
   assert.equal(withCell({ mode: "history", post: "prune-mark", mark_age_days: 3 }).includes("mark_age_days"), false);
@@ -197,6 +236,26 @@ test("the validator: suite names, the ladder's own fields, and one scenario per 
   const windows = clone(ladder2);
   windows.cells[2].window_s = 301;
   assert.deepEqual(check([windows]), ["ladder@2: the ladder's cells share one warm-up and one window"]);
+});
+
+test("the validator: a ladder has at least one level and exactly one single-agent 1e cell", () => {
+  const ladder2 = { ...clone(repo.scenarios.rows[0]), version: 2, suite: "ladder-2" };
+  const onlyEmpty = { ...clone(ladder2), cells: [{ ...clone(ladder2.cells.at(-1)), sessions: 250 }] };
+  assert.deepEqual(check([onlyEmpty]), ["ladder@2 cell 1e: the empty cell runs one session", "ladder@2: a ladder has at least one level"]);
+  const noEmpty = { ...clone(ladder2), cells: clone(ladder2.cells).filter((c) => c.name !== "1e") };
+  assert.deepEqual(check([noEmpty]), ["ladder@2: a ladder has the empty cell 1e"]);
+  const wideEmpty = clone(ladder2);
+  wideEmpty.cells.at(-1).sessions = 2;
+  assert.deepEqual(check([wideEmpty]), ["ladder@2 cell 1e: the empty cell runs one session"]);
+});
+
+test("the validator: a row's fixture is a published fixture id (fixture/fixtures.json), none, or the ladder's era", () => {
+  const published = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "fixture", "fixtures.json"), "utf8")).map((f) => f.id);
+  assert.ok(published.length > 0);
+  const cells = [{ ...testRow().cells[0], mode: "history" }];
+  assert.deepEqual(check([testRow({ fixture: published.at(-1), cells })]), []);
+  assert.deepEqual(check([testRow({ fixture: "does-not-exist", cells })]), ["test-row@1: fixture does-not-exist is not a published fixture (fixture/fixtures.json)"]);
+  assert.deepEqual(check([testRow()]), [], "none");
 });
 
 test("the repository's scenarios.json passes the check, with its lock and the lock's history", () => {
