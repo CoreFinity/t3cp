@@ -80,9 +80,17 @@ test("audit: every generic pattern fires on its plant", () => {
     [j("W99", "-999"), "id-workstream"],
     [j("A9", "99"), "id-decision"],
     [j("Q", "99"), "id-question"],
+    [j("XY-0", "99"), "id-registry"],
+    [j("long-thread-xyz-0", "99"), "id-registry"],
     [j("someone", "@", "corp.io"), "email"],
   ];
   for (const [line, id] of cases) assert.ok(ids("site/x.js", line).includes(id), `${id}: ${line}`);
+});
+
+test("audit: the registry id shape spares a standard's name and other digit counts", () => {
+  for (const line of ["SHA-256", "sha-512", "AES-128", "ISO-639", "UTF-016", "XY-99", "XY-0999", "abcd-123", "lt-1", "v0.1.9-perf.12"]) {
+    assert.ok(!ids("site/x.js", line).includes("id-registry"), line);
+  }
 });
 
 test("audit: the public list holds generic shapes only (concrete names live in the private gate)", () => {
@@ -90,7 +98,7 @@ test("audit: the public list holds generic shapes only (concrete names live in t
   const generic = [
     "host-ws-n", "host-dot-local", "path-users", "path-home", "path-mnt", "path-volumes", "path-tilde",
     "path-var", "path-tmp", "path-root", "cloud-region", "ipv4", "ipv6", "ipv6-compressed", "bucket-url", "vm-name",
-    "host-field", "id-task", "id-workstream", "id-decision", "id-question", "evidence-dir", "node-options-value",
+    "host-field", "id-task", "id-workstream", "id-decision", "id-question", "id-registry", "evidence-dir", "node-options-value",
     "harness-ref-field", "email",
   ];
   const nonSecret = raw.patterns.map((pattern) => pattern.id).filter((id) => !id.startsWith("secret-"));
