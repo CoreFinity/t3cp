@@ -96,10 +96,16 @@ fi
 mkdir -p "$OUT/attempts" "$WORK/pids" "$WORK/raw"
 OUT=$(cd "$OUT" && pwd)
 WORK=$(cd "$WORK" && pwd)
-SPEC=$(cd "$(dirname "$SPEC")" && pwd)/$(basename "$SPEC")
+# One command substitution per command: a trap that fires during one of two side by side fails to parse in bash 5.2
+# (runner/trap-safe.test.mjs).
+spec_dir=$(cd "$(dirname "$SPEC")" && pwd)
+spec_base=$(basename "$SPEC")
+SPEC=$spec_dir/$spec_base
 HARNESS=$(cd "$HARNESS" 2>/dev/null && pwd || echo "$HARNESS")
 SETTINGS=${SETTINGS:-$HARNESS/tools/server-bench/settings/std.json}
-RECORD_ID="" LEASE=0 STATE=preparing RUN_STARTED=$(date -u +%FT%TZ) RUN_T0=$(date +%s)
+RECORD_ID="" LEASE=0 STATE=preparing
+RUN_STARTED=$(date -u +%FT%TZ)
+RUN_T0=$(date +%s)
 FAIL_EXTRA=()
 IS_LINUX=0
 [ "$(uname -s)" = Linux ] && IS_LINUX=1
@@ -548,9 +554,10 @@ preload_sha=""
 [ -f "$preload" ] && preload_sha=$(lib sha256 "$preload")
 harness_meta=$HARNESS/t3cp-harness.json
 if [ -f "$harness_meta" ]; then
-  lib write-json "$HARNESS_JSON" s:version="$(lib json-get "$harness_meta" version)" \
-    s:sha="$(lib json-get "$harness_meta" sha)" s:files_sha256="$(lib json-get "$harness_meta" files_sha256)" \
-    s:preload_sha256="$preload_sha"
+  h_version=$(lib json-get "$harness_meta" version)
+  h_sha=$(lib json-get "$harness_meta" sha)
+  h_files=$(lib json-get "$harness_meta" files_sha256)
+  lib write-json "$HARNESS_JSON" s:version="$h_version" s:sha="$h_sha" s:files_sha256="$h_files" s:preload_sha256="$preload_sha"
 else
   lib write-json "$HARNESS_JSON" n:version= n:sha= n:files_sha256= s:preload_sha256="$preload_sha"
 fi
@@ -599,7 +606,9 @@ rehand() { # every file whose handover a run did not finish: handed over again, 
 # them would publish a record no single run of one runner made.
 foreign=$(lib foreign-work "$OUT" "$RUNNER_JSON")
 if [ -n "$foreign" ]; then
-  fail foreign_attempts false 3 "$(printf '%s\n' "$foreign" | wc -l | tr -d ' ') file(s) in <out> not made by this runner: $(printf '%s\n' "$foreign" | head -5 | paste -sd ';' -)"
+  foreign_n=$(printf '%s\n' "$foreign" | wc -l | tr -d ' ')
+  foreign_first=$(printf '%s\n' "$foreign" | head -5 | paste -sd ';' -)
+  fail foreign_attempts false 3 "$foreign_n file(s) in <out> not made by this runner: $foreign_first"
 fi
 rehand
 if all_present; then
