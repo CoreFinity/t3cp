@@ -90,7 +90,7 @@ export function scenarioCell(row, name, profiles = loadProfiles()) {
   const switchInterval = c.switch_interval ?? null;
   if (switchInterval !== null) seconds(switchInterval);
   const pollRate = c.poll_rate ?? null;
-  if (pollRate !== null && !(typeof pollRate === "string" && /^\d+(\.\d+)?$/.test(pollRate) && Number(pollRate) > 0)) {
+  if (pollRate !== null && !(typeof pollRate === "string" && /^\d+(\.\d+)?$/.test(pollRate) && Number.isFinite(Number(pollRate)) && Number(pollRate) > 0)) {
     throw new Error(`${what("poll_rate")}: a positive number string, as "0.01"`);
   }
   if (c.fixture !== undefined && c.fixture !== "none") throw new Error(`${what("fixture")}: only "none" (an empty database)`);
