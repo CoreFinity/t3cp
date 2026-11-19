@@ -12,7 +12,7 @@
 //
 // The runner VM never runs this file and it reads no file the exporter closure (EXPORTER_FILES) holds but the catalogue
 // and public-refs.json, so a change here moves no image pin.
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -55,13 +55,14 @@ const seconds = (duration) => {
  * The problems of a catalogue against its schema, the metric catalogue and the pinned harness versions (the lock
  * aside): a list of lines, each naming the row and the rule. Empty when clean.
  */
-export function checkScenarios({ scenarios, schema, catalogue, publicRefs }) {
+export function checkScenarios({ scenarios, schema, catalogue, publicRefs, fixtures }) {
   const errors = validate(schema, scenarios);
   if (errors.length > 0) return errors.map((e) => `${SCENARIOS_FILE} ${e.path}: ${e.message}`);
   const problems = [];
   const metrics = new Map(catalogue.metrics.map((m) => [m.id, m]));
   const platforms = new Set(catalogue.platforms.map((p) => p.id));
   const pinned = new Set(Object.keys(publicRefs?.harness ?? {}));
+  const published = new Set((fixtures ?? []).map((f) => f.id));
   const seen = new Set();
   const measuredBy = new Map();
   for (const row of scenarios.rows) {
@@ -86,18 +87,24 @@ export function checkScenarios({ scenarios, schema, catalogue, publicRefs }) {
       }
     }
     if (ladder !== (row.fixture === "era")) problems.push(`${key}: the fixture era is the ladder's, and the ladder's fixture is era`);
+    else if (!ladder && row.fixture !== "none" && !published.has(row.fixture)) {
+      problems.push(`${key}: fixture ${row.fixture} is not a published fixture (fixture/fixtures.json)`);
+    }
     const names = row.cells.map((c) => c.name);
     if (new Set(names).size !== names.length) problems.push(`${key}: cell names are not unique`);
     for (const c of row.cells) {
       const at = `${key} cell ${c.name}`;
       if (c.mark_age_days !== undefined && c.post !== "prune-mark") problems.push(`${at}: mark_age_days goes with the prune-mark post step only`);
       if ((c.fixture === "none" || row.fixture === "none") && c.mode !== "fresh") problems.push(`${at}: a cell without a fixture runs fresh`);
-      if (c.poll_rate !== undefined && !(Number(c.poll_rate) > 0)) problems.push(`${at}: poll_rate must be above 0`);
+      if (c.poll_rate !== undefined && !(Number.isFinite(Number(c.poll_rate)) && Number(c.poll_rate) > 0)) problems.push(`${at}: poll_rate must be a finite number above 0`);
       if (ladder && !(LEVEL.test(c.name) || c.name === "1e")) problems.push(`${at}: the ladder's cells are its levels and 1e`);
       if (ladder && (c.name === "1e") !== (c.fixture === "none")) problems.push(`${at}: 1e, and only 1e, runs on an empty database`);
       if (ladder && LEVEL.test(c.name) && c.sessions !== Number(c.name)) problems.push(`${at}: a ladder level runs that many sessions`);
+      if (ladder && c.name === "1e" && c.sessions !== 1) problems.push(`${at}: the empty cell runs one session`);
       if (ladder && (c.switch_interval === undefined || c.poll_rate === undefined)) problems.push(`${at}: the ladder's cells name their switch interval and poll rate`);
     }
+    if (ladder && !row.cells.some((c) => LEVEL.test(c.name))) problems.push(`${key}: a ladder has at least one level`);
+    if (ladder && !names.includes("1e")) problems.push(`${key}: a ladder has the empty cell 1e`);
     if (ladder && (new Set(row.cells.map((c) => c.warmup_s)).size > 1 || new Set(row.cells.map((c) => c.window_s)).size > 1)) {
       problems.push(`${key}: the ladder's cells share one warm-up and one window`);
     }
@@ -141,40 +148,53 @@ export function checkLock(scenarios, lock) {
 
 /**
  * The lock's git history in `root`: every committed version of the lock must hold its entries in the current lock with
- * the same hash. Returns {checked: true, problems} or {checked: false} when `root` is not a git work tree.
+ * the same hash. Returns {checked: true, problems}, or {checked: false} when `root` is outside any git work tree. Fails
+ * closed: a git that cannot run, a repository git refuses to read, or a committed lock it cannot read throws, so a
+ * history that was not read never passes.
  */
-export function checkLockHistory(root, lock) {
-  const git = (args) => execFileSync("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024 });
-  try {
-    if (git(["rev-parse", "--is-inside-work-tree"]).trim() !== "true") return { checked: false };
-  } catch {
-    return { checked: false };
+export function checkLockHistory(root, lock, { gitBin = "git" } = {}) {
+  const run = (args) => spawnSync(gitBin, ["-C", root, ...args], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  const fail = (what, r) => {
+    const why = r.error ? `git cannot run (${r.error.code ?? r.error.message})` : `git ${what} failed: ${(r.stderr ?? "").trim().split("\n")[0]}`;
+    return new Error(`cannot read the lock's history: ${why}`);
+  };
+  const out = (what, args) => {
+    const r = run(args);
+    if (r.error || r.status !== 0) throw fail(what, r);
+    return r.stdout;
+  };
+  const inside = run(["rev-parse", "--is-inside-work-tree"]);
+  if (inside.error) throw fail("rev-parse", inside);
+  if (inside.status !== 0) {
+    if (/not a git repository/i.test(inside.stderr ?? "")) return { checked: false };
+    throw fail("rev-parse", inside);
   }
-  // HEAD may not exist yet (a repository without commits): nothing is committed, so nothing to keep.
-  try {
-    git(["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]);
-  } catch {
-    return { checked: true, problems: [] };
+  if (inside.stdout.trim() !== "true") return { checked: false };
+  // A repository without commits has nothing committed to keep; any other HEAD that does not resolve is an error.
+  const head = run(["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]);
+  if (head.error) throw fail("rev-parse HEAD", head);
+  if (head.status !== 0) {
+    if (out("rev-list --all", ["rev-list", "-n", "1", "--all"]).trim() === "") return { checked: true, problems: [] };
+    throw fail("rev-parse HEAD", head);
   }
   const problems = [];
-  const commits = git(["log", "--full-history", "--format=%H", "HEAD", "--", LOCK_FILE]).split("\n").filter(Boolean);
+  const commits = out("log", ["log", "--full-history", "--format=%H", "HEAD", "--", LOCK_FILE]).split("\n").filter(Boolean);
   for (const sha of commits) {
-    let text;
-    try {
-      text = git(["show", `${sha}:${LOCK_FILE}`]);
-    } catch {
-      continue; // the commit removed the lock; the commits before it are read on their own
-    }
+    const at = sha.slice(0, 12);
+    // A commit that removed the lock lists no file; the commits before it are read on their own.
+    const listed = out(`ls-tree ${at}`, ["ls-tree", "--name-only", sha, "--", LOCK_FILE]).trim();
+    if (listed === "") continue;
+    const text = out(`show ${at}:${LOCK_FILE}`, ["show", `${sha}:${LOCK_FILE}`]);
     let past;
     try {
       past = JSON.parse(text);
-      assertLockShape(past, `${LOCK_FILE} at ${sha.slice(0, 12)}`);
+      assertLockShape(past, `${LOCK_FILE} at ${at}`);
     } catch (error) {
-      problems.push(error instanceof SyntaxError ? `${LOCK_FILE} at ${sha.slice(0, 12)} does not parse` : error.message);
+      problems.push(error instanceof SyntaxError ? `${LOCK_FILE} at ${at} does not parse` : error.message);
       continue;
     }
     for (const [key, hash] of Object.entries(past.rows)) {
-      if (lock.rows[key] !== hash) problems.push(`${key}: commit ${sha.slice(0, 12)} locked it with another hash (or the entry is gone): a locked row is never edited or removed`);
+      if (lock.rows[key] !== hash) problems.push(`${key}: commit ${at} locked it with another hash (or the entry is gone): a locked row is never edited or removed`);
     }
   }
   return { checked: true, problems: [...new Set(problems)] };
@@ -184,7 +204,7 @@ const readJson = (root, rel) => JSON.parse(fs.readFileSync(path.join(root, rel),
 const LOCK_DESCRIPTION =
   "The content hash of every scenarios.json row, by id@version: sha256 of the row as canonical JSON (keys sorted, no whitespace). An entry is never changed or removed; node tools/t3cp/scenarios-check.mjs --lock adds the entries of new rows.";
 
-/** Reads a repository's catalogue, lock (null when it has none) and references. */
+/** Reads a repository's catalogue, lock (null when it has none), references and published fixtures. */
 export function loadRepo(root = REPO_ROOT) {
   return {
     scenarios: readJson(root, SCENARIOS_FILE),
@@ -192,6 +212,7 @@ export function loadRepo(root = REPO_ROOT) {
     schema: readJson(root, SCHEMA_FILE),
     catalogue: readJson(root, "catalogue/catalogue.json"),
     publicRefs: readJson(root, "tools/t3cp/public-refs.json"),
+    fixtures: readJson(root, "fixture/fixtures.json"),
   };
 }
 
