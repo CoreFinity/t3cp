@@ -1,13 +1,18 @@
 // t3cp record runner: a scenario cell's post step, run after each try on the kept run (the valid run.ts run of the
-// raw attempt directory), writing <raw>/scenario.json (schema t3cp/scenario-raw/1). A value that cannot be measured
-// is null with its reason, never 0.
-//   turn-start-gap  the longest event-loop block while the first 10 turn starts in the window ran: the largest
-//                   delay.max_ms of the preload's 1 Hz loop samples (loop-1hz.ndjson; a sample at t covers
-//                   [t - dt_ms, t]) that overlap a ProviderTurnStartService.start span of the server trace (and its
-//                   rotated files). Fewer than 10 starts in the window: turn_start_incomplete; no overlapping loop
-//                   sample: no_loop_samples. The detail also names the starts' median duration (start_p50_ms).
-//   prune-mark      the event log's prune mark in the run's database at the window's end, read-only (prune-mark.py):
-//                   its age past the one retained day, in days; no mark: no_event_prune.
+// raw attempt directory), writing <raw>/scenario.json (schema t3cp/scenario-raw/1):
+//   {schema, scenario {id, version}, post, window {start_ms, end_ms, run, valid}, metrics {<metric id>: {value,
+//   reason}}, detail}
+// with every metric the step measures. A value that cannot be measured is null with its reason, never 0.
+//   turn-start-gap  over the first 10 ProviderTurnStartService.start spans of the server trace (and its rotated
+//                   files) that start in the window:
+//                   turn_start_history_gap_ms   the longest event-loop block while they ran: the largest delay.max_ms
+//                                               of the preload's 1 Hz loop samples (loop-1hz.ndjson; a sample at t
+//                                               covers [t - dt_ms, t]) that overlap one; none: no_loop_samples;
+//                   turn_start_long_thread_ms   the median of their durations.
+//                   Fewer than 10 starts in the window: both turn_start_incomplete.
+//   prune-mark      event_log_unpruned_days: the event log's prune mark in the run's database at the window's end,
+//                   read-only (prune-mark.py): its age past the one retained day, in days; no mark: no_event_prune.
+// No valid run window: every metric of the step null with no_run_window.
 //
 //   node scenario-post.mjs <post> <raw attempt dir> <id@version>
 import { closeSync, existsSync, openSync, readSync } from "node:fs";
@@ -21,8 +26,11 @@ import { attemptWindow, writeJsonAtomic } from "./lib.mjs";
 export const RAW_SCHEMA = "t3cp/scenario-raw/1";
 export const TURN_START_SPAN = "ProviderTurnStartService.start";
 export const TURN_STARTS = 10;
-/** The metric each post step measures (data's exporter maps the raw file to it). */
-export const POST_METRICS = { "turn-start-gap": "turn_start_history_gap_ms", "prune-mark": "event_log_unpruned_days" };
+/** The metrics each post step measures (data's exporter maps the raw file's metrics to the catalogue's). */
+export const POST_METRICS = {
+  "turn-start-gap": ["turn_start_history_gap_ms", "turn_start_long_thread_ms"],
+  "prune-mark": ["event_log_unpruned_days"],
+};
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -140,16 +148,32 @@ export function pruneMark(runDir, window, python = process.env.T3CP_PYTHON || "p
   return JSON.parse(r.stdout);
 }
 
-/** The raw scenario file of one try: the post step's value over the valid run's window. */
+const all = (ids, reason) => Object.fromEntries(ids.map((id) => [id, { value: null, reason }]));
+
+/** The raw scenario file of one try: every metric of the post step over the valid run's window. */
 export function scenarioRaw(post, raw, scenario) {
-  const metric = POST_METRICS[post];
-  if (!metric) throw new Error(`unknown post step ${post}`);
+  const ids = POST_METRICS[post];
+  if (!ids) throw new Error(`unknown post step ${post}`);
   const window = attemptWindow(raw);
-  const out = { schema: RAW_SCHEMA, scenario, post, metric, value: null, reason: null, detail: {}, window: { start_ms: window.start, end_ms: window.end, run: window.run, valid: window.valid } };
-  if (!Number.isInteger(window.run) || window.start === null || window.end === null) return { ...out, reason: "no_run_window" };
+  const out = { schema: RAW_SCHEMA, scenario, post, window: { start_ms: window.start, end_ms: window.end, run: window.run, valid: window.valid } };
+  if (!Number.isInteger(window.run) || window.start === null || window.end === null) {
+    return { ...out, metrics: all(ids, "no_run_window"), detail: {} };
+  }
   const runDir = join(raw, "work", "runs", "release", `attempt-${window.run}`);
-  const result = post === "turn-start-gap" ? turnStartGap(runDir, window) : pruneMark(runDir, window);
-  return { ...out, value: result.value, reason: result.reason, detail: result.detail };
+  if (post === "prune-mark") {
+    const mark = pruneMark(runDir, window);
+    return { ...out, metrics: { event_log_unpruned_days: { value: mark.value, reason: mark.reason } }, detail: mark.detail };
+  }
+  const gap = turnStartGap(runDir, window);
+  const complete = gap.detail.starts_completed >= TURN_STARTS;
+  return {
+    ...out,
+    metrics: {
+      turn_start_history_gap_ms: { value: gap.value, reason: gap.reason },
+      turn_start_long_thread_ms: complete ? { value: gap.detail.start_p50_ms, reason: null } : { value: null, reason: "turn_start_incomplete" },
+    },
+    detail: gap.detail,
+  };
 }
 
 if (isMain(import.meta.url)) {

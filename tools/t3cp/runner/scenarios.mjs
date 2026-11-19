@@ -80,6 +80,13 @@ export function scenarioCell(row, name, profiles = loadProfiles()) {
   if (!Number.isInteger(c.window_s) || c.window_s < 10 || c.window_s > 14400) throw new Error(`${what("window_s")}: 10 to 14400`);
   if (typeof c.seed_compacted_at !== "boolean") throw new Error(`${what("seed_compacted_at")}: not a boolean`);
   if (!POSTS.includes(c.post)) throw new Error(`${what("post")}: not one of ${POSTS.join(", ")}`);
+  // A prune-mark cell may name the age its fixture's prune mark is set to at each try's start (prune-mark.py
+  // --set-age-days on the migrated fixture), so the record reads the row's age whenever it runs.
+  const markAge = c.mark_age_days ?? null;
+  if (markAge !== null && (!Number.isInteger(markAge) || markAge < 1 || markAge > 30)) {
+    throw new Error(`${what("mark_age_days")}: an integer from 1 to 30`);
+  }
+  if (markAge !== null && c.post !== "prune-mark") throw new Error(`${what("mark_age_days")}: only a prune-mark cell sets the mark`);
   const pollers = count(c.pollers, what("pollers"));
   return {
     scenario: { id: row.id, version: row.version },
@@ -94,6 +101,7 @@ export function scenarioCell(row, name, profiles = loadProfiles()) {
     window_s: c.window_s,
     seed_compacted_at: c.seed_compacted_at,
     post: c.post,
+    mark_age_days: markAge,
     // Driver options, each token for its own --driver-arg= (run.ts takes the counts above zero itself), then the
     // driver arguments every cell of every record gets (profiles.json common_driver_args).
     driver_args: ["--mode", c.mode, "--turn-gap", c.turn_gap, ...(pollers === 0 ? ["--pollers", "0"] : []), ...profiles.common_driver_args],
@@ -109,6 +117,7 @@ export function cellMeta(cell) {
     window_s: cell.window_s,
     seed_compacted_at: cell.seed_compacted_at,
     post: cell.post,
+    mark_age_days: cell.mark_age_days,
     profile: {
       sessions: cell.sessions,
       subscribers: cell.subscribers,
@@ -163,6 +172,7 @@ if (isMain(import.meta.url)) {
           P_WINDOW_S: cell.window_s,
           P_SEED_COMPACTED: cell.seed_compacted_at ? 1 : 0,
           P_POST: cell.post,
+          P_MARK_AGE_DAYS: cell.mark_age_days ?? "",
         }),
       );
       if (metaOut) writeFileSync(metaOut, `${JSON.stringify(cellMeta(cell))}\n`);

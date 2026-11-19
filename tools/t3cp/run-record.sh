@@ -704,6 +704,22 @@ one_try() { # cell try fixture-arg: one run.ts invocation with its sidecars (the
   [ "$P_POLLERS" -gt 0 ] && args+=(--pollers "$P_POLLERS")
   for a in $P_DRIVER_ARGS; do args+=("--driver-arg=$a"); done
   [ "$PIN" = 1 ] && args+=(--server-cpus "$SERVER_CPUS" --driver-cpus "$DRIVER_CPUS")
+  # A cell that names mark_age_days starts each try with the migrated fixture's prune mark that many days old (run.ts
+  # restores the fixture from that file), so the try reads the row's age, not the time since the fixture was made.
+  if [ -n "$P_MARK_AGE_DAYS" ]; then
+    local mark_set
+    if [ "$fixture_arg" = none ]; then
+      log "$cell try $try: no era fixture, no prune mark to set"
+    elif mark_set=$("$PY" -I "$HERE/runner/prune-mark.py" --db "$fixture_arg" --set-age-days "$P_MARK_AGE_DAYS" \
+        --now-ms "$(now_ms)" 2>> "$WORK/runner.log"); then
+      case $mark_set in
+        *'"set": true'*) log "$cell try $try: prune mark set $P_MARK_AGE_DAYS days before the try ($mark_set)" ;;
+        *) log "$cell try $try: no prune mark to set ($mark_set)" ;;
+      esac
+    else
+      log "$cell try $try: the prune mark could not be set ($mark_set)"
+    fi
+  fi
   started=$(date -u +%FT%TZ)
   t0=$(now_ms)
   local -a pin=()
@@ -756,6 +772,7 @@ run_attempt() {
   local raw=$WORK/raw/$cell tmp dest rc=0 cell_sh scenario_json
   # shellcheck disable=SC2034 # P_MODE and P_TURN_GAP are set by the profile's eval and recorded through profile_json
   local P_SESSIONS P_SUBSCRIBERS P_POLLERS P_MODE P_TURN_GAP P_FIXTURE P_DRIVER_ARGS P_WARMUP_S P_WINDOW_S P_SEED_COMPACTED P_POST
+  local P_MARK_AGE_DAYS=""
   local -a scenario_meta=()
   profile_json=$WORK/raw/$cell.profile.json
   if [ -n "$SCENARIO_REF" ]; then
@@ -773,7 +790,7 @@ run_attempt() {
   else
     if [ "$name" = 1e ]; then level=1; else level=$name; fi
     eval "$("$NODE" "$HERE/runner/profiles.mjs" sh "$PROFILE" "$name" "$FX_ID" "$profile_json")"
-    P_WARMUP_S=$WARMUP_S P_WINDOW_S=$WINDOW_S P_SEED_COMPACTED=1 P_POST=none
+    P_WARMUP_S=$WARMUP_S P_WINDOW_S=$WINDOW_S P_SEED_COMPACTED=1 P_POST=none P_MARK_AGE_DAYS=""
   fi
   if [ "$P_FIXTURE" = none ]; then
     fixture_arg=none fixture_id=none
