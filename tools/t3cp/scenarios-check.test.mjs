@@ -172,6 +172,19 @@ test("the lock's history fails closed: an unreadable committed lock or a git tha
   assert.throws(() => checkLockHistory(root, lock, { gitBin: path.join(root, "no-such-git") }), /git/);
   const plain = scratch(repo.scenarios, repo.lock);
   assert.deepEqual(checkLockHistory(plain, repo.lock), { checked: false });
+  // Git that is pointed away from the repository (GIT_DIR) still reads the repository at the root; and git metadata it
+  // cannot read (a .git file naming a missing directory) is an error, not "outside any work tree".
+  const before = process.env.GIT_DIR;
+  process.env.GIT_DIR = path.join(root, "no-such-git-dir");
+  try {
+    assert.throws(() => checkRepo(root), /cannot read/, "the unreadable object is still found");
+  } finally {
+    if (before === undefined) delete process.env.GIT_DIR;
+    else process.env.GIT_DIR = before;
+  }
+  const dangling = scratch(repo.scenarios, repo.lock);
+  fs.writeFileSync(path.join(dangling, ".git"), `gitdir: ${path.join(dangling, "missing")}\n`);
+  assert.throws(() => checkLockHistory(dangling, repo.lock), /cannot read the lock's history/);
   // A lock deleted by one commit and written again by a later one: the entries before the deletion still bind.
   const again = scratch(scenarios, lock);
   git(again, ["init", "-q"]);
