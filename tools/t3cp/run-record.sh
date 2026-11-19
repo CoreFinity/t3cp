@@ -28,6 +28,12 @@
 #      fixture thread after its window, and the first turn) and exports them;
 #   6. writes done.json. Heartbeats are new files (heartbeats/<UTC timestamp>.json) at least every 240 s and on
 #      every state change: storage is append-only, so nothing the runner hands to a hook is ever rewritten.
+# A scenario record (suite.scenario {id, version}: a row of the scenario catalogue, T3CP_SCENARIOS or the repository's
+# scenarios.json) runs the row's cells in place of the ladder: its attempts cell by cell, round after round
+# (<cell>-<n>), each with the cell's counts, driver mode and turn gap, warm-up and window, the compaction marker seeded
+# only when the cell says so, and after each try the cell's post step (runner/scenario-post.mjs), which writes
+# <raw>/scenario.json; it measures no record extras. A row the catalogue does not have, or a retired one, is refused
+# before any attempt (scenario_unknown, exit 2).
 # Layout of <out> and <work>, exit codes and reason codes: schema/record-spec-1.json ($defs). The runner knows no
 # bucket, host, region or token: storage is the launcher's, through the hooks:
 #   T3CP_ON_ATTEMPT <attempt dir>   after each attempt.json (an executable; retried 3 times, then hook_failed)
@@ -416,12 +422,31 @@ if ! lib validate "$SPEC" "$SCHEMA" 2>> "$WORK/runner.log"; then
 fi
 RECORD_ID="" PLATFORM="" REL_TAG="" REL_SHA="" REL_VERSION="" REL_ARCHIVE_SHA256="" REL_ARCHIVE_PATH=""
 FX_ID="" FX_PATH="" FX_SHA256="" FX_MIGRATION="" SUITE_ID="" PROFILE="" WARMUP_S="" WINDOW_S="" EXTRAS=1 NOW="" SEED="" CPU_MODEL_EXPECTED=""
-ORDER="" ATTEMPTS_TOTAL=0
+ORDER="" ATTEMPTS_TOTAL=0 SCENARIO_REF=""
 eval "$(lib spec-sh "$SPEC")"
-[ -n "$PROFILE" ] || PROFILE=$("$NODE" "$HERE/runner/profiles.mjs" default)
-"$NODE" "$HERE/runner/profiles.mjs" json "$PROFILE" 1 "$FX_ID" > /dev/null 2>> "$WORK/runner.log" ||
-  fail spec_invalid false 2 "suite.profile is not in tools/t3cp/runner/profiles.json"
-log "record $RECORD_ID: $REL_TAG, fixture $FX_ID, suite $SUITE_ID, profile $PROFILE, $ATTEMPTS_TOTAL attempts"
+if [ -n "$SCENARIO_REF" ]; then
+  # A scenario record: the row's attempts, from the catalogue (every lib and scenarios.mjs call reads the same one).
+  SCENARIOS=${T3CP_SCENARIOS:-$REPO/scenarios.json}
+  export T3CP_SCENARIOS=$SCENARIOS
+  SC_FIXTURE="" SC_PLATFORMS="" SC_ORDER="" SC_ATTEMPTS_TOTAL=0 SC_JSON=""
+  sc_err=$WORK/scenario.err
+  sc_sh=$("$NODE" "$HERE/runner/scenarios.mjs" order "$SCENARIOS" "$SCENARIO_REF" 2> "$sc_err") ||
+    fail scenario_unknown false 2 "$(tail -c 400 "$sc_err" | tr '\n' ' ')"
+  eval "$sc_sh"
+  [ "$SUITE_ID" = "$SCENARIO_REF" ] || fail spec_invalid false 2 "suite.id $SUITE_ID is not the scenario's id@version $SCENARIO_REF"
+  [ "$SC_FIXTURE" = "$FX_ID" ] || fail spec_invalid false 2 "scenario $SCENARIO_REF runs on fixture $SC_FIXTURE, the spec names $FX_ID"
+  case " $SC_PLATFORMS " in
+    *" $PLATFORM "*) ;;
+    *) fail spec_invalid false 2 "scenario $SCENARIO_REF does not run on $PLATFORM" ;;
+  esac
+  ORDER=$SC_ORDER ATTEMPTS_TOTAL=$SC_ATTEMPTS_TOTAL EXTRAS=0
+  log "record $RECORD_ID: $REL_TAG, fixture $FX_ID, scenario $SCENARIO_REF, $ATTEMPTS_TOTAL attempts"
+else
+  [ -n "$PROFILE" ] || PROFILE=$("$NODE" "$HERE/runner/profiles.mjs" default)
+  "$NODE" "$HERE/runner/profiles.mjs" json "$PROFILE" 1 "$FX_ID" > /dev/null 2>> "$WORK/runner.log" ||
+    fail spec_invalid false 2 "suite.profile is not in tools/t3cp/runner/profiles.json"
+  log "record $RECORD_ID: $REL_TAG, fixture $FX_ID, suite $SUITE_ID, profile $PROFILE, $ATTEMPTS_TOTAL attempts"
+fi
 HB_PID=""
 heartbeat_loop &
 HB_PID=$!
@@ -667,8 +692,12 @@ one_try() { # cell try fixture-arg: one run.ts invocation with its sidecars (the
   [ -f "$WORK/fixture-hashes.json" ] && cp "$WORK/fixture-hashes.json" "$raw/work/fixture-hashes.json"
   local -a args=(tools/server-bench/run.ts --ref "release=sea:$RELEASE_DIR" --archive "release=$REL_ARCHIVE_PATH" --fixture "$fixture_arg"
     --settings "$SETTINGS" --out "$raw" --work "$raw/work" --runs 1 --retries 2
-    --warmup "${WARMUP_S}s" --window "${WINDOW_S}s" --sessions "$P_SESSIONS" --subscribers "$P_SUBSCRIBERS"
-    --now "$NOW" --seed-compacted-at --otlp-interval-ms 1000
+    --warmup "${P_WARMUP_S}s" --window "${P_WINDOW_S}s" --sessions "$P_SESSIONS" --subscribers "$P_SUBSCRIBERS"
+    --now "$NOW")
+  # Every ladder cell, and a scenario cell unless it says otherwise, starts with a fresh compaction marker, so no
+  # compaction pass is due in its window; a scenario cell that measures the compaction starts without one.
+  [ "$P_SEED_COMPACTED" = 1 ] && args+=(--seed-compacted-at)
+  args+=(--otlp-interval-ms 1000
     --startup-timeout 900s --keep-runs "${SERVER_ENV[@]}" "--driver-arg=--seed" "--driver-arg=$SEED")
   # Counts above zero are run.ts flags; the turn gap, a zero poller count and the rest are driver options, one
   # token per --driver-arg= (the profile lists them).
@@ -714,16 +743,38 @@ one_try() { # cell try fixture-arg: one run.ts invocation with its sidecars (the
   contaminated=$(lib finish-try "$raw" "$try" "$started" "$ended" "$((t1 - t0))" "$rc" "$MAINT_CLASS")
   log "$cell try $try: run.ts exit $rc, contaminated $contaminated"
   TRY_CONTAMINATED=$contaminated
+  # A scenario cell's post step reads the kept run (its trace, loop samples or database) into <raw>/scenario.json. A
+  # failed one is logged; the attempt then has no scenario file, and the exporter says so.
+  if [ "$P_POST" != none ]; then
+    fg_step "post-$cell" "$WORK" "$NODE" "$HERE/runner/scenario-post.mjs" "$P_POST" "$raw" "$SCENARIO_REF" >> "$WORK/runner.log" 2>&1 ||
+      log "$cell try $try: post step $P_POST failed"
+  fi
 }
 
 run_attempt() {
   local cell=$1 name=${1%-*} n=${1##*-} level fixture_arg fixture_id profile_json TRY_CONTAMINATED=false
-  local raw=$WORK/raw/$cell tmp dest rc=0
+  local raw=$WORK/raw/$cell tmp dest rc=0 cell_sh scenario_json
   # shellcheck disable=SC2034 # P_MODE and P_TURN_GAP are set by the profile's eval and recorded through profile_json
-  local P_SESSIONS P_SUBSCRIBERS P_POLLERS P_MODE P_TURN_GAP P_FIXTURE P_DRIVER_ARGS
-  if [ "$name" = 1e ]; then level=1; else level=$name; fi
+  local P_SESSIONS P_SUBSCRIBERS P_POLLERS P_MODE P_TURN_GAP P_FIXTURE P_DRIVER_ARGS P_WARMUP_S P_WINDOW_S P_SEED_COMPACTED P_POST
+  local -a scenario_meta=()
   profile_json=$WORK/raw/$cell.profile.json
-  eval "$("$NODE" "$HERE/runner/profiles.mjs" sh "$PROFILE" "$name" "$FX_ID" "$profile_json")"
+  if [ -n "$SCENARIO_REF" ]; then
+    # The row's cell: its counts, mode, turn gap, intervals, compaction seeding and post step. Its entry (scenario,
+    # profile, timings) goes to <work>/raw/<cell>.scenario.json, and attempt-meta.json records the profile part.
+    scenario_json=$WORK/raw/$cell.scenario.json
+    cell_sh=$("$NODE" "$HERE/runner/scenarios.mjs" sh "$SCENARIOS" "$SCENARIO_REF" "$name" "$scenario_json" 2>> "$WORK/runner.log") ||
+      fail runner_error true 4 "scenario $SCENARIO_REF: cell $name cannot be read"
+    eval "$cell_sh"
+    lib json-get "$scenario_json" profile > "$profile_json"
+    level=$P_SESSIONS
+    scenario_meta=(j:scenario="$SC_JSON")
+    # A cell started without a fresh compaction marker measures the compaction: a pass in its window is its point.
+    [ "$P_SEED_COMPACTED" = 1 ] || scenario_meta+=(b:maintenance_expected=true)
+  else
+    if [ "$name" = 1e ]; then level=1; else level=$name; fi
+    eval "$("$NODE" "$HERE/runner/profiles.mjs" sh "$PROFILE" "$name" "$FX_ID" "$profile_json")"
+    P_WARMUP_S=$WARMUP_S P_WINDOW_S=$WINDOW_S P_SEED_COMPACTED=1 P_POST=none
+  fi
   if [ "$P_FIXTURE" = none ]; then
     fixture_arg=none fixture_id=none
   else
@@ -742,13 +793,15 @@ run_attempt() {
   fi
   mv "$profile_json" "$raw/profile.json"
   profile_json=$raw/profile.json
+  [ -n "$SCENARIO_REF" ] && mv "$scenario_json" "$raw/scenario-cell.json"
   lib merge-tries "$raw/attempt-meta.json" "${tries[@]}" -- s:schema=t3cp/attempt-meta/1 \
     s:record_id="$RECORD_ID" s:cell="$name" i:n="$n" i:level="$level" s:label=release \
     @:profile="$profile_json" s:fixture="$fixture_id" s:suite.id="$SUITE_ID" \
-    i:suite.warmup_s="$WARMUP_S" i:suite.window_s="$WINDOW_S" s:now="$NOW" s:seed="$SEED" \
+    i:suite.warmup_s="$P_WARMUP_S" i:suite.window_s="$P_WINDOW_S" s:now="$NOW" s:seed="$SEED" \
     s:release.tag="$REL_TAG" s:release.sha="$REL_SHA" s:release.version="$REL_VERSION" \
     s:cpus.server="$SERVER_CPUS" s:cpus.driver="$DRIVER_CPUS" b:cpus.pinned="$PIN" \
-    @:host="$HOST_JSON" @:harness="$HARNESS_JSON" @:runner="$RUNNER_JSON" j:build="$BUILD_JSON"
+    @:host="$HOST_JSON" @:harness="$HARNESS_JSON" @:runner="$RUNNER_JSON" j:build="$BUILD_JSON" \
+    ${scenario_meta[@]+"${scenario_meta[@]}"}
   set_state exporting "$cell"
   dest=$OUT/attempts/$cell
   tmp=$OUT/attempts/.$cell.tmp

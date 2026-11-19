@@ -1,6 +1,7 @@
 // t3cp record runner: the JSON side of run-record.sh (no dependencies; Node 22 or later).
 //   validate <spec> <schema>              exit 2 with the errors when the spec breaks the schema
-//   spec-sh <spec>                        shell assignments for run-record.sh (values single-quoted)
+//   spec-sh <spec>                        shell assignments for run-record.sh (values single-quoted); a scenario
+//                                         suite gives SCENARIO_REF (id@version), its order is the catalogue row's
 //   write-new <dir> <t:key=value>...      the same as a new <dir>/<UTC timestamp>.json, never over a file; prints it
 //   write-json <file> <t:key=value>...    an object from typed pairs, written atomically; t is s (string),
 //                                         i (integer), f (number), b (bool), j (JSON), @ (a JSON file), n (null)
@@ -14,16 +15,19 @@
 //   private-patterns                      exit 0 when T3CP_PRIVATE_PATTERNS is usable (the exporter's loader)
 //   diagnostics-attempt <raw> <dir> <exporter exit> [<export log>]   a failed attempt's bundle (diagnostics.mjs)
 //   diagnostics-runner <work> <dir> <record id> <reason> <detail>    a failed runner's bundle
-//   inventory <out> <spec>                {attempts: [{cell, n, present}], extras: [{name, present}]}
+//   inventory <out> <spec>                {attempts: [{cell, n, present}], extras: [{name, present}]} (a scenario
+//                                         record's from its row, in T3CP_SCENARIOS or the repository's scenarios.json)
 //   host <spec>                           host facts for attempt-meta.json
 //   sha256 <file>                         hex digest, streamed
 import { createHash } from "node:crypto";
 import { createReadStream, existsSync, linkSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { cpus, release, totalmem } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { maintenanceClass, tryMaintenance } from "./maintenance.mjs";
 import { isMain } from "./is-main.mjs";
+import { loadCatalogue, scenarioOrder, scenarioRow } from "./scenarios.mjs";
 import { attemptDiagnostics, attemptReasons, runnerDiagnostics, scrubber } from "./diagnostics.mjs";
 import { privatePatternsFromEnv } from "../lib/scan.mjs";
 
@@ -89,6 +93,18 @@ export function hostPlatform() {
   return null;
 }
 
+/** The scenario catalogue the runner reads: T3CP_SCENARIOS (run-record.sh sets it), else the repository's own. */
+export const scenarioCatalogue = () => process.env.T3CP_SCENARIOS || fileURLToPath(new URL("../../../scenarios.json", import.meta.url));
+
+/** A scenario suite's row reference, id@version, or null for the ladder. */
+export const scenarioRef = (suite) => (suite?.scenario ? `${suite.scenario.id}@${suite.scenario.version}` : null);
+
+/** The record's attempts: the ladder's interleaved order, or a scenario row's (from the catalogue). */
+export function specOrder(spec, catalogue = scenarioCatalogue()) {
+  const ref = scenarioRef(spec.suite);
+  return ref === null ? attemptOrder(spec.suite) : scenarioOrder(scenarioRow(loadCatalogue(catalogue), ref));
+}
+
 /** The interleaved order: every level, then the empty cell, round after round. */
 export function attemptOrder(suite) {
   const order = [];
@@ -103,6 +119,8 @@ const shq = (v) => `'${String(v).replace(/'/g, `'\\''`)}'`;
 
 export function specShell(spec) {
   const platform = spec.record_id.split(".").at(-2);
+  // A scenario suite: its order and timings are the row's, which run-record.sh reads from the catalogue (SC_*, P_*).
+  const scenario = scenarioRef(spec.suite);
   const fixture = spec.fixture.id === "none" ? { id: "none", path: "", sha256: "", migration: "" } : spec.fixture;
   const vars = {
     RECORD_ID: spec.record_id,
@@ -120,17 +138,16 @@ export function specShell(spec) {
     FX_MIGRATION: fixture.migration,
     SUITE_ID: spec.suite.id,
     PROFILE: spec.suite.profile ?? "",
-    WARMUP_S: spec.suite.warmup_s,
-    WINDOW_S: spec.suite.window_s,
-    EXTRAS: spec.suite.extras === false ? 0 : 1,
+    WARMUP_S: spec.suite.warmup_s ?? "",
+    WINDOW_S: spec.suite.window_s ?? "",
+    EXTRAS: scenario !== null || spec.suite.extras === false ? 0 : 1,
     NOW: spec.now,
     SEED: spec.seed,
     LEASE: spec.lease ?? 0,
     CPU_MODEL_EXPECTED: spec.cpu_model ?? (platform === "linux-x64" ? "AMD EPYC 7B13" : ""),
-    ORDER: attemptOrder(spec.suite)
-      .map((a) => a.cell)
-      .join(" "),
-    ATTEMPTS_TOTAL: attemptOrder(spec.suite).length,
+    ORDER: scenario === null ? attemptOrder(spec.suite).map((a) => a.cell).join(" ") : "",
+    ATTEMPTS_TOTAL: scenario === null ? attemptOrder(spec.suite).length : 0,
+    SCENARIO_REF: scenario ?? "",
   };
   return Object.entries(vars)
     .map(([k, v]) => `${k}=${shq(v)}`)
@@ -273,13 +290,16 @@ export function guardSummary(rows, start, end, thresholds = GUARD_DEFAULTS) {
 }
 
 export function inventory(out, spec) {
-  const attempts = attemptOrder(spec.suite).map((a) => ({
+  const attempts = specOrder(spec).map((a) => ({
     cell: a.name,
     n: a.n,
     present: existsSync(join(out, "attempts", a.cell, "attempt.json")),
   }));
+  // A scenario record has no record extras.
   const extras =
-    spec.suite.extras === false ? [] : EXTRAS.map((name) => ({ name, present: existsSync(join(out, "extras", `${name}.json`)) }));
+    spec.suite.extras === false || scenarioRef(spec.suite) !== null
+      ? []
+      : EXTRAS.map((name) => ({ name, present: existsSync(join(out, "extras", `${name}.json`)) }));
   return { attempts, extras };
 }
 
@@ -603,7 +623,14 @@ async function main(argv) {
       // sorts after a newer state's heartbeat
       const [out, specFile, recordId, lease, state, cell, total, readAt] = args;
       const at = readAt && /^\d+$/.test(readAt) ? new Date(Number(readAt)) : new Date();
-      const done = specFile === "-" ? 0 : inventory(out, readJson(specFile)).attempts.filter((a) => a.present).length;
+      // A spec whose attempts cannot be listed (a scenario row the catalogue does not have) counts none done: the
+      // heartbeat of its refusal is still written.
+      let done = 0;
+      try {
+        if (specFile !== "-") done = inventory(out, readJson(specFile)).attempts.filter((a) => a.present).length;
+      } catch {
+        done = 0;
+      }
       const file = writeNew(join(out, "heartbeats"), {
         schema: "t3cp/heartbeat/1",
         record_id: recordId,

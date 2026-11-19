@@ -87,8 +87,8 @@ if (process.env.STUB_HANG_CELL === cell) {
     const s0 = Date.parse(start);
     const ns = (ms) => String(BigInt(Math.round(ms)) * 1000000n);
     const spans = Array.from({ length: 10 }, (_, i) => [s0 + 50 + i * 100, s0 + 50 + i * 100 + (i === 3 ? 400 : 20)]);
-    fs.writeFileSync(path.join(logs, "server.trace.ndjson"), spans.map(([a, b]) => JSON.stringify({ name: "ProviderTurnStartService.start", startTimeUnixNano: ns(a), endTimeUnixNano: ns(b), durationMs: b - a })).join("\n") + "\n");
-    fs.writeFileSync(path.join(run, "loop-1hz.ndjson"), JSON.stringify({ t: s0 + 750, dt_ms: 500, delay: { max_ms: 4321 } }) + "\n");
+    fs.writeFileSync(path.join(logs, "server.trace.ndjson"), spans.map(([a, b]) => JSON.stringify({ name: "ProviderTurnStartService.start", startTimeUnixNano: ns(a), endTimeUnixNano: ns(b), durationMs: b - a })).join("\\n") + "\\n");
+    fs.writeFileSync(path.join(run, "loop-1hz.ndjson"), JSON.stringify({ t: s0 + 750, dt_ms: 500, delay: { max_ms: 4321 } }) + "\\n");
   }
   // STUB_DB_TEMPLATE: the run's database, as a kept run leaves it.
   if (process.env.STUB_DB_TEMPLATE) {
@@ -1116,8 +1116,9 @@ test("a scenario row's cells become exactly these run.ts arguments, round after 
   const ltResult = runRunner(lt, { env: { ...lt.env, T3CP_KEEP_RAW: "1" } });
   assert.equal(ltResult.status, 0, ltResult.stderr);
   assert.deepEqual(calls(lt.log), ["lt-1", "lt-2"], "the row's attempts, and no extras run");
+  // The stub logs run.ts's own arguments (process.argv.slice(2)): everything after the script's path.
   assert.deepEqual(shapeOf(runsOf(lt)[0].args), [
-    "tools/server-bench/run.ts", "--ref", "<ref>", "--archive", "<archive>", "--fixture", "none",
+    "--ref", "<ref>", "--archive", "<archive>", "--fixture", "none",
     "--settings", "<settings>", "--out", "<out>", "--work", "<work>", "--runs", "1", "--retries", "2",
     "--warmup", "30s", "--window", "600s", "--sessions", "1", "--subscribers", "0",
     "--now", "<now>", "--seed-compacted-at", "--otlp-interval-ms", "1000", "--startup-timeout", "900s", "--keep-runs",
