@@ -42,6 +42,10 @@ export function scenarioRow(catalogue, ref) {
   const [id, version] = [m[1], Number(m[2])];
   const row = catalogue.rows.find((r) => r?.id === id && r?.version === version);
   if (!row) throw new Error(`scenario ${ref} is not in the catalogue`);
+  // The ladder row (suite ladder-1) runs by the ladder path (profiles, extras), never as a scenario.
+  if (row.suite !== `${id}@${version}`) {
+    throw new Error(`scenario ${ref} is not a scenario row: its suite is ${JSON.stringify(row.suite ?? null)}, not ${ref}`);
+  }
   if (row.status === "retired") throw new Error(`scenario ${ref} is retired`);
   if (!Number.isInteger(row.attempts) || row.attempts < 1 || row.attempts > 5) throw new Error(`scenario ${ref}: attempts must be 1 to 5`);
   if (typeof row.fixture !== "string" || !(row.fixture === "none" || NAME.test(row.fixture))) throw new Error(`scenario ${ref}: not a fixture id`);
@@ -68,12 +72,30 @@ const count = (value, what) => {
   throw new Error(`${what}: not a count: ${JSON.stringify(value)}`);
 };
 
+/** The cell keys the runner runs; any other key would be ignored, so a cell carrying one is refused. */
+export const CELL_KEYS = new Set([
+  "name", "mode", "sessions", "subscribers", "pollers", "turn_gap", "warmup_s", "window_s", "seed_compacted_at", "post",
+  "mark_age_days", "switch_interval", "poll_rate", "fixture",
+]);
+
 /** One cell of the row as the runner runs it: counts, mode, intervals, compaction seeding, post step, driver args. */
 export function scenarioCell(row, name, profiles = loadProfiles()) {
   const ref = `${row.id}@${row.version}`;
   const c = row.cells.find((x) => x.name === name);
   if (!c) throw new Error(`scenario ${ref} has no cell ${name}`);
   const what = (k) => `scenario ${ref} cell ${name} ${k}`;
+  const unknown = Object.keys(c).filter((k) => !CELL_KEYS.has(k));
+  if (unknown.length > 0) throw new Error(`${what(unknown.join(", "))}: unknown cell key`);
+  // Optional driver options (as the ladder's profiles set them) and an empty database for this cell alone.
+  const switchInterval = c.switch_interval ?? null;
+  if (switchInterval !== null) seconds(switchInterval);
+  const pollRate = c.poll_rate ?? null;
+  if (pollRate !== null && !(typeof pollRate === "string" && /^\d+(\.\d+)?$/.test(pollRate) && Number(pollRate) > 0)) {
+    throw new Error(`${what("poll_rate")}: a positive number string, as "0.01"`);
+  }
+  if (c.fixture !== undefined && c.fixture !== "none") throw new Error(`${what("fixture")}: only "none" (an empty database)`);
+  const emptyDatabase = c.fixture === "none" || row.fixture === "none";
+  if (emptyDatabase && c.mode !== "fresh") throw new Error(`${what("mode")}: a cell on an empty database is fresh`);
   if (!MODES.includes(c.mode)) throw new Error(`${what("mode")}: not one of ${MODES.join(", ")}`);
   if (c.sessions < 1) throw new Error(`${what("sessions")}: at least 1`);
   if (!Number.isInteger(c.warmup_s) || c.warmup_s < 0 || c.warmup_s > 3600) throw new Error(`${what("warmup_s")}: 0 to 3600`);
@@ -102,9 +124,22 @@ export function scenarioCell(row, name, profiles = loadProfiles()) {
     seed_compacted_at: c.seed_compacted_at,
     post: c.post,
     mark_age_days: markAge,
+    switch_interval: switchInterval,
+    poll_rate: pollRate,
+    // "none": this cell runs on an empty database; "row": on the row's fixture (itself possibly none).
+    fixture: c.fixture === "none" ? "none" : "row",
     // Driver options, each token for its own --driver-arg= (run.ts takes the counts above zero itself), then the
     // driver arguments every cell of every record gets (profiles.json common_driver_args).
-    driver_args: ["--mode", c.mode, "--turn-gap", c.turn_gap, ...(pollers === 0 ? ["--pollers", "0"] : []), ...profiles.common_driver_args],
+    driver_args: [
+      "--mode",
+      c.mode,
+      ...(switchInterval === null ? [] : ["--switch-interval", switchInterval]),
+      ...(pollRate === null ? [] : ["--poll-rate", pollRate]),
+      "--turn-gap",
+      c.turn_gap,
+      ...(pollers === 0 ? ["--pollers", "0"] : []),
+      ...profiles.common_driver_args,
+    ],
   };
 }
 
@@ -124,8 +159,8 @@ export function cellMeta(cell) {
       pollers: cell.pollers,
       mode: cell.mode,
       turn_gap_s: cell.turn_gap_s,
-      switch_interval_s: null,
-      poll_interval_s: null,
+      switch_interval_s: cell.switch_interval === null ? null : seconds(cell.switch_interval),
+      poll_interval_s: cell.poll_rate === null ? null : Math.round((1 / Number(cell.poll_rate)) * 1000) / 1000,
     },
   };
 }
@@ -166,7 +201,7 @@ if (isMain(import.meta.url)) {
           P_POLLERS: cell.pollers,
           P_MODE: cell.mode,
           P_TURN_GAP: cell.turn_gap,
-          P_FIXTURE: row.fixture === "none" ? "none" : "era",
+          P_FIXTURE: row.fixture === "none" || cell.fixture === "none" ? "none" : "era",
           P_DRIVER_ARGS: cell.driver_args.join(" "),
           P_WARMUP_S: cell.warmup_s,
           P_WINDOW_S: cell.window_s,

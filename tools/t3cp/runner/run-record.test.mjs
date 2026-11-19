@@ -1068,7 +1068,8 @@ const TEST_CATALOGUE = {
       fixture: "none",
       attempts: 2,
       metrics: ["turn_start_history_gap_ms"],
-      cells: [{ name: "lt", mode: "history", sessions: 1, subscribers: 0, pollers: 0, turn_gap: "20s", warmup_s: 30, window_s: 600, seed_compacted_at: true, post: "turn-start-gap" }],
+      // A row without a fixture runs fresh (the catalogue's rule); the real row continues long-thread-1's history.
+      cells: [{ name: "lt", mode: "fresh", sessions: 1, subscribers: 0, pollers: 0, turn_gap: "20s", warmup_s: 30, window_s: 600, seed_compacted_at: true, post: "turn-start-gap" }],
     },
     {
       id: "test-compaction",
@@ -1143,7 +1144,7 @@ test("a scenario row's cells become exactly these run.ts arguments, round after 
     "--warmup", "30s", "--window", "600s", "--sessions", "1", "--subscribers", "0",
     "--now", "<now>", "--seed-compacted-at", "--otlp-interval-ms", "1000", "--startup-timeout", "900s", "--keep-runs",
     ...SERVER_ENV, "--driver-arg=--seed", "--driver-arg=1",
-    "--driver-arg=--mode", "--driver-arg=history", "--driver-arg=--turn-gap", "--driver-arg=20s", "--driver-arg=--pollers", "--driver-arg=0", ...DRIVER_STD,
+    "--driver-arg=--mode", "--driver-arg=fresh", "--driver-arg=--turn-gap", "--driver-arg=20s", "--driver-arg=--pollers", "--driver-arg=0", ...DRIVER_STD,
   ]);
   assert.ok(!existsSync(join(lt.out, "extras")) || readdirSync(join(lt.out, "extras")).length === 0, "no record extras");
   const cmp = scenarioSetup("test-compaction@1");
