@@ -4,6 +4,7 @@
     {
       "id": "long-thread-turn-start",
       "version": 1,
+      "suite": "long-thread-turn-start@1",
       "status": "active",
       "added": "2026-11-18",
       "harness": "t3cp-harness/2.0.2",
@@ -29,6 +30,7 @@
     {
       "id": "event-log-compaction",
       "version": 1,
+      "suite": "event-log-compaction@1",
       "status": "active",
       "added": "2026-11-18",
       "harness": "t3cp-harness/2.0.2",
@@ -55,14 +57,28 @@
     {
       "id": "retired-example",
       "version": 1,
+      "suite": "retired-example@1",
       "status": "retired",
       "added": "2026-11-18",
       "harness": "t3cp-harness/2.0.2",
       "platforms": ["linux-x64"],
       "fixture": "none",
       "attempts": 1,
-      "metrics": [],
-      "cells": [{ "name": "r", "mode": "fresh", "sessions": 1, "subscribers": 1, "pollers": 0, "turn_gap": "5s", "warmup_s": 10, "window_s": 30, "seed_compacted_at": true, "post": "none" }]
+      "metrics": ["shutdown_killed"],
+      "cells": [
+        {
+          "name": "r",
+          "mode": "fresh",
+          "sessions": 1,
+          "subscribers": 1,
+          "pollers": 0,
+          "turn_gap": "5s",
+          "warmup_s": 10,
+          "window_s": 30,
+          "seed_compacted_at": true,
+          "post": "none"
+        }
+      ]
     }
   ]
 }

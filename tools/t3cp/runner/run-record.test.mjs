@@ -1060,6 +1060,7 @@ const TEST_CATALOGUE = {
     {
       id: "test-turn-start",
       version: 1,
+      suite: "test-turn-start@1",
       status: "active",
       added: "2026-11-18",
       harness: "t3cp-harness/2.0.2",
@@ -1072,6 +1073,7 @@ const TEST_CATALOGUE = {
     {
       id: "test-compaction",
       version: 1,
+      suite: "test-compaction@1",
       status: "active",
       added: "2026-11-18",
       harness: "t3cp-harness/2.0.2",
@@ -1084,6 +1086,7 @@ const TEST_CATALOGUE = {
     {
       id: "test-compaction-era",
       version: 1,
+      suite: "test-compaction-era@1",
       status: "active",
       added: "2026-11-19",
       harness: "t3cp-harness/2.0.2",

@@ -2,13 +2,13 @@
 // arguments. A row not in the pinned catalogue, or a retired one, is refused.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { loadCatalogue, scenarioCell, scenarioOrder, scenarioRow } from "./scenarios.mjs";
+import { cellMeta, loadCatalogue, scenarioCell, scenarioOrder, scenarioRow } from "./scenarios.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const draft = join(here, "testdata", "scenarios-draft.json");
@@ -51,6 +51,9 @@ test("a cell becomes exactly its counts, intervals, compaction seeding, post ste
       seed_compacted_at: true,
       post: "turn-start-gap",
       mark_age_days: null,
+      switch_interval: null,
+      poll_rate: null,
+      fixture: "row",
       driver_args: undefined,
     },
   );
@@ -91,4 +94,33 @@ test("the command line gives run-record.sh its shell variables, and refuses a ro
   const missing = spawnSync(process.execPath, [cli, "order", draft, "no-such-scenario@1"], { encoding: "utf8" });
   assert.equal(missing.status, 2);
   assert.match(missing.stderr, /not in the catalogue/);
+});
+
+test("a row is a scenario row only when its suite is <id>@<version>: the ladder row runs by the ladder path", () => {
+  const base = scenarioRow(catalogue, "long-thread-turn-start@1");
+  const ladder = { ...base, id: "ladder", version: 1, suite: "ladder-1" };
+  const withRows = (...rows) => ({ ...catalogue, rows: [...catalogue.rows, ...rows] });
+  assert.throws(() => scenarioRow(withRows(ladder), "ladder@1"), /not a scenario row/);
+  const { suite, ...noSuite } = { ...base, id: "no-suite" };
+  assert.throws(() => scenarioRow(withRows(noSuite), "no-suite@1"), /not a scenario row/);
+});
+
+test("a cell's switch interval, poll rate and empty database are honoured; an empty-database cell is fresh", () => {
+  const base = scenarioRow(catalogue, "event-log-compaction@1");
+  const row = (patch) => ({ ...base, cells: [{ ...base.cells[0], ...patch }] });
+  const cell = scenarioCell(row({ mode: "fresh", switch_interval: "300s", poll_rate: "0.01", fixture: "none" }), "cmp");
+  assert.deepEqual(cell.driver_args.slice(0, 8), ["--mode", "fresh", "--switch-interval", "300s", "--poll-rate", "0.01", "--turn-gap", "5s"]);
+  assert.equal(cell.fixture, "none");
+  assert.deepEqual(cellMeta(cell).profile, { sessions: 1, subscribers: 1, pollers: 0, mode: "fresh", turn_gap_s: 5, switch_interval_s: 300, poll_interval_s: 100 });
+  assert.throws(() => scenarioCell(row({ fixture: "none" }), "cmp"), /fresh/);
+  assert.throws(() => scenarioCell({ ...row({}), fixture: "none" }, "cmp"), /fresh/);
+  assert.throws(() => scenarioCell(row({ poll_rate: "often" }), "cmp"), /poll_rate/);
+  assert.throws(() => scenarioCell(row({ fixture: "large-76" }), "cmp"), /fixture/);
+  assert.throws(() => scenarioCell(row({ subscribe_rate: 1 }), "cmp"), /unknown/);
+  const cli = join(here, "scenarios.mjs");
+  const file = join(root, "empty-cell.json");
+  writeFileSync(file, JSON.stringify({ ...catalogue, rows: [row({ mode: "fresh", fixture: "none" })] }));
+  const sh = spawnSync(process.execPath, [cli, "sh", file, "event-log-compaction@1", "cmp", join(root, "empty-cell.meta.json")], { encoding: "utf8" });
+  assert.equal(sh.status, 0, sh.stderr);
+  assert.ok(sh.stdout.split("\n").includes("P_FIXTURE='none'"), sh.stdout);
 });
