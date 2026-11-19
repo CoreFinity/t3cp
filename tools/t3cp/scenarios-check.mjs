@@ -146,6 +146,20 @@ export function checkLock(scenarios, lock) {
   return problems;
 }
 
+/** The environment variables that point git at a repository other than the one it finds from its directory. */
+const GIT_LOCATING = new Set([
+  "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM", "GIT_NAMESPACE",
+]);
+
+/** Whether `dir` or a directory above it holds a .git entry (a directory, or a file naming one). */
+function hasGitMetadata(dir) {
+  for (let d = path.resolve(dir); ; d = path.dirname(d)) {
+    if (fs.existsSync(path.join(d, ".git"))) return true;
+    if (path.dirname(d) === d) return false;
+  }
+}
+
 /**
  * The lock's git history in `root`: every committed version of the lock must hold its entries in the current lock with
  * the same hash. Returns {checked: true, problems}, or {checked: false} when `root` is outside any git work tree. Fails
@@ -153,7 +167,9 @@ export function checkLock(scenarios, lock) {
  * history that was not read never passes.
  */
 export function checkLockHistory(root, lock, { gitBin = "git" } = {}) {
-  const run = (args) => spawnSync(gitBin, ["-C", root, ...args], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  // Git finds the repository from the root alone: variables that point it elsewhere are dropped.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !GIT_LOCATING.has(k)));
+  const run = (args) => spawnSync(gitBin, ["-C", root, ...args], { encoding: "utf8", env, maxBuffer: 64 * 1024 * 1024 });
   const fail = (what, r) => {
     const why = r.error ? `git cannot run (${r.error.code ?? r.error.message})` : `git ${what} failed: ${(r.stderr ?? "").trim().split("\n")[0]}`;
     return new Error(`cannot read the lock's history: ${why}`);
@@ -166,7 +182,8 @@ export function checkLockHistory(root, lock, { gitBin = "git" } = {}) {
   const inside = run(["rev-parse", "--is-inside-work-tree"]);
   if (inside.error) throw fail("rev-parse", inside);
   if (inside.status !== 0) {
-    if (/not a git repository/i.test(inside.stderr ?? "")) return { checked: false };
+    // Outside any work tree only when no .git exists at the root or above it; metadata git cannot read is an error.
+    if (/not a git repository/i.test(inside.stderr ?? "") && !hasGitMetadata(root)) return { checked: false };
     throw fail("rev-parse", inside);
   }
   if (inside.stdout.trim() !== "true") return { checked: false };
