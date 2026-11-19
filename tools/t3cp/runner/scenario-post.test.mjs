@@ -109,7 +109,7 @@ test("the runner's pre-try step dates the prune mark N days before the try start
   const now = Date.UTC(2026, 11, 18, 12, 0, 0);
   const stale = database("stale", new Date(now - 30 * 86_400_000).toISOString());
   const want = new Date(now - 3 * 86_400_000).toISOString();
-  assert.deepEqual(setMark(stale, 3, now), { set: true, reason: null, mark_updated_at: want });
+  assert.deepEqual(setMark(stale, 3, now), { set: true, inserted: false, reason: null, mark_updated_at: want });
   assert.deepEqual(markOf(stale, now + 300_000).detail.mark_updated_at, want);
   assert.equal(markOf(stale, now + 300_000).value, 2);
 });
@@ -128,10 +128,44 @@ test("re-dating a database in WAL mode leaves its write-ahead log checkpointed i
   assert.equal(markOf(copy, now).detail.mark_updated_at, new Date(now - 3 * 86_400_000).toISOString());
 });
 
-test("a release with no prune mark is left as it is: nothing to re-date", () => {
+/** A database as an era fixture has it: projection metadata (thread-projections), events, and no prune mark. */
+function fixtureDb(name, { metadata = true } = {}) {
+  const db = join(root, `${name}.sqlite`);
+  const sql = metadata
+    ? [
+        "CREATE TABLE orchestration_v2_projection_metadata (projection_name TEXT PRIMARY KEY, schema_version INTEGER NOT NULL, last_sequence INTEGER NOT NULL, updated_at TEXT NOT NULL)",
+        "INSERT INTO orchestration_v2_projection_metadata VALUES ('thread-projections', 7, 151, '2026-10-17T00:00:00.000Z')",
+        "CREATE TABLE orchestration_events (sequence INTEGER PRIMARY KEY, payload TEXT)",
+        "INSERT INTO orchestration_events (sequence, payload) VALUES (149, 'a'), (150, 'b'), (151, 'c')",
+      ]
+    : ["CREATE TABLE something_else (x INTEGER)"];
+  const made = spawnSync("python3", ["-I", "-c", "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); [c.execute(s) for s in sys.argv[2:]]; c.commit(); c.close()", db, ...sql], { encoding: "utf8" });
+  assert.equal(made.status, 0, made.stderr);
+  return db;
+}
+const rowsOf = (db) =>
+  JSON.parse(spawnSync("python3", ["-I", "-c", "import sqlite3,sys,json; c=sqlite3.connect(sys.argv[1]); print(json.dumps(c.execute('SELECT projection_name, schema_version, last_sequence, updated_at FROM orchestration_v2_projection_metadata ORDER BY projection_name').fetchall()))", db], { encoding: "utf8" }).stdout);
+
+test("a fixture with no prune mark gets one: the projections' schema version, the event head, N days before the try", () => {
   const now = Date.UTC(2026, 11, 18, 12, 0, 0);
-  const db = database("nomark-set", null);
+  const db = fixtureDb("nomark-set");
+  const want = new Date(now - 3 * 86_400_000).toISOString();
+  assert.deepEqual(setMark(db, 3, now), { set: true, inserted: true, reason: null, mark_updated_at: want });
+  assert.deepEqual(rowsOf(db), [
+    ["event-log-prune-mark", 7, 151, want],
+    ["thread-projections", 7, 151, "2026-10-17T00:00:00.000Z"],
+  ]);
+  // Re-dated on the next try: the time moves, the sequence the mark covers does not.
+  const later = now + 3_600_000;
+  assert.equal(setMark(db, 3, later).inserted, false);
+  assert.deepEqual(rowsOf(db)[0], ["event-log-prune-mark", 7, 151, new Date(later - 3 * 86_400_000).toISOString()]);
+  assert.equal(markOf(db, later + 300_000).value, 2);
+});
+
+test("a database without projection metadata is left as it is: no_event_prune", () => {
+  const now = Date.UTC(2026, 11, 18, 12, 0, 0);
+  const db = fixtureDb("nometa", { metadata: false });
   const before = sha(db);
-  assert.deepEqual(setMark(db, 3, now), { set: false, reason: "no_event_prune", mark_updated_at: null });
+  assert.deepEqual(setMark(db, 3, now), { set: false, inserted: false, reason: "no_event_prune", mark_updated_at: null });
   assert.equal(sha(db), before);
 });
