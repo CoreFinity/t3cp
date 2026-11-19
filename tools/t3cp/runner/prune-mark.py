@@ -12,10 +12,13 @@ gives null with mark_unreadable. The database is opened read-only (SQLite URI mo
 written, and a write-ahead log the server left is read, not checkpointed. Exit 0 whenever the JSON is printed.
 
 --set-age-days (the runner, on the migrated fixture before each try of a cell that names mark_age_days): the mark's
-updated_at becomes now-ms minus n days, so the try starts with a mark of the row's age whenever the record runs. Prints
-{set, reason, mark_updated_at}. A database without the mark is left as it is ({set: false, reason: no_event_prune}).
-After the write the write-ahead log is checkpointed into the database file, so a copy of that file alone (a restore)
-holds the new mark. Exit 1, with set false and reason db_unwritable, if the write fails.
+updated_at becomes now-ms minus n days, so the try starts with a mark of the row's age whenever the record runs. A
+fixture without a mark gets one as the server writes it: the projections' schema version (the thread-projections
+row's), the event log's head as last_sequence, and that updated_at; an existing mark keeps its last_sequence. Prints
+{set, inserted, reason, mark_updated_at}. A database without projection metadata or an event log is left as it is
+({set: false, reason: no_event_prune}). After the write the write-ahead log is checkpointed into the database file,
+so a copy of that file alone (a restore) holds the mark. Exit 1, with set false and reason db_unwritable (or
+db_unreadable), if it cannot be written.
 """
 import argparse
 import datetime
@@ -87,27 +90,64 @@ def measure(db, end_ms):
     return {"value": math.floor(days * 10 + 0.5) / 10, "reason": None, "detail": detail}
 
 
+def has_tables(db, names):
+    """Whether every table in names exists, read-only; None if the database cannot be read."""
+    uri = pathlib.Path(db).resolve().as_uri() + "?mode=ro"
+    try:
+        conn = sqlite3.connect(uri, uri=True)
+        try:
+            found = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+    return all(name in found for name in names)
+
+
 def set_age(db, days, now_ms):
-    """Dates the mark days before now_ms, in place; a database without the mark is not touched."""
+    """Dates the mark days before now_ms, in place, writing it if the fixture has none."""
+    out = {"set": False, "inserted": False, "reason": None, "mark_updated_at": None}
     if not pathlib.Path(db).is_file():
-        return {"set": False, "reason": "db_unreadable", "mark_updated_at": None}, 1
-    _, reason = read_mark(db)
-    if reason is not None:
-        return {"set": False, "reason": reason, "mark_updated_at": None}, (0 if reason == "no_event_prune" else 1)
+        return {**out, "reason": "db_unreadable"}, 1
+    metadata = has_tables(db, ["orchestration_v2_projection_metadata"])
+    if metadata is None:
+        return {**out, "reason": "db_unreadable"}, 1
+    if not metadata:
+        return {**out, "reason": "no_event_prune"}, 0
+    # An existing mark is re-dated; a missing one is written only where there is an event log to cover.
+    events = has_tables(db, ["orchestration_events"])
     at = iso_ms(now_ms - days * DAY_MS)
     try:
         conn = sqlite3.connect(db)
         try:
             with conn:
-                conn.execute(
+                updated = conn.execute(
                     "UPDATE orchestration_v2_projection_metadata SET updated_at = ? WHERE projection_name = ?", (at, MARK)
-                )
+                ).rowcount
+                inserted = False
+                if updated == 0:
+                    if not events:
+                        return {**out, "reason": "no_event_prune"}, 0
+                    version = conn.execute(
+                        "SELECT COALESCE((SELECT schema_version FROM orchestration_v2_projection_metadata"
+                        " WHERE projection_name = 'thread-projections'),"
+                        " (SELECT MAX(schema_version) FROM orchestration_v2_projection_metadata))"
+                    ).fetchone()[0]
+                    if version is None:
+                        return {**out, "reason": "no_event_prune"}, 0
+                    head = conn.execute("SELECT COALESCE(MAX(sequence), 0) FROM orchestration_events").fetchone()[0]
+                    conn.execute(
+                        "INSERT INTO orchestration_v2_projection_metadata"
+                        " (projection_name, schema_version, last_sequence, updated_at) VALUES (?, ?, ?, ?)",
+                        (MARK, version, head, at),
+                    )
+                    inserted = True
             conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
         finally:
             conn.close()
     except sqlite3.Error:
-        return {"set": False, "reason": "db_unwritable", "mark_updated_at": None}, 1
-    return {"set": True, "reason": None, "mark_updated_at": at}, 0
+        return {**out, "reason": "db_unwritable"}, 1
+    return {**out, "set": True, "inserted": inserted, "mark_updated_at": at}, 0
 
 
 def main(argv):
