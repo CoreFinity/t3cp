@@ -115,6 +115,8 @@ test("a cell's switch interval, poll rate and empty database are honoured; an em
   assert.throws(() => scenarioCell(row({ fixture: "none" }), "cmp"), /fresh/);
   assert.throws(() => scenarioCell({ ...row({}), fixture: "none" }, "cmp"), /fresh/);
   assert.throws(() => scenarioCell(row({ poll_rate: "often" }), "cmp"), /poll_rate/);
+  // A number string too long for a double reads as Infinity: not a rate.
+  assert.throws(() => scenarioCell(row({ poll_rate: "9".repeat(400) }), "cmp"), /poll_rate/);
   assert.throws(() => scenarioCell(row({ fixture: "large-76" }), "cmp"), /fixture/);
   assert.throws(() => scenarioCell(row({ subscribe_rate: 1 }), "cmp"), /unknown/);
   const cli = join(here, "scenarios.mjs");
