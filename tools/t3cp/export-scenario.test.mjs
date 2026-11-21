@@ -298,3 +298,20 @@ test("review: run.ts's recorded driver arguments and compaction seeding must be 
     assert.throws(() => exportAttempt(dir, spec, opts), /driver arguments|seeding/, what);
   }
 });
+
+test("review: driver arguments are read as the driver reads them: --flag=value, the last of a repeat, and its defaults", () => {
+  const cases = {
+    "--subscribers=3": (k) => k.workload.driver_args.push("--subscribers=3"),
+    "--turn-gap=60s": (k) => k.workload.driver_args.push("--turn-gap=60s"),
+    "--mode=fresh": (k) => k.workload.driver_args.push("--mode=fresh"),
+    "--switch-interval=10s on a cell that names none (the driver's default is 30s)": (k) => k.workload.driver_args.push("--switch-interval=10s"),
+    "--poll-rate=5 on a cell that names none": (k) => k.workload.driver_args.push("--poll-rate", "5"),
+  };
+  for (const [what, edit] of Object.entries(cases)) {
+    const { dir, spec } = compaction({ edit: (f) => edit(f.result.knobs) });
+    assert.throws(() => exportAttempt(dir, spec, opts), /driver arguments/, what);
+  }
+  // The driver's own defaults where the cell names nothing, written out, are the cell's.
+  const { dir, spec } = compaction({ edit: (f) => f.result.knobs.workload.driver_args.push("--switch-interval=30s", "--poll-rate", "1") });
+  assert.equal(exportAttempt(dir, spec, opts).attempt.valid, true);
+});
