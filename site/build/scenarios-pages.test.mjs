@@ -67,7 +67,8 @@ test('with no scenario record: the index lists every row, a row page has its fac
     assert.match(s.read('scenarios/index.html'), /<title>Scenarios · t3cp<\/title>/);
     const table = rowsOf(ix.slice(ix.indexOf('<table')));
     assert.equal(table[0], 'Scenario Version Status Added Metrics Records');
-    assert.deepEqual(table.slice(1), SCENARIOS.rows.map(r => `${r.id} ${r.version} ${r.status} ${T.dLong(r.added)} ${r.metrics === 'catalogue' ? 'Metrics' : r.metrics.map(id => catalogue.metrics.find(m => m.id === id).short).join(', ')} none yet`));
+    // The ladder row counts the ladder's own records (two nightlies here); a scenario row with none says so.
+    assert.deepEqual(table.slice(1), SCENARIOS.rows.map(r => `${r.id} ${r.version} ${r.status} ${T.dLong(r.added)} ${r.metrics === 'catalogue' ? 'Metrics' : r.metrics.map(id => catalogue.metrics.find(m => m.id === id).short).join(', ')} ${r.metrics === 'catalogue' ? `2 records, latest ${T.dLong('2026-11-02')}` : 'none yet'}`));
     assert.match(ix, /<a href="\/scenarios\/event-log-compaction\/"><code>event-log-compaction<\/code><\/a>/);
 
     const page = s.main('scenarios/event-log-compaction/index.html');
@@ -76,8 +77,9 @@ test('with no scenario record: the index lists every row, a row page has its fac
     const facts = txt((/<dl class="spec[^"]*">([^]*?)<\/dl>/.exec(page) || [])[1] || '');
     assert.equal(facts, `Suite ${COMPACTION.suite} Status active Added ${T.dLong(COMPACTION.added)} Harness ${COMPACTION.harness} Fixture large-76 Attempts per cell 3 Platforms Linux x64`, 'macOS is hidden while it has no record');
     const cells = rowsOf(page.slice(page.indexOf('<h2>Cells.</h2>')).split('</table>')[0]);
-    assert.equal(cells[0], 'Cell Mode Agents Watching live Status pollers Turn gap Warm-up Window After the window');
-    assert.deepEqual(cells.slice(1), ['cmp history 1 1 0 5s 60 s 300 s prune-mark']);
+    // Every field the row's cells carry, one column each (Fixture always): here no switch interval or poll rate.
+    assert.equal(cells[0], 'Cell Fixture Mode Agents Watching live Status pollers Turn gap Warm-up Window Seeded compaction mark After the window Mark age');
+    assert.deepEqual(cells.slice(1), ['cmp large-76 history 1 1 0 5s 60 s 300 s false prune-mark 3 days']);
     const sec = page.slice(page.indexOf('id="event_log_unpruned_days"'));
     assert.ok(sec.includes(`<h2>${UNPRUNED.name}</h2>`), 'the catalogue name');
     assert.ok(txt(sec).includes(txt(UNPRUNED.definition)), 'the catalogue definition');
@@ -88,7 +90,11 @@ test('with no scenario record: the index lists every row, a row page has its fac
     assert.match(ladder, /<h1>ladder, version 1\.<\/h1>/);
     assert.ok(txt(ladder).includes('This row is the load ladder that every nightly runs. Its metrics and results are on the Overview and Metrics pages.'));
     assert.match(ladder, /<a href="\/">Overview<\/a> and <a href="\/metrics\/">Metrics<\/a>/);
-    assert.equal(rowsOf(ladder.slice(ladder.indexOf('<h2>Cells.</h2>')).split('</table>')[0]).length, 1 + SCENARIOS.rows[0].cells.length);
+    const lc = rowsOf(ladder.slice(ladder.indexOf('<h2>Cells.</h2>')).split('</table>')[0]);
+    assert.equal(lc.length, 1 + SCENARIOS.rows[0].cells.length);
+    assert.equal(lc[0], 'Cell Fixture Mode Agents Watching live Status pollers Turn gap Switch interval Poll rate, calls/s per poller Warm-up Window Seeded compaction mark After the window');
+    const L = SCENARIOS.rows[0].cells;
+    assert.deepEqual(lc.slice(1), L.map(c => `${c.name} ${c.fixture ?? 'era'} ${c.mode} ${c.sessions} ${c.subscribers} ${c.pollers} ${c.turn_gap} ${c.switch_interval ?? 'default'} ${c.poll_rate ?? 'default'} ${c.warmup_s} s ${c.window_s} s ${c.seed_compacted_at} ${c.post}`), 'the 1e cell shows its own fixture, none');
 
     // Linked from the Metrics index and Methodology; the top navigation is unchanged.
     for (const p of ['metrics/index.html', 'methodology/index.html']) assert.match(s.main(p), /<a href="\/scenarios\/">Scenarios<\/a>/, p);
@@ -133,4 +139,18 @@ test('a metric with a target and a mapping in the catalogue shows both; a second
   const mapping = catalogue.mappings.find(x => x.metric === metricId);
   assert.ok(body.includes(`Beside the ladder: ${txt(mapping.text)}`));
   assert.match(by['scenarios/index.html'].body, /href="\/scenarios\/two-versions\/1\/"/);
+});
+
+// From the review of the scenario pages.
+test('the ladder row counts the ladder records; a row\'s latest date is its newest record of any kind', async () => {
+  const dates = Array.from({ length: 5 }, (_, i) => addDays('2026-10-01', i));
+  const nights = dates.map(date => fakeScenarioRecord({ row: COMPACTION, date, value: () => 1 }));
+  const base = { tag: nights[0].release.tag, date: nights[0].release.date, sha: nights[0].release.sha };
+  const fork = fakeScenarioRecord({ row: COMPACTION, date: '2026-10-09', kind: 'fork', tag: 'v0.1.9-perf.9', base, value: () => 0 });
+  const s = await site([...nights, fork]);
+  try {
+    const ix = rowsOf(s.main('scenarios/index.html'));
+    assert.ok(ix.some(r => r.startsWith('ladder ') && r.endsWith(`2 records, latest ${T.dLong('2026-11-02')}`)), ix.join(' | '));
+    assert.ok(ix.some(r => r.startsWith('event-log-compaction ') && r.endsWith(`6 records, latest ${T.dLong('2026-10-09')}`)), ix.join(' | '));
+  } finally { s.done(); }
 });
