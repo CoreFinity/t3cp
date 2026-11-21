@@ -988,6 +988,15 @@ export function exportScenarioAttempt(rawDir, spec, { privatePatterns = [], cata
   const problems = [...j.problems];
   // A saturated try measured nothing a scenario publishes: only a run the harness itself calls valid counts.
   let valid = j.valid && j.runValid;
+  // The run the exporter chose ran the cell: the driver's mode and sessions, and fixture threads exactly where the cell
+  // starts from a fixture in history or mixed mode. Contradicting evidence is refused, never published as the row.
+  if (j.runValid) {
+    const dw = j.run.driver?.workload ?? fail("run.json: the driver's workload is missing");
+    if (dw.mode !== c.mode || dw.sessions !== c.sessions) fail(`run.json: the driver ran mode ${dw.mode} with ${dw.sessions} sessions, not the row's cell ${cell}`);
+    const onFixture = Number.isInteger(dw.fixture_thread_sessions) && dw.fixture_thread_sessions > 0;
+    const needsFixture = load.fixture === "era" && c.mode !== "fresh";
+    if (onFixture !== needsFixture) fail(`run.json: the driver ${onFixture ? "used" : "used no"} fixture threads, which the row's cell ${cell} ${needsFixture ? "runs on" : "has none of"}`);
+  }
   // The measured window: as long as the cell's (5 % slack), or the attempt measured something else.
   const runStart = isoMs(j.run.window?.start);
   const runEnd = isoMs(j.run.window?.end);
@@ -1013,7 +1022,10 @@ export function exportScenarioAttempt(rawDir, spec, { privatePatterns = [], cata
       const w = raw.window;
       const near = (a, b) => typeof a === "number" && Number.isFinite(a) && Math.abs(a - b) <= 1000;
       if (w.valid !== true || w.run !== j.k || !near(w.start_ms, runStart) || !near(w.end_ms, runEnd)) unmeasured = true;
-      for (const id of Object.keys(raw.metrics)) if (!row.metrics.includes(id)) fail(`scenario.json: ${id} is not one of the row's metrics`);
+      for (const id of Object.keys(raw.metrics)) {
+        if (!row.metrics.includes(id)) fail(`scenario.json: ${id} is not one of the row's metrics`);
+        if (SCENARIO_SOURCES[id] !== "post") fail(`scenario.json: ${id} is not a post-step metric (its value comes from another source)`);
+      }
     }
     if (sources.includes("post") && raw === null) unmeasured = true;
     const incomplete = raw !== null && Object.values(raw.metrics).some((e) => e.reason === "turn_start_incomplete");
