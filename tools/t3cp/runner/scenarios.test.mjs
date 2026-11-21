@@ -96,6 +96,20 @@ test("the command line gives run-record.sh its shell variables, and refuses a ro
   assert.match(missing.stderr, /not in the catalogue/);
 });
 
+test("a row pins its harness: the command line names it, and a row without a harness version is refused", () => {
+  const cli = join(here, "scenarios.mjs");
+  const order = spawnSync(process.execPath, [cli, "order", draft, "long-thread-turn-start@1"], { encoding: "utf8" });
+  assert.equal(order.status, 0, order.stderr);
+  assert.match(order.stdout, /^SC_HARNESS='t3cp-harness\/2\.0\.2'$/m);
+  const { harness, ...unpinned } = scenarioRow(catalogue, "long-thread-turn-start@1");
+  const only = (row) => ({ ...catalogue, rows: [row] });
+  assert.throws(() => scenarioRow(only(unpinned), "long-thread-turn-start@1"), /harness/);
+  for (const bad of [null, "", "2.0.2", "t3cp-harness/2.0", "t3cp-harness/02.0.2", "t3cp-harness/2.0.2 ", "t3cp-harness/latest"]) {
+    assert.throws(() => scenarioRow(only({ ...unpinned, harness: bad }), "long-thread-turn-start@1"), /harness/, JSON.stringify(bad));
+  }
+  assert.equal(scenarioRow(only({ ...unpinned, harness }), "long-thread-turn-start@1").harness, "t3cp-harness/2.0.2");
+});
+
 test("a row is a scenario row only when its suite is <id>@<version>: the ladder row runs by the ladder path", () => {
   const base = scenarioRow(catalogue, "long-thread-turn-start@1");
   const ladder = { ...base, id: "ladder", version: 1, suite: "ladder-1" };

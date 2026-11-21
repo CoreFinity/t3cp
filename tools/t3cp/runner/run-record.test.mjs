@@ -1099,12 +1099,17 @@ const TEST_CATALOGUE = {
     },
   ],
 };
-/** A scenario record's setup: the row's suite and a catalogue holding the test rows (T3CP_SCENARIOS). */
+/**
+ * A scenario record's setup: the row's suite, a catalogue holding the test rows (T3CP_SCENARIOS), and an installed
+ * harness of the version the row pins (2.0.2 for a row the catalogue does not have).
+ */
 function scenarioSetup(ref, { fixture = false } = {}) {
   const [id, version] = ref.split("@");
   const t = setup({ fixture, scenarioSuite: { id: ref, scenario: { id, version: Number(version) } } });
   const catalogue = join(t.root, "scenarios.json");
   writeFileSync(catalogue, JSON.stringify(TEST_CATALOGUE));
+  const pinned = TEST_CATALOGUE.rows.find((r) => r.suite === ref)?.harness ?? "t3cp-harness/2.0.2";
+  writeFileSync(join(t.harness, "t3cp-harness.json"), JSON.stringify({ version: pinned, sha: "c".repeat(40), files_sha256: "d".repeat(64) }));
   t.env = { ...t.env, T3CP_SCENARIOS: catalogue };
   return t;
 }
@@ -1130,6 +1135,21 @@ test("a scenario spec naming a row the pinned catalogue does not have is refused
   assert.equal(result.status, 2, result.stderr);
   assert.equal(failureOf(t.out).reason, "scenario_unknown");
   assert.deepEqual(calls(t.log), []);
+});
+
+test("a scenario record runs only on the harness its row pins: any other installation is refused before any attempt", { skip, timeout: 1_800_000 }, () => {
+  // Each of these passes the ladder's 2.0.0-or-later check, and the exporter refuses every attempt it would make.
+  for (const version of ["t3cp-harness/2.0.0", "t3cp-harness/2.0.3", "t3cp-harness/2.1.3"]) {
+    const t = scenarioSetup("test-turn-start@1");
+    writeFileSync(join(t.harness, "t3cp-harness.json"), JSON.stringify({ version, sha: "c".repeat(40), files_sha256: "d".repeat(64) }));
+    const result = runRunner(t);
+    assert.equal(result.status, 3, `${version}: ${result.stderr}`);
+    const failure = failureOf(t.out);
+    assert.equal(failure.reason, "harness_missing", version);
+    assert.match(failure.detail, /test-turn-start@1 pins t3cp-harness\/2\.0\.2/, version);
+    assert.deepEqual(calls(t.log), [], `${version}: no attempt ran`);
+    assert.ok(!existsSync(`${t.log}.release`), `${version}: nothing was unpacked`);
+  }
 });
 
 test("a scenario row's cells become exactly these run.ts arguments, round after round, with no record extras", { skip, timeout: 1_800_000 }, () => {
@@ -1219,6 +1239,29 @@ test("a compaction row's prune mark is re-dated on the migrated fixture before e
   assert.ok(mark >= before - 3 * 86_400_000 && mark <= after - 3 * 86_400_000, `mark ${raw.detail.mark_updated_at} is 3 days before the try`);
   assert.equal(createHash("sha256").update(readFileSync(spec.fixture.path)).digest("hex"), fixtureBefore, "the spec's fixture is never written");
   assert.match(readFileSync(join(t.work, "runner.log"), "utf8"), /cmp-1 try 1: prune mark set 3 days before the try/);
+});
+
+test("a prune mark that cannot be re-dated stops the record before the try: no attempt measures the fixture's own mark", { skip, timeout: 1_800_000 }, () => {
+  const t = scenarioSetup("test-compaction-era@1", { fixture: true });
+  const spec = JSON.parse(readFileSync(join(t.root, "spec.json"), "utf8"));
+  // The migrated fixture's mark is 30 days old and readable, but cannot be written: a trigger refuses every update.
+  const migrated = join(t.work, "fixture", "base", "userdata", "statev2.sqlite");
+  mkdirSync(dirname(migrated), { recursive: true });
+  const stale = new Date(Date.now() - 30 * 86_400_000).toISOString();
+  const made = spawnSync("python3", ["-I", "-c", "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute(sys.argv[2]); c.execute(sys.argv[3]); c.execute(sys.argv[4], (sys.argv[5],)); c.commit(); c.close()", migrated,
+    "CREATE TABLE orchestration_v2_projection_metadata (projection_name TEXT PRIMARY KEY, schema_version INTEGER, last_sequence INTEGER, updated_at TEXT)",
+    "CREATE TRIGGER read_only BEFORE UPDATE ON orchestration_v2_projection_metadata BEGIN SELECT RAISE(ABORT, 'read-only'); END",
+    "INSERT INTO orchestration_v2_projection_metadata VALUES ('event-log-prune-mark', 2, 151, ?)", stale], { encoding: "utf8" });
+  assert.equal(made.status, 0, made.stderr);
+  writeFileSync(join(t.work, "fixture.done"), `${spec.fixture.sha256} ${spec.release.archive_sha256}\n`);
+  const result = runRunner(t, { env: { ...t.env, T3CP_KEEP_RAW: "1", STUB_DB_FROM_FIXTURE: "1" } });
+  assert.equal(result.status, 4, result.stderr);
+  const failure = failureOf(t.out);
+  assert.equal(failure.reason, "runner_error");
+  assert.match(failure.detail, /cmp-1 try 1: the prune mark could not be set .*db_unwritable/);
+  assert.deepEqual(calls(t.log), [], "run.ts never ran with the fixture's own mark");
+  assert.ok(!existsSync(join(t.work, "raw", "cmp-1", "scenario.json")), "nothing was measured");
+  assert.ok(!existsSync(join(t.out, "attempts", "cmp-1")), "no attempt was handed on");
 });
 
 // Last in the file: tests run in order, and each one's end has run by now.
