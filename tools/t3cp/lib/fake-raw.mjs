@@ -402,6 +402,10 @@ export function writeRawScenarioAttempt(root, { row, cell, n = 1, spec = fakeSce
       files.result.knobs.workload.window_s = c.window_s;
       files.run.window = { start: new Date(WINDOW_START).toISOString(), end: new Date(WINDOW_START + c.window_s * 1000).toISOString() };
       files.meta.window_end_ms = WINDOW_START + c.window_s * 1000;
+      // The driver ran the cell's mode and sessions, on the fixture's threads where the cell has a fixture.
+      const onFixture = c.mode !== "fresh" && c.fixture !== "none" && row.fixture !== "none";
+      files.run.driver.knobs.mode = c.mode;
+      Object.assign(files.run.driver.workload, { mode: c.mode, sessions: c.sessions, fixture_thread_sessions: onFixture ? c.sessions : 0, new_thread_sessions: onFixture ? 0 : c.sessions });
       if (shell === null) delete files.result.metrics.spans?.["OrchestratorV2.getThreadShell"];
       else {
         files.result.metrics.spans ??= {};

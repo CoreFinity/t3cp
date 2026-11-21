@@ -261,3 +261,17 @@ test("review: any internal or unknown reason, or a value with a public reason, i
     assert.doesNotMatch(JSON.stringify(a.attempt.metric_reasons), /db_unreadable|something_new/);
   }
 });
+
+test("review: scenario.json carries the post step's metrics only; another metric's entry is refused", () => {
+  const { dir, spec } = longThread({ metrics: { ...LT_OK, get_thread_shell_long_thread_ms: { value: 2, reason: "db_unreadable" } } });
+  assert.throws(() => exportAttempt(dir, spec, opts), /get_thread_shell_long_thread_ms is not a post-step metric/);
+});
+
+test("review: the run the exporter chose must have run the cell: its driver's mode, sessions and fixture threads", () => {
+  let { dir, spec } = compaction({ edit: (f) => Object.assign(f.run.driver.workload, { mode: "fresh", fixture_thread_sessions: 0, new_thread_sessions: 1 }) });
+  assert.throws(() => exportAttempt(dir, spec, opts), /driver ran mode fresh/);
+  ({ dir, spec } = compaction({ edit: (f) => Object.assign(f.run.driver.workload, { sessions: 50 }) }));
+  assert.throws(() => exportAttempt(dir, spec, opts), /50 sessions/);
+  ({ dir, spec } = compaction({ edit: (f) => Object.assign(f.run.driver.workload, { fixture_thread_sessions: 0, new_thread_sessions: 1 }) }));
+  assert.throws(() => exportAttempt(dir, spec, opts), /fixture threads/);
+});
