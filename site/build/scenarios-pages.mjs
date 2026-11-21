@@ -34,12 +34,28 @@ export function scenarioPages(c, scenarios) {
   const isLatest = row => ids.get(row.id)[0] === row;
 
   // ---------- the index ----------
-  const recordsCell = row => {
+  // A row's records and the date of its newest of any kind (nightly, fork release, upstream base): the ladder's from
+  // the ladder's own lists, a scenario row's from the aggregator's index and its series.
+  const recordsOf = row => {
+    const plats = shown(row);
+    if (row.metrics === 'catalogue') {
+      const ix0 = c.ix || {};
+      const lists = [c.records || [], ix0.fork || [], ix0.bases || []].map(l => l.filter(e => plats.some(p => e.platforms && e.platforms[p])));
+      return { n: lists.reduce((s, l) => s + l.reduce((k, e) => k + plats.filter(p => e.platforms[p]).length, 0), 0), dates: lists.flat().map(e => e.date) };
+    }
     const r = indexRow(row);
-    const plats = r ? Object.values(r.platforms) : [];
-    const n = plats.reduce((s, p) => s + p.records, 0);
+    if (!r) return { n: 0, dates: [] };
+    const dates = [];
+    for (const p of plats) {
+      const first = (r.series[p] || [])[0], sh = first ? c.read(first) : null;
+      if (sh) dates.push(...sh.nightly.dates, ...sh.fork.map(e => e.date), ...sh.base.map(e => e.date));
+    }
+    return { n: plats.reduce((k, p) => k + ((r.platforms[p] || {}).records || 0), 0), dates };
+  };
+  const recordsCell = row => {
+    const { n, dates } = recordsOf(row);
     if (!n) return 'none yet';
-    const latest = plats.map(p => p.latest_date).filter(Boolean).sort().pop();
+    const latest = dates.filter(Boolean).sort().pop();
     return `${n} record${n === 1 ? '' : 's'}${latest ? `, latest ${T.dLong(latest)}` : ''}`;
   };
   const metricsCell = row => (row.metrics === 'catalogue' ? '<a href="/metrics/">Metrics</a>' : row.metrics.map(id => esc((metric(id) || { short: id }).short || id)).join(', '));
@@ -51,7 +67,31 @@ export function scenarioPages(c, scenarios) {
   };
 
   // ---------- one row ----------
-  const cellsTable = row => `<h2>Cells.</h2><div class="tw"><table class="sc-cells"><thead><tr><th>Cell</th><th>Mode</th><th class="n">Agents</th><th class="n">Watching live</th><th class="n">Status pollers</th><th>Turn gap</th><th class="n">Warm-up</th><th class="n">Window</th><th>After the window</th></tr></thead><tbody>${row.cells.map(cl => `<tr><td><code>${esc(cl.name)}</code></td><td><code>${esc(cl.mode)}</code></td><td class="n">${esc(cl.sessions)}</td><td class="n">${esc(cl.subscribers)}</td><td class="n">${esc(cl.pollers)}</td><td>${esc(cl.turn_gap)}</td><td class="n">${esc(cl.warmup_s)} s</td><td class="n">${esc(cl.window_s)} s</td><td><code>${esc(cl.post)}</code></td></tr>`).join('')}</tbody></table></div>`;
+  // The Cells table: one column per field of scenarios.json's cell, in the schema's order, each shown only when a cell of
+  // the row carries it (Fixture always: the cell's own, else the row's). An absent driver option is its default.
+  const code = v => `<code>${esc(v)}</code>`;
+  const COLS = [
+    ['name', 'Cell', '', cl => code(cl.name)],
+    ['fixture', 'Fixture', '', (cl, row) => code(cl.fixture ?? row.fixture), true],
+    ['mode', 'Mode', '', cl => code(cl.mode)],
+    ['sessions', 'Agents', 'n', cl => esc(cl.sessions)],
+    ['subscribers', 'Watching live', 'n', cl => esc(cl.subscribers)],
+    ['pollers', 'Status pollers', 'n', cl => esc(cl.pollers)],
+    ['turn_gap', 'Turn gap', '', cl => esc(cl.turn_gap)],
+    ['switch_interval', 'Switch interval', '', cl => esc(cl.switch_interval ?? 'default')],
+    ['poll_rate', 'Poll rate, calls/s per poller', 'n', cl => esc(cl.poll_rate ?? 'default')],
+    ['warmup_s', 'Warm-up', 'n', cl => `${esc(cl.warmup_s)} s`],
+    ['window_s', 'Window', 'n', cl => `${esc(cl.window_s)} s`],
+    ['seed_compacted_at', 'Seeded compaction mark', '', cl => code(String(cl.seed_compacted_at))],
+    ['post', 'After the window', '', cl => code(cl.post)],
+    ['mark_age_days', 'Mark age', 'n', cl => (cl.mark_age_days == null ? '–' : `${esc(cl.mark_age_days)} days`)],
+  ];
+  const cellsTable = row => {
+    const cols = COLS.filter(([field, , , , always]) => always || row.cells.some(cl => cl[field] !== undefined));
+    const th = cols.map(([, label, cls]) => `<th${cls ? ` class="${cls}"` : ''}>${label}</th>`).join('');
+    const tr = row.cells.map(cl => `<tr>${cols.map(([, , cls, show]) => `<td${cls ? ` class="${cls}"` : ''}>${show(cl, row)}</td>`).join('')}</tr>`).join('');
+    return `<h2>Cells.</h2><div class="tw"><table class="sc-cells"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table></div>`;
+  };
   const facts = row => `<dl class="spec mt2"><dt>Suite</dt><dd><code>${esc(row.suite)}</code></dd><dt>Status</dt><dd>${esc(row.status)}</dd><dt>Added</dt><dd>${T.dLong(row.added)}</dd><dt>Harness</dt><dd><code>${esc(row.harness)}</code></dd><dt>Fixture</dt><dd><code>${esc(row.fixture)}</code></dd><dt>Attempts per cell</dt><dd>${esc(row.attempts)}</dd><dt>Platforms</dt><dd>${shown(row).map(p => esc(platName(p))).join(', ')}</dd></dl>`;
 
   // One value: the median with its unit and the valid attempts, or why there is none.
