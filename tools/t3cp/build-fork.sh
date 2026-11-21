@@ -89,7 +89,8 @@ resolve_build_version() {
   local app strip=()
   MANIFEST_VERSION=$(node -p "require(process.argv[1]).version" "$SRC/apps/server/package.json") \
     || die "cannot read the version in apps/server/package.json"
-  app=$(printf '%s' "${APP_VERSION:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+  # Trimmed with JavaScript's own trim(), as the server's build trims it (newlines and tabs included).
+  app=$(node -e 'process.stdout.write((process.env.APP_VERSION ?? "").trim())')
   if [ -n "$app" ] && grep -qs APP_VERSION "$SRC/apps/server/vite.config.ts" "$SRC/scripts/lib/tagged-source-version.ts"; then
     VERSION=$app VERSION_SOURCE=app_version
   elif [ -f "$SRC/scripts/lib/tagged-source-version.ts" ]; then
