@@ -978,6 +978,10 @@ export function exportScenarioAttempt(rawDir, spec, { privatePatterns = [], cata
   // What run.ts ran: its knobs name the warm-up and window, which must be the cell's.
   const knobs = result.knobs?.workload;
   if (knobs?.warmup_s !== c.warmup_s || knobs?.window_s !== c.window_s) fail(`${label}.result.json: run.ts ran another warm-up or window than the row's cell ${cell}`);
+  // What run.ts started from: a fixture file exactly where the cell starts from the row's fixture.
+  const observed = result.identity?.fixture ?? null;
+  const onFile = observed !== null && observed.kind === "file";
+  if (onFile !== (load.fixture === "era")) fail(`${label}.result.json: run.ts ran ${onFile ? "on a fixture file" : "without a fixture file"}, which the row's cell ${cell} ${load.fixture === "era" ? "starts from" : "has none of"}`);
   const base = identityOf(spec, meta, result, catalogue, catalogue.feature_eras);
   const identity = {
     ...base,
