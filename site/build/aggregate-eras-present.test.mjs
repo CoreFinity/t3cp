@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { buildOutputs } from "./aggregate.mjs";
+import { buildOutputs, ladderFeatureEras } from "./aggregate.mjs";
 import { mergeRecord } from "../../tools/t3cp/merge.mjs";
 import { fakeAttempts, fakeExtras, fakeIdentity, FAKE_PUBLIC_REFS } from "../../tools/t3cp/lib/fake.mjs";
 import { loadCatalogue, loadSchema } from "../../tools/t3cp/lib/repo.mjs";
@@ -52,7 +52,7 @@ const featureFrom = (ix) => Object.fromEntries(ix.eras.feature.map((e) => [e.id,
 test("the catalogue plans eras before the launch window (the premise of these tests)", () => {
   assert.equal(catalogueEra("large-63").from, "2026-10-17");
   assert.equal(catalogueEra("large-76").to, null);
-  assert.ok(catalogue.feature_eras.every((e) => e.from <= "2026-10-21"));
+  assert.ok(ladderFeatureEras(catalogue).every((e) => e.from <= "2026-10-21"));
 });
 
 test("launch shape (nightlies from 11-02 only): one fixture era, from the first record, open; every feature era starts there", () => {
@@ -60,7 +60,7 @@ test("launch shape (nightlies from 11-02 only): one fixture era, from the first 
   assert.deepEqual(ix.eras.fixture, [{ ...catalogueEra("large-76"), from: "2026-11-02", to: null }]);
   assert.deepEqual(
     ix.eras.feature,
-    catalogue.feature_eras.map((e) => ({ ...e, from: "2026-11-02" })),
+    ladderFeatureEras(catalogue).map((e) => ({ ...e, from: "2026-11-02" })),
   );
 });
 
@@ -80,11 +80,11 @@ test("a closed era with records only in part of it names those records' dates", 
 test("feature eras: one that starts after the last record is left out; the others start at their first record on or after the planned date", () => {
   const ix = indexOf(days("2026-10-17", 4)); // 10-17..10-20
   const from = featureFrom(ix);
-  for (const e of catalogue.feature_eras) {
+  for (const e of ladderFeatureEras(catalogue)) {
     if (e.from > "2026-10-20") assert.equal(from[e.id], undefined, `${e.id} starts ${e.from}, after the last record`);
     else assert.equal(from[e.id], e.from < "2026-10-17" ? "2026-10-17" : e.from, e.id);
   }
-  assert.ok(catalogue.feature_eras.some((e) => e.from > "2026-10-20"), "the catalogue has an era after 10-20 (run_metrics, 10-21)");
+  assert.ok(ladderFeatureEras(catalogue).some((e) => e.from > "2026-10-20"), "the catalogue has an era after 10-20 (run_metrics, 10-21)");
   // The order is the catalogue's.
-  assert.deepEqual(ix.eras.feature.map((e) => e.id), catalogue.feature_eras.filter((e) => from[e.id] !== undefined).map((e) => e.id));
+  assert.deepEqual(ix.eras.feature.map((e) => e.id), ladderFeatureEras(catalogue).filter((e) => from[e.id] !== undefined).map((e) => e.id));
 });

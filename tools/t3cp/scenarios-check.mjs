@@ -27,8 +27,8 @@ export const SCHEMA_FILE = "schema/scenarios-1.json";
 export const LOCK_SCHEMA = "t3cp/scenarios-lock/1";
 /** The ladder's scenario id: its rows publish as suite ladder-<version>. */
 export const LADDER_ID = "ladder";
-/** The lanes a record publishes (the others are weekly, release-time or later measurements). */
-const RECORD_LANES = new Set(["daily", "record"]);
+/** The lane of the metrics scenario rows publish; the ladder publishes the daily and record lanes. */
+const SCENARIO_LANE = "scenario";
 const HASH = /^[0-9a-f]{64}$/;
 const LEVEL = /^[1-9][0-9]*$/;
 
@@ -80,7 +80,7 @@ export function checkScenarios({ scenarios, schema, catalogue, publicRefs, fixtu
       for (const id of row.metrics) {
         const m = metrics.get(id);
         if (!m) problems.push(`${key}: unknown metric key ${id}`);
-        else if (!RECORD_LANES.has(m.lane)) problems.push(`${key}: ${id} is a ${m.lane} metric, which no record publishes`);
+        else if (m.lane !== SCENARIO_LANE) problems.push(`${key}: ${id} is a ${m.lane} metric; a scenario row publishes scenario-lane metrics only`);
         const ids = measuredBy.get(id) ?? new Set();
         ids.add(row.id);
         measuredBy.set(id, ids);

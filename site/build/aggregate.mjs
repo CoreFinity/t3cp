@@ -306,6 +306,16 @@ function makeModel(inputs, catalogue) {
   return { catalogue, byId, pins, nightlies, forks, bases, heads, platforms, seriesMetrics, bands: inputs.bands };
 }
 
+/**
+ * The feature eras of the ladder: the catalogue's, less those only scenario-lane metrics use (a scenario row's era
+ * belongs to its own outputs, never to the ladder's index or series).
+ */
+export function ladderFeatureEras(catalogue) {
+  const ladderEras = new Set(catalogue.metrics.filter((m) => m.lane !== "scenario").map((m) => m.era));
+  const scenarioOnly = new Set(catalogue.metrics.filter((m) => m.lane === "scenario" && !ladderEras.has(m.era)).map((m) => m.era));
+  return catalogue.feature_eras.filter((e) => !scenarioOnly.has(e.id));
+}
+
 /** The levels a metric has: the six ladder levels (scope level) or "once" (scope record), plus "1e" when flagged. */
 export const levelsFor = (m) => [...(m.scope === "level" ? LADDER : ["once"]), ...(m.empty_cell ? ["1e"] : [])];
 
@@ -954,7 +964,10 @@ export function buildOutputs(
     const dates = nightlyDates((r) => r.fixture.id === e.id);
     return dates.length === 0 ? [] : [{ ...e, from: dates[0], to: e.to === null ? null : dates.at(-1) }];
   });
-  const featureEras = catalogue.feature_eras.flatMap((e) => {
+  // The ladder's index lists the ladder's metrics and eras: a scenario-lane metric, and a feature era only scenario
+  // metrics use, belong to the scenario rows' own outputs.
+  const ladderMetrics = catalogue.metrics.filter((m) => m.lane !== "scenario");
+  const featureEras = ladderFeatureEras(catalogue).flatMap((e) => {
     const dates = nightlyDates((r) => r.release.date >= e.from);
     return dates.length === 0 ? [] : [{ ...e, from: dates[0] }];
   });
@@ -991,7 +1004,7 @@ export function buildOutputs(
     headlines: catalogue.headlines,
     // The compare page's rule inputs (records-index.json carries the per-record ones): capability() per platform and
     // level, and the metric's place in the gate and saturation rules.
-    catalogue: catalogue.metrics.map((m) => {
+    catalogue: ladderMetrics.map((m) => {
       const { era, ...rest } = m;
       return { ...rest, bands: bandsFor(m), cap: capOf(m), gate_exempt: GATE_EXEMPT.has(m.id), throughput: THROUGHPUT.has(m.id) };
     }),

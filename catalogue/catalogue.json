@@ -52,9 +52,24 @@
       "what": "event loop and heap gauges"
     },
     {
+      "id": "turn_start_span",
+      "from": "2026-10-20",
+      "what": "turn-start spans in the server trace"
+    },
+    {
       "id": "run_metrics",
       "from": "2026-10-21",
       "what": "run duration and queue metrics"
+    },
+    {
+      "id": "thread_shell_span",
+      "from": "2026-10-26",
+      "what": "thread shell reads as a named span in the server trace"
+    },
+    {
+      "id": "event_prune",
+      "from": "2026-11-04",
+      "what": "event-log pruning past a prune mark"
     }
   ],
   "groups": [
@@ -3103,6 +3118,132 @@
         "file": "server.log",
         "field": "count of \"Orchestration effect admission changed\""
       }
+    },
+    {
+      "id": "turn_start_history_gap_ms",
+      "name": "Longest event-loop block in a turn start on a long thread",
+      "short": "Long-thread turn-start block",
+      "group": "cpu",
+      "unit": "ms",
+      "better": "lower",
+      "definition": "How long one turn start blocks the server's event loop when the thread already has a long history. The run starts from a synthetic thread with 20,000 earlier runs, made by a seeded generator: one run in 8 did not complete (cancelled, interrupted or failed, in turn), one in 16 is a restart continuation and one in 32 carries restart work. It then sends 10 follow-up messages to that thread, 20 s apart, and each makes the server plan a new turn against the whole history. The value is the largest event-loop delay measured while any of those turn starts was running. While the loop is blocked nothing else in the server makes progress: other threads' events, database writes and page loads all wait. Tens of milliseconds means planning stays cheap as the history grows; seconds means it grows with the square of the history.",
+      "lane": "scenario",
+      "scope": "record",
+      "form": "ts",
+      "era": "turn_start_span",
+      "era_start": "2026-10-20",
+      "upstream": "yes",
+      "platforms": ["linux-x64", "darwin-arm64"],
+      "na_on": [],
+      "empty_cell": false,
+      "gate": false,
+      "counter": null,
+      "headline": null,
+      "source": {
+        "file": "loop-1hz.ndjson and the server trace",
+        "field": "max delay.max_ms over 1 s windows that overlap a ProviderTurnStartService.start span on the long thread"
+      }
+    },
+    {
+      "id": "turn_start_long_thread_ms",
+      "name": "Turn start on a long thread (median)",
+      "short": "Long-thread turn start",
+      "group": "spans",
+      "unit": "ms",
+      "better": "lower",
+      "definition": "How long the server takes to start a turn on a thread with a long history, from the follow-up message to the provider being asked to start. The run uses a synthetic thread with 20,000 earlier runs and sends it 10 follow-up messages, 20 s apart. This is the median of the server span ProviderTurnStartService.start over those 10 starts. It counts every part of the start: reading the context the turn needs, planning it, and the provider adapter's own start. It is the long-thread counterpart of turn_start_p50_ms, which the ladder measures on the fixture's ordinary threads. A value close to the ordinary threads' means the start reads a bounded slice of the history; growth with the history means it reads or walks the whole thread.",
+      "lane": "scenario",
+      "scope": "record",
+      "form": "ts",
+      "era": "turn_start_span",
+      "era_start": "2026-10-20",
+      "upstream": "yes",
+      "platforms": ["linux-x64", "darwin-arm64"],
+      "na_on": [],
+      "empty_cell": false,
+      "gate": false,
+      "counter": null,
+      "headline": null,
+      "source": {
+        "file": "the server trace",
+        "field": "median duration of the ProviderTurnStartService.start spans of the row's 10 follow-ups on the long thread"
+      }
+    },
+    {
+      "id": "get_thread_shell_long_thread_ms",
+      "name": "Thread shell read on a long thread (p95)",
+      "short": "Long-thread shell read",
+      "group": "spans",
+      "unit": "ms",
+      "better": "lower",
+      "definition": "How long the server takes to read a thread's shell (its title, state and item count) when the thread has a long history of runs. The server reads a thread's shell as the thread changes. The run uses a synthetic database with one thread, which has 20,000 earlier runs, and sends it 10 follow-up messages. This is the 95th percentile of the server span OrchestratorV2.getThreadShell during the row, all of which read that thread. A value like the ordinary threads' (get_thread_shell_p95_ms) means the item count is kept as a running total; growth with the thread's runs means each read recounts the history.",
+      "lane": "scenario",
+      "scope": "record",
+      "form": "ts",
+      "era": "thread_shell_span",
+      "era_start": "2026-10-26",
+      "upstream": "yes",
+      "platforms": ["linux-x64", "darwin-arm64"],
+      "na_on": [],
+      "empty_cell": false,
+      "gate": false,
+      "counter": null,
+      "headline": null,
+      "source": {
+        "file": "result.json",
+        "field": "spans[\"OrchestratorV2.getThreadShell\"].p95_ms of the row's cell (the fixture's only thread)"
+      }
+    },
+    {
+      "id": "event_log_unpruned_days",
+      "name": "Event log days past the retained day",
+      "short": "Unpruned log days",
+      "group": "sqlite",
+      "unit": "days",
+      "better": "lower",
+      "definition": "How far the server's event-log compaction has fallen behind. The compaction keeps one day of event history and prunes older events in passes; a pass may prune only up to a mark set at least a day earlier. This is the age of the newest mark at the end of the run, minus the one retained day, floored at 0. The run starts from the published large-76 fixture, whose prune mark is set to 3 days before each try, over the fixture's whole event history, a backlog of due events that a pass cannot finish within the run on a build that only moves the mark when a pass completes. 0 means a pass set a fresh mark during the run, so pruning keeps up; 2 means no pass set one, so the boundary stayed frozen and old events were not pruned.",
+      "lane": "scenario",
+      "scope": "record",
+      "form": "ts",
+      "era": "event_prune",
+      "era_start": "2026-11-04",
+      "upstream": "yes",
+      "platforms": ["linux-x64", "darwin-arm64"],
+      "na_on": [],
+      "empty_cell": false,
+      "gate": false,
+      "counter": null,
+      "headline": null,
+      "source": {
+        "file": "the run's database, read-only at the run's end",
+        "field": "updated_at of the event-log-prune-mark row in orchestration_v2_projection_metadata"
+      }
+    }
+  ],
+  "targets": [
+    {
+      "metric": "turn_start_history_gap_ms",
+      "below": 1000,
+      "unit": "ms",
+      "text": "No turn start blocks the server's event loop for 1 s or more on the long-thread fixture: turn_start_history_gap_ms below 1,000 ms in every attempt. Two things block the loop in such a start: planning the turn against the history, and decoding the thread's whole run, attempt and turn projection before planning starts. The metric is their total, so a release meets the target only when both stay bounded as the history grows."
+    }
+  ],
+  "mappings": [
+    {
+      "metric": "turn_start_history_gap_ms",
+      "text": "The long-thread turn-start block is one metric for two causes: planning a new turn with scans that grow with the square of the history, and decoding the thread's whole run, attempt and turn projection, which grows linearly with it. A release that makes planning linear lowers the block from seconds; only a release that also reads just the runs a turn start needs (the current run, the runs that did not complete and those with restart work) brings it to tens of milliseconds."
+    },
+    {
+      "metric": "get_thread_shell_p95_ms",
+      "text": "The ladder's shell-read p95 shows the cost of a thread's item count only in part. A shell read includes the count, which once grew with the thread's runs, but the p95 is taken over every shell read in the window, mostly of ordinary threads, and the ladder fixture's threads are long in items, not in runs. A count that grows with one thread's runs barely moves it; get_thread_shell_long_thread_ms measures the same read on one thread with 20,000 runs."
+    },
+    {
+      "metric": "shutdown_s",
+      "text": "The ladder's shutdown time is the graceful stop with that level's agent sessions still live. Releasing each provider session lists the host's processes to find the session's children, and the listings are not shared between sessions, so the stop grows with sessions times host processes: it rises with the level while level 1 stays near 1 s. A stop the harness has to kill after its grace period has no value (null), like a level that was not served."
+    },
+    {
+      "metric": "finalize_subagent_p50_ms",
+      "text": "Finalizing an agent-owned child's result reads the context transfers recorded for it. On current releases that read covers every transfer of the thread's history, so the span grows with how often the parent has handed context to children. Telling releases apart needs a long-lived parent with a long transfer history; that scenario row is not built yet, so the metric stays in the later lane."
     }
   ]
 }
