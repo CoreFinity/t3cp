@@ -111,6 +111,7 @@ ${ERR}
 <div class="grid" id="grid"></div>
 <div class="empty" id="none" hidden><p>No metric matches.</p><p class="mt1"><button type="button" class="btn" id="clear">Clear filters</button></p></div>
 ${LEGEND('', c.heads.length)}
+<p class="note mt1"><a href="/scenarios/">Scenarios</a>: fixed workloads t3cp measures beside the load ladder, one page per scenario.</p>
 <details class="mt3" id="cat"><summary>The catalogue as a table: every metric, its unit, direction, band and latest value at 50 agents</summary><div class="tw"><table><thead><tr><th>Metric</th><th>Unit</th><th>Better</th><th class="n">Band</th><th class="hs">From</th><th class="hs">Platforms</th><th class="hs">Lane</th><th class="n">Latest</th><th>Verdict</th></tr></thead><tbody>${rows}</tbody></table></div></details>
 <script type="application/json" id="latest">${JSON.stringify(c.latest).replace(/</g, '\\u003c')}</script>`;
   return { path: 'metrics/index.html', title: 'All metrics · t3cp', desc: `The ${c.catalogue.length} metrics t3cp records for T3 Code, with unit, direction, noise band and the latest value.`, nav: 'Metrics', page: 'metrics', body };

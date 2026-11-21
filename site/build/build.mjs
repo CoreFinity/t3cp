@@ -18,9 +18,10 @@ import vm from 'node:vm';
 import { loadApp } from './lib/app-vm.mjs';
 import { formatSafeErrors, parseJsonStrict, schemaErrors } from '../../tools/t3cp/lib/safe-errors.mjs';
 import { scanText, scanValue } from '../../tools/t3cp/lib/scan.mjs';
-import { loadSchema } from '../../tools/t3cp/lib/repo.mjs';
+import { loadSchema, loadScenarios } from '../../tools/t3cp/lib/repo.mjs';
 import { layout, analytics, THEME_HASH, esc } from './layout.mjs';
 import * as P from './pages.mjs';
+import { scenarioPages } from './scenarios-pages.mjs';
 import { checkBudgets, report } from './budgets.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -200,7 +201,7 @@ function context(dv, cfg, log, js) {
   const releases = {};
   const release = tag => (tag in releases ? releases[tag] : (releases[tag] = read(`releases/${tag}.json`)));
   return {
-    T, ix, records, heads, cat, catalogue, plat, platName: 'Linux x64', mac, first, pending, read, size, shard, model, latest, downloads, fixtures, shapeFile, fixtureFiles, release, log, cfg,
+    T, ix, records, heads, cat, catalogue, catFile, plat, platName: 'Linux x64', mac, first, pending, read, size, shard, model, latest, downloads, fixtures, shapeFile, fixtureFiles, release, log, cfg,
     harness: ix ? ix.eras.harness : [],
     groups: ix ? ix.groups : catFile.groups, headlines: (ix ? ix.headlines : catFile.headlines)[plat], forks: ix ? ix.fork : [],
     eras: ix ? ix.eras.fixture : catFile.fixture_eras, bands: read('bands.json'), mrs: read('mrs.json'),
@@ -354,6 +355,8 @@ export async function build(o) {
     P.prose(c, 'methodology', tpl('methodology'), methodTokens(c), { title: 'Methodology · t3cp', desc: 'How t3cp measures T3 Code: the suite, the machine, the fixtures, the validity rules, the noise bands and the regression rule.', nav: '' }),
     P.prose(c, 'about', tpl('about'), aboutTokens(c), { title: 'About · t3cp', desc: "About t3cp: an independent, community-run record of T3 Code's performance.", nav: 'About' }),
     P.notFound(c),
+    // The scenario pages: the rows of scenarios.json (o.scenarios in tests), their values from the aggregator's series.
+    ...scenarioPages(c, o.scenarios || loadScenarios()),
   ];
   for (const p of pages) {
     const file = join(out, p.path);

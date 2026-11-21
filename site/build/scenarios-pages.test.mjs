@@ -74,7 +74,7 @@ test('with no scenario record: the index lists every row, a row page has its fac
     assert.match(page, /<h1>event-log-compaction, version 1\.<\/h1>/);
     assert.match(s.read('scenarios/event-log-compaction/index.html'), /<title>event-log-compaction · Scenarios · t3cp<\/title>/);
     const facts = txt((/<dl class="spec[^"]*">([^]*?)<\/dl>/.exec(page) || [])[1] || '');
-    assert.equal(facts, `Suite ${COMPACTION.suite} Status active Added ${T.dLong(COMPACTION.added)} Harness ${COMPACTION.harness} Fixture large-76 Attempts per cell 3 Platforms Linux x64, macOS arm64`);
+    assert.equal(facts, `Suite ${COMPACTION.suite} Status active Added ${T.dLong(COMPACTION.added)} Harness ${COMPACTION.harness} Fixture large-76 Attempts per cell 3 Platforms Linux x64`, 'macOS is hidden while it has no record');
     const cells = rowsOf(page.slice(page.indexOf('<h2>Cells.</h2>')).split('</table>')[0]);
     assert.equal(cells[0], 'Cell Mode Agents Watching live Status pollers Turn gap Warm-up Window After the window');
     assert.deepEqual(cells.slice(1), ['cmp history 1 1 0 5s 60 s 300 s prune-mark']);
