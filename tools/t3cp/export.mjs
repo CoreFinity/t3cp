@@ -22,7 +22,7 @@ import { ScanConfigError, loadPrivatePatterns, scanText, scanValue } from "./lib
 import { EXPORTER_VERSION, isMain, loadCatalogue, loadScenarios, loadSchema, median, roundValue } from "./lib/repo.mjs";
 import { BUILD_REPOS, EXTRAS_REASONS, PROBLEMS, SCENARIO_REASONS, forkHeadProblem, levelMetricIds, NOT_MEASURED_SATURATED } from "./lib/schemas.mjs";
 import { JsonError, parseNdjsonStrict, parseStrict } from "./lib/json.mjs";
-import { ladderFeatureEras, scenarioLoad } from "./lib/scenarios.mjs";
+import { durationS, ladderFeatureEras, scenarioLoad } from "./lib/scenarios.mjs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { MAPPING, MappingError, procWindow } from "./lib/mapping.mjs";
@@ -938,6 +938,32 @@ function scenarioRowOf(spec, scenarios) {
   return row;
 }
 
+/**
+ * The driver arguments run.ts recorded (knobs.workload.driver_args: its own count flags, then each --driver-arg, the
+ * driver reading the last of a repeated flag) must run the cell: its sessions, subscribers, pollers, mode and turn gap,
+ * and its switch interval and poll rate exactly where the cell names them.
+ */
+function checkDriverArgs(args, c, where) {
+  if (!Array.isArray(args) || !args.every((a) => typeof a === "string")) fail(`${where}: run.ts recorded no driver arguments`);
+  const last = new Map();
+  for (let i = 0; i < args.length; i++) if (args[i].startsWith("--") && i + 1 < args.length) last.set(args[i].slice(2), args[i + 1]);
+  const bad = (flag) => fail(`${where}: the driver arguments (--${flag}) are not the row's cell ${c.name}'s`);
+  for (const [flag, want] of [["sessions", c.sessions], ["subscribers", c.subscribers], ["pollers", c.pollers]]) {
+    if (!last.has(flag) || !/^\d+$/.test(last.get(flag)) || Number(last.get(flag)) !== want) bad(flag);
+  }
+  if (last.get("mode") !== c.mode) bad("mode");
+  const same = (flag, want) => {
+    try {
+      return last.has(flag) && durationS(last.get(flag)) === durationS(want);
+    } catch {
+      return false;
+    }
+  };
+  if (!same("turn-gap", c.turn_gap)) bad("turn-gap");
+  if (c.switch_interval === undefined ? last.has("switch-interval") : !same("switch-interval", c.switch_interval)) bad("switch-interval");
+  if (c.poll_rate === undefined ? last.has("poll-rate") : Number(last.get("poll-rate")) !== Number(c.poll_rate)) bad("poll-rate");
+}
+
 const LOAD_KEYS = ["sessions", "subscribers", "pollers", "mode", "turn_gap_s", "switch_interval_s", "poll_interval_s"];
 
 /**
@@ -978,6 +1004,8 @@ export function exportScenarioAttempt(rawDir, spec, { privatePatterns = [], cata
   // What run.ts ran: its knobs name the warm-up and window, which must be the cell's.
   const knobs = result.knobs?.workload;
   if (knobs?.warmup_s !== c.warmup_s || knobs?.window_s !== c.window_s) fail(`${label}.result.json: run.ts ran another warm-up or window than the row's cell ${cell}`);
+  checkDriverArgs(knobs?.driver_args, c, `${label}.result.json`);
+  if ((result.knobs?.run?.seed_compacted_at ?? false) !== c.seed_compacted_at) fail(`${label}.result.json: run.ts's compaction seeding is not the row's cell ${cell}'s`);
   // What run.ts started from: a fixture file exactly where the cell starts from the row's fixture.
   const observed = result.identity?.fixture ?? null;
   const onFile = observed !== null && observed.kind === "file";
