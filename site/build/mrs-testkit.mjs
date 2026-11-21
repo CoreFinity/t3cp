@@ -115,13 +115,15 @@ export async function removeTempDirs() {
   await Promise.all(dirs.map((dir) => rm(dir, { recursive: true, force: true })));
 }
 
-// The command line, against a local stand-in for the API (no network).
+// The command line, against a local stand-in for the API (no network). The stand-in listens on the IPv4 loopback and the
+// command line is given that address, never "localhost": where localhost resolves to ::1 for the server and to
+// 127.0.0.1 for the client, the two would not meet. mrs.mjs accepts a loopback address as --api-base.
 const CLI = fileURLToPath(new URL('./mrs.mjs', import.meta.url));
 
 export async function runCli(args, respond, env = {}) {
   const server = createServer((req, res) => respond(req, res));
-  await new Promise((resolve) => server.listen(0, 'localhost', resolve));
-  const base = `http://localhost:${server.address().port}`;
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
   try {
     const child = spawn(process.execPath, [CLI, '--api-base', base, ...args], { env: { ...process.env, GITHUB_ACTIONS: '', T3CP_PRIVATE_PATTERNS: '', ...env } });
     let stdout = '', stderr = '';
