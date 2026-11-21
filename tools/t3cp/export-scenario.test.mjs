@@ -202,3 +202,60 @@ test("the public scenario reasons each have plain words; the internal ones are n
     assert.ok(!attemptSchema.includes(`"${r}"`) && !recordSchema.includes(`"${r}"`), `${r} is in no public schema`);
   }
 });
+
+test("review: a ladder attempt's era block names only the ladder's feature eras, as before the scenario metrics", async () => {
+  const { writeRawAttempt, fakeSpec } = await import("./lib/fake-raw.mjs");
+  const { loadCatalogue } = await import("./lib/repo.mjs");
+  const catalogue = loadCatalogue();
+  const scenarioOnly = new Set(catalogue.metrics.filter((m) => m.lane === "scenario").map((m) => m.era));
+  for (const m of catalogue.metrics) if (m.lane !== "scenario") scenarioOnly.delete(m.era);
+  assert.ok(scenarioOnly.size > 0);
+  const dir = writeRawAttempt(tmp(), { cell: "100", n: 1 });
+  const a = exportAttempt(dir, fakeSpec(), { privatePatterns: [] });
+  for (const id of [...a.era.has, ...a.era.missing]) assert.ok(!scenarioOnly.has(id), `${id} is a scenario-only era`);
+  const before = catalogue.feature_eras.filter((e) => !scenarioOnly.has(e.id)).map((e) => e.id);
+  assert.deepEqual([...a.era.has, ...a.era.missing].sort(), before.sort());
+});
+
+test("review: the cell's warm-up and window are checked as the runner and run.ts ran them, and the measured window", () => {
+  // No suite block in attempt-meta.json: the cell's timings are unproven, refused.
+  let { dir, spec } = compaction({ edit: (f) => delete f.meta.suite });
+  assert.throws(() => exportAttempt(dir, spec, opts), /suite/);
+  ({ dir, spec } = compaction({ edit: (f) => (f.meta.suite.warmup_s = 0) }));
+  assert.throws(() => exportAttempt(dir, spec, opts), /warm-up or window/);
+  ({ dir, spec } = compaction({ edit: (f) => (f.result.knobs.workload.window_s = 10) }));
+  assert.throws(() => exportAttempt(dir, spec, opts), /run\.ts ran another warm-up or window/);
+  // A measured window well short of the cell's is no measurement of it.
+  ({ dir, spec } = compaction({ edit: (f) => (f.run.window.end = new Date(Date.parse(f.run.window.start) + 10_000).toISOString()) }));
+  const a = exportAttempt(dir, spec, opts);
+  assert.equal(a.attempt.valid, false);
+  assert.ok(a.attempt.problems.includes("window_too_short"));
+});
+
+test("review: the post step's window must be the valid run the exporter chose; another window is no measurement", () => {
+  const cases = [
+    { start_ms: 1, end_ms: 2, run: 1, valid: true },
+    { run: 99 },
+    { valid: false },
+  ];
+  for (const change of cases) {
+    const root = tmp();
+    const base = { start_ms: Date.parse("2026-11-15T10:01:00Z"), end_ms: Date.parse("2026-11-15T10:06:00Z"), run: 1, valid: true };
+    const dir = writeRawScenarioAttempt(root, { row: COMPACTION, cell: "cmp", metrics: { event_log_unpruned_days: ok(2) }, window: { ...base, ...change } });
+    const a = exportAttempt(dir, fakeScenarioSpec(COMPACTION), opts);
+    assert.equal(a.attempt.valid, false, JSON.stringify(change));
+    assert.ok(a.attempt.problems.includes("scenario_unmeasured"), JSON.stringify(change));
+    assert.deepEqual(a.metrics, { event_log_unpruned_days: null });
+  }
+});
+
+test("review: any internal or unknown reason, or a value with a public reason, is no measurement", () => {
+  for (const entry of [{ value: 2, reason: "db_unreadable" }, { value: 2, reason: "something_new" }, { value: 2, reason: "no_event_prune" }]) {
+    const { dir, spec } = compaction({ metrics: { event_log_unpruned_days: entry } });
+    const a = exportAttempt(dir, spec, opts);
+    assert.equal(a.attempt.valid, false, JSON.stringify(entry));
+    assert.ok(a.attempt.problems.includes("scenario_unmeasured"), JSON.stringify(entry));
+    assert.deepEqual(a.metrics, { event_log_unpruned_days: null });
+    assert.doesNotMatch(JSON.stringify(a.attempt.metric_reasons), /db_unreadable|something_new/);
+  }
+});

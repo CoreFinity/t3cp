@@ -161,3 +161,41 @@ test("the size budgets hold with one added scenario of two cells on 45 records",
   const shardBudget = BUDGETS.find((b) => b.prefix === "scenarios/").limit;
   for (const [rel, size] of scenarioSizes) assert.ok(size <= shardBudget, `${rel}: ${size}`);
 });
+
+test("review: a scenario record must implement its row: scenario, attempts, fixture, platform, each cell's load and the row's metrics", () => {
+  const good = compaction("2026-11-10");
+  const variants = {
+    scenario: (r) => (r.workload.scenario = { id: "second-row", version: 1 }),
+    attempts: (r) => (r.workload.attempts_per_cell = 2),
+    fixture: (r) => (r.fixture = { ...r.fixture, id: "large-63" }),
+    platform: (r) => (r.platform = { ...r.platform, id: "darwin-arm64" }),
+    load: (r) => (r.workload.cells.cmp = { ...r.workload.cells.cmp, sessions: 50, window_s: 10 }),
+    "load missing": (r) => delete r.workload.cells.cmp,
+    "metric missing": (r) => delete r.cells.cmp.metrics.event_log_unpruned_days,
+  };
+  const narrowRow = { ...COMPACTION, platforms: ["linux-x64"] };
+  for (const [what, edit] of Object.entries(variants)) {
+    const r = structuredClone(good);
+    edit(r);
+    const rel = what === "platform" ? scenarioRecordPath(r) : scenarioRecordPath(good);
+    const scenarios = what === "platform" ? { ...SCENARIOS, rows: [LADDER_ROW, narrowRow, SECOND, SECOND_V2] } : SCENARIOS;
+    assert.throws(() => build(writeTree(LADDER, [], { [rel]: r }), { scenarios }), BuildError, what);
+  }
+  // A partial record (a cell with no attempts) is still published.
+  const partial = structuredClone(good);
+  delete partial.cells.cmp;
+  delete partial.workload.cells.cmp;
+  partial.status = "partial";
+  partial.status_reason = "attempts_invalid";
+  assert.doesNotThrow(() => build(writeTree(LADDER, [partial])));
+});
+
+test("review: each scenario's series keeps its own time: a newer record of another scenario moves none of its files", () => {
+  const alone = build(writeTree(LADDER, [compaction("2026-11-10")]));
+  const later = second("2026-11-12");
+  later.pipeline.generated_at = "2026-11-20T18:00:00Z";
+  const both = build(writeTree(LADDER, [compaction("2026-11-10"), later]));
+  for (const [rel, bytes] of alone) {
+    if (rel.startsWith(`scenarios/${COMPACTION.id}/`)) assert.ok(both.get(rel)?.equals(bytes), `${rel} moved`);
+  }
+});

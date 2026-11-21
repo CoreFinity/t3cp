@@ -110,3 +110,13 @@ test("mergeDirectory merges a scenario record's attempts, and refuses ladder and
   fs.writeFileSync(path.join(out, "extras", "fixture.json"), JSON.stringify({ schema: "t3cp/extras/1" }));
   assert.throws(() => mergeDirectory(out, { publicRefs: refsFor(first) }), /extras/);
 });
+
+test("review: the merge binds the attempts' fixture and harness version to the row's", () => {
+  const a1 = attempt(1, ok(2));
+  const a2 = attempt(2, ok(3));
+  const noFixture = (a) => ({ ...a, fixture: { id: "none", sha256: null, bytes: null, migration: null, recipe_sha256: null } });
+  assert.throws(() => merge([noFixture(a1), noFixture(a2)]), /fixture none is not the row's \(large-76\)/);
+  const other = (a) => ({ ...a, harness: { ...a.harness, version: "t3cp-harness/1.9.9" } });
+  const refs = refsFor(other(a1));
+  assert.throws(() => mergeScenarioRecord({ attempts: [other(a1), other(a2)], publicRefs: refs }), /harness t3cp-harness\/1\.9\.9 is not the row's/);
+});

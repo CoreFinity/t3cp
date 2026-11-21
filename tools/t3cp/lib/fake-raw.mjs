@@ -396,6 +396,11 @@ export function writeRawScenarioAttempt(root, { row, cell, n = 1, spec = fakeSce
       files.meta.scenario = { id: row.id, version: row.version };
       files.meta.fixture = c.fixture === "none" || row.fixture === "none" ? "none" : spec.fixture.id;
       if (c.seed_compacted_at === false) files.meta.maintenance_expected = true;
+      // run.ts ran the cell's warm-up and window: its knobs say so, and the measured window is that long.
+      files.result.knobs.workload.warmup_s = c.warmup_s;
+      files.result.knobs.workload.window_s = c.window_s;
+      files.run.window = { start: new Date(WINDOW_START).toISOString(), end: new Date(WINDOW_START + c.window_s * 1000).toISOString() };
+      files.meta.window_end_ms = WINDOW_START + c.window_s * 1000;
       if (shell === null) delete files.result.metrics.spans?.["OrchestratorV2.getThreadShell"];
       else {
         files.result.metrics.spans ??= {};
@@ -422,7 +427,7 @@ export function writeRawScenarioAttempt(root, { row, cell, n = 1, spec = fakeSce
       schema: "t3cp/scenario-raw/1",
       scenario: { id: row.id, version: row.version },
       post: c.post,
-      window: window ?? { start_ms: WINDOW_START, end_ms: WINDOW_END, run: 1, valid: true },
+      window: window ?? { start_ms: WINDOW_START, end_ms: WINDOW_START + c.window_s * 1000, run: 1, valid: true },
       metrics,
       detail: {},
     });
