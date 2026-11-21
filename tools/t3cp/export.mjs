@@ -939,29 +939,53 @@ function scenarioRowOf(spec, scenarios) {
 }
 
 /**
- * The driver arguments run.ts recorded (knobs.workload.driver_args: its own count flags, then each --driver-arg, the
- * driver reading the last of a repeated flag) must run the cell: its sessions, subscribers, pollers, mode and turn gap,
- * and its switch interval and poll rate exactly where the cell names them.
+ * The driver's options as t3cp-harness 2.0.x's driver parses them (tools/server-bench/driver/options.ts: node:util
+ * parseArgs, --flag value or --flag=value, the last of a repeated flag) and its defaults for the ones a cell sets.
+ */
+const DRIVER_STRING_OPTIONS = [
+  "url", "out", "token-file", "mode", "sessions", "subscribers", "pollers", "projects", "warmup", "window", "seed", "provider", "model",
+  "runtime-mode", "poll-rate", "poll-mix", "session-mcp-rate", "session-mcp-credentials", "switch-interval", "turn-gap", "message-chars",
+  "read-pool", "fresh-subscriber-threads", "distribution-tolerance", "workspace-dir", "call-timeout", "grace", "sessions-per-socket",
+  "max-driver-elu", "max-driver-delay", "stall-timeout", "setup-concurrency", "max-error-rate", "taskset", "server-pid",
+];
+const DRIVER_DEFAULTS = { mode: "history", sessions: "25", pollers: "10", "poll-rate": "1", "switch-interval": "30s", "turn-gap": "1s" };
+
+/**
+ * The driver arguments run.ts recorded (knobs.workload.driver_args: its own count flags, then each --driver-arg), read as
+ * the driver reads them, must run the cell: its sessions, subscribers, pollers, mode and turn gap, and its switch
+ * interval and poll rate (the driver's defaults where the cell names none).
  */
 function checkDriverArgs(args, c, where) {
   if (!Array.isArray(args) || !args.every((a) => typeof a === "string")) fail(`${where}: run.ts recorded no driver arguments`);
-  const last = new Map();
-  for (let i = 0; i < args.length; i++) if (args[i].startsWith("--") && i + 1 < args.length) last.set(args[i].slice(2), args[i + 1]);
+  let values;
+  try {
+    ({ values } = parseArgs({
+      args: [...args],
+      strict: false,
+      allowPositionals: true,
+      allowNegative: true,
+      options: { ...Object.fromEntries(DRIVER_STRING_OPTIONS.map((name) => [name, { type: "string" }])), "stop-sessions": { type: "boolean" }, help: { type: "boolean" } },
+    }));
+  } catch {
+    fail(`${where}: the driver arguments do not parse`);
+  }
+  const effective = (flag) => (typeof values[flag] === "string" ? values[flag] : DRIVER_DEFAULTS[flag]);
   const bad = (flag) => fail(`${where}: the driver arguments (--${flag}) are not the row's cell ${c.name}'s`);
   for (const [flag, want] of [["sessions", c.sessions], ["subscribers", c.subscribers], ["pollers", c.pollers]]) {
-    if (!last.has(flag) || !/^\d+$/.test(last.get(flag)) || Number(last.get(flag)) !== want) bad(flag);
+    const v = effective(flag);
+    if (typeof v !== "string" || !/^\d+$/.test(v) || Number(v) !== want) bad(flag);
   }
-  if (last.get("mode") !== c.mode) bad("mode");
-  const same = (flag, want) => {
+  if (effective("mode") !== c.mode) bad("mode");
+  const sameDuration = (flag, want) => {
     try {
-      return last.has(flag) && durationS(last.get(flag)) === durationS(want);
+      return durationS(effective(flag)) === durationS(want);
     } catch {
       return false;
     }
   };
-  if (!same("turn-gap", c.turn_gap)) bad("turn-gap");
-  if (c.switch_interval === undefined ? last.has("switch-interval") : !same("switch-interval", c.switch_interval)) bad("switch-interval");
-  if (c.poll_rate === undefined ? last.has("poll-rate") : Number(last.get("poll-rate")) !== Number(c.poll_rate)) bad("poll-rate");
+  if (!sameDuration("turn-gap", c.turn_gap)) bad("turn-gap");
+  if (!sameDuration("switch-interval", c.switch_interval ?? DRIVER_DEFAULTS["switch-interval"])) bad("switch-interval");
+  if (Number(effective("poll-rate")) !== Number(c.poll_rate ?? DRIVER_DEFAULTS["poll-rate"])) bad("poll-rate");
 }
 
 const LOAD_KEYS = ["sessions", "subscribers", "pollers", "mode", "turn_gap_s", "switch_interval_s", "poll_interval_s"];
