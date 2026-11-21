@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -80,5 +80,114 @@ test("a --node directory without bin/node is refused (exit 3)", () => {
     assert.match(r.stderr, /--node: no executable bin\/node/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// The version the build stamps, as the tree's own server build decides it (apps/server/vite.config.ts): APP_VERSION
+// where the tree reads it; else the tree's own scripts/lib/tagged-source-version.ts (upstream #36350, 2026-11-13: a
+// commit with exactly one vX.Y.Z tag and unedited release manifests stamps that tag's version); else, for a tree
+// older than that resolver, the manifest. The smoke and the --version check expect that version, never a guess.
+// --print-version prints it and exits, before the toolchain preflight.
+const UPSTREAM_RESOLVER = join(here, "testdata", "tagged-source-version.upstream.ts");
+
+function tree({ manifest = "0.1.9", resolver = "upstream", viteReadsAppVersion = true, tags = [], editManifest = null } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), "build-fork-version-"));
+  const write = (rel, text) => {
+    mkdirSync(dirname(join(dir, rel)), { recursive: true });
+    writeFileSync(join(dir, rel), text);
+  };
+  write("package.json", "{}\n");
+  write("scripts/build-cli-archive.ts", "");
+  for (const rel of ["apps/server/package.json", "apps/desktop/package.json", "apps/web/package.json", "packages/contracts/package.json"]) {
+    write(rel, `${JSON.stringify({ name: "x", version: manifest })}\n`);
+  }
+  write("apps/server/vite.config.ts", viteReadsAppVersion ? "const v = process.env.APP_VERSION?.trim();\n" : "const v = packageJson.version;\n");
+  if (resolver === "upstream") write("scripts/lib/tagged-source-version.ts", readFileSync(UPSTREAM_RESOLVER, "utf8"));
+  else if (resolver !== null) write("scripts/lib/tagged-source-version.ts", resolver);
+  const git = (...args) => {
+    const r = spawnSync("git", ["-C", dir, "-c", "user.name=t", "-c", "user.email=t@t.invalid", ...args], { encoding: "utf8" });
+    assert.equal(r.status, 0, r.stderr);
+  };
+  git("init", "-q");
+  git("add", "-A");
+  git("commit", "-q", "-m", "tree");
+  for (const tag of tags) git("tag", tag);
+  if (editManifest !== null) write("apps/server/package.json", `${JSON.stringify({ name: "x", version: editManifest })}\n`);
+  return dir;
+}
+
+const printVersion = (dir, env = {}) => {
+  const base = { ...process.env };
+  delete base.APP_VERSION;
+  return spawnSync("bash", [script, "--print-version", "--src", dir], { encoding: "utf8", timeout: 30_000, env: { ...base, ...env } });
+};
+const versionOf = (dir, env) => {
+  const r = printVersion(dir, env);
+  assert.equal(r.status, 0, r.stderr);
+  return r.stdout.trim();
+};
+
+test("a release commit with one stable tag stamps that tag's version, not its manifest's", () => {
+  const dir = tree({ tags: ["v0.1.10", "v0.1.10-nightly.20261116.4800"] });
+  try {
+    assert.equal(versionOf(dir), "0.1.10");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an untagged commit, or one with only nightly or fork tags, stamps its manifest", () => {
+  for (const tags of [[], ["v0.1.10-nightly.20261116.4800"], ["v0.1.9-perf.10"]]) {
+    const dir = tree({ tags });
+    try {
+      assert.equal(versionOf(dir), "0.1.9", tags.join(" "));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test("edited release manifests stamp the edited manifest, even at a stable tag", () => {
+  const dir = tree({ tags: ["v0.1.10"], editManifest: "0.2.0" });
+  try {
+    assert.equal(versionOf(dir), "0.2.0");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("APP_VERSION wins where the tree reads it, and is ignored where it does not", () => {
+  const reads = tree({ tags: ["v0.1.10"] });
+  const ignores = tree({ tags: ["v0.1.10"], resolver: null, viteReadsAppVersion: false });
+  try {
+    assert.equal(versionOf(reads, { APP_VERSION: " 2.0.0 " }), "2.0.0");
+    assert.equal(versionOf(reads, { APP_VERSION: "   " }), "0.1.10", "a blank APP_VERSION is unset");
+    assert.equal(versionOf(ignores, { APP_VERSION: "2.0.0" }), "0.1.9");
+  } finally {
+    rmSync(reads, { recursive: true, force: true });
+    rmSync(ignores, { recursive: true, force: true });
+  }
+});
+
+test("a tree older than the resolver stamps its manifest, whatever its tags", () => {
+  const dir = tree({ tags: ["v0.1.10"], resolver: null, viteReadsAppVersion: false });
+  try {
+    assert.equal(versionOf(dir), "0.1.9");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the tree's own resolver decides; one that cannot run fails closed", () => {
+  const own = tree({ resolver: "export function resolveTaggedSourceVersion() { return \"7.7.7\"; }\n" });
+  const broken = tree({ resolver: "export function resolveTaggedSourceVersion() { throw new Error(\"no\"); }\n" });
+  try {
+    assert.equal(versionOf(own), "7.7.7");
+    const r = printVersion(broken);
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /version/i);
+  } finally {
+    rmSync(own, { recursive: true, force: true });
+    rmSync(broken, { recursive: true, force: true });
   }
 });
