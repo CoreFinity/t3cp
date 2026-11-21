@@ -98,7 +98,7 @@ test("red first: an edited row at an existing id@version is refused (the lock re
   assert.match(checkLock(added, repo.lock).join("\n"), /test-row@1: not in scenarios\.lock\.json/);
   // A change published as a new version is accepted once it is locked; its predecessor keeps its hash.
   const v2 = { ...clone(repo.scenarios.rows[0]), version: 2, suite: "ladder-2", attempts: 4 };
-  const next = { ...repo.scenarios, rows: [repo.scenarios.rows[0], v2] };
+  const next = { ...repo.scenarios, rows: [...repo.scenarios.rows, v2] };
   assert.deepEqual(checkLock(next, { ...repo.lock, rows: { ...repo.lock.rows, "ladder@2": rowHash(v2) } }), []);
 });
 
@@ -110,10 +110,10 @@ test("the CLI: --lock adds new rows' entries and never rewrites one; an edited r
   assert.match(r.stderr, /scenarios\.lock\.json is missing/);
   r = cli(["--repo", root, "--lock"]);
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /locked ladder@1\nlocked test-row@1\n/);
+  assert.ok(r.stdout.startsWith([...repo.scenarios.rows.map(rowKey), "test-row@1"].map((k) => `locked ${k}\n`).join("")), r.stdout);
   const lock = JSON.parse(fs.readFileSync(path.join(root, LOCK_FILE), "utf8"));
   assert.deepEqual(lock.rows, { ...repo.lock.rows, "test-row@1": rowHash(testRow()) });
-  scenarios.rows[1].attempts = 5;
+  scenarios.rows.at(-1).attempts = 5;
   fs.writeFileSync(path.join(root, SCENARIOS_FILE), JSON.stringify(scenarios));
   r = cli(["--repo", root, "--lock"]);
   assert.equal(r.status, 2);
@@ -124,16 +124,16 @@ test("the CLI: --lock adds new rows' entries and never rewrites one; an edited r
 test("the lock's history: an entry any commit locked keeps its hash, so a row is not edited by rewriting its entry too", () => {
   const scenarios = { ...clone(repo.scenarios), rows: [...clone(repo.scenarios.rows), testRow()] };
   const root = scratch(scenarios, null);
-  assert.deepEqual(writeLock(root), ["ladder@1", "test-row@1"]);
+  assert.deepEqual(writeLock(root), [...repo.scenarios.rows.map(rowKey), "test-row@1"]);
   git(root, ["init", "-q"]);
   git(root, ["add", "-A"]);
   git(root, ["commit", "-q", "-m", "catalogue"]);
   assert.deepEqual(checkRepo(root), { problems: [], history: "checked" });
   // Edit the row and its lock entry together, and commit: the history refuses it.
-  scenarios.rows[1].cells[0].window_s = 31;
+  scenarios.rows.at(-1).cells[0].window_s = 31;
   fs.writeFileSync(path.join(root, SCENARIOS_FILE), JSON.stringify(scenarios));
   const lock = JSON.parse(fs.readFileSync(path.join(root, LOCK_FILE), "utf8"));
-  lock.rows["test-row@1"] = rowHash(scenarios.rows[1]);
+  lock.rows["test-row@1"] = rowHash(scenarios.rows.at(-1));
   fs.writeFileSync(path.join(root, LOCK_FILE), JSON.stringify(lock));
   assert.deepEqual(checkLock(scenarios, lock), [], "the edit passes the lock alone");
   git(root, ["commit", "-q", "-am", "edit"]);
@@ -158,10 +158,10 @@ test("the lock's history fails closed: an unreadable committed lock or a git tha
   git(root, ["commit", "-q", "-m", "catalogue"]);
   // Edit the row and its entry together, commit, then lose the first commit's lock object: the history cannot be read.
   const first = git(root, ["rev-parse", `HEAD:${LOCK_FILE}`]);
-  scenarios.rows[1].cells[0].window_s = 31;
+  scenarios.rows.at(-1).cells[0].window_s = 31;
   fs.writeFileSync(path.join(root, SCENARIOS_FILE), JSON.stringify(scenarios));
   const lock = JSON.parse(fs.readFileSync(path.join(root, LOCK_FILE), "utf8"));
-  lock.rows["test-row@1"] = rowHash(scenarios.rows[1]);
+  lock.rows["test-row@1"] = rowHash(scenarios.rows.at(-1));
   fs.writeFileSync(path.join(root, LOCK_FILE), JSON.stringify(lock));
   git(root, ["commit", "-q", "-am", "edit"]);
   fs.rmSync(path.join(root, ".git", "objects", first.slice(0, 2), first.slice(2)), { force: true });
@@ -211,7 +211,7 @@ test("the validator refuses an unknown metric key", () => {
 
 test("the validator refuses a harness version with no pin in public-refs.json", () => {
   assert.deepEqual(check([testRow({ harness: "t3cp-harness/9.9.9" })]), ["test-row@1: harness t3cp-harness/9.9.9 has no pin in tools/t3cp/public-refs.json"]);
-  assert.match(check([testRow({ harness: "v9.9.9" })]).join("\n"), /\$\.rows\[1\]\.harness: does not match pattern/);
+  assert.match(check([testRow({ harness: "v9.9.9" })]).join("\n"), /\$\.rows\[\d+\]\.harness: does not match pattern/);
 });
 
 test("the validator refuses a duplicate id@version", () => {
@@ -222,7 +222,7 @@ test("the validator refuses a duplicate id@version", () => {
 test("the validator refuses a cell argument outside the driver's options", () => {
   const cell = testRow().cells[0];
   const withCell = (over) => check([testRow({ cells: [{ ...cell, ...over }] })]).join("\n");
-  assert.match(withCell({ think_time: "5s" }), /\$\.rows\[1\]\.cells\[0\]\.think_time: unknown property/);
+  assert.match(withCell({ think_time: "5s" }), /\$\.rows\[\d+\]\.cells\[0\]\.think_time: unknown property/);
   assert.match(withCell({ mode: "replay" }), /cells\[0\]\.mode: not one of the allowed values/);
   assert.match(withCell({ post: "vacuum" }), /cells\[0\]\.post: not one of the allowed values/);
   assert.match(withCell({ sessions: 0 }), /cells\[0\]\.sessions: below the minimum 1/);
@@ -330,7 +330,7 @@ test("row 1 is today's suite: every committed ladder-1 record's workload is row 
 test("a test row carrying an invented registry-style id fails the public audit over the catalogue", () => {
   const id = j("zq-9", "01-long-thread");
   const scenarios = { ...clone(repo.scenarios), rows: [...clone(repo.scenarios.rows), testRow({ id, suite: `${id}@1` })] };
-  assert.deepEqual(check(scenarios.rows.slice(1)), [], "the row itself is well-formed");
+  assert.deepEqual(check(scenarios.rows.slice(repo.scenarios.rows.length)), [], "the row itself is well-formed");
   const root = scratch(scenarios, null);
   const r = spawnSync(process.execPath, [AUDIT, "--tree", root], { encoding: "utf8" });
   assert.equal(r.status, 2, r.stdout + r.stderr);
@@ -343,8 +343,9 @@ test("a test row carrying an invented registry-style id fails the public audit o
   assert.equal(spawnSync(process.execPath, [AUDIT, "--tree", clean], { encoding: "utf8" }).status, 0);
 });
 
-test("the catalogue, its schema, lock and check are outside the exporter closure: this landing moves no image pin", () => {
-  for (const rel of [SCENARIOS_FILE, LOCK_FILE, "schema/scenarios-1.json", "tools/t3cp/scenarios-check.mjs"]) {
+test("the catalogue's rows are in the exporter closure (the VM reads them); its schema, lock and check are not", () => {
+  assert.ok(EXPORTER_FILES.includes(SCENARIOS_FILE), "the exporter checks each scenario attempt against its row");
+  for (const rel of [LOCK_FILE, "schema/scenarios-1.json", "tools/t3cp/scenarios-check.mjs"]) {
     assert.ok(!EXPORTER_FILES.includes(rel), rel);
     assert.ok(fs.existsSync(path.join(REPO_ROOT, rel)), rel);
   }

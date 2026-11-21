@@ -1,0 +1,1121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://t3cp.io/schema/scenario-record-1.json",
+  "title": "t3cp/scenario-record/1: one record of a scenarios.json row for one release on one platform",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "record_id",
+    "kind",
+    "release",
+    "base",
+    "platform",
+    "harness",
+    "fixture",
+    "workload",
+    "era",
+    "cells",
+    "host_guard",
+    "status",
+    "status_reason",
+    "pipeline"
+  ],
+  "properties": {
+    "schema": {
+      "const": "t3cp/scenario-record/1"
+    },
+    "synthetic": {
+      "const": true,
+      "description": "Present only on development data from tools/t3cp/dev/synth-data.mjs; refused under data/."
+    },
+    "record_id": {
+      "$ref": "#/$defs/record_id"
+    },
+    "kind": {
+      "$ref": "#/$defs/kind"
+    },
+    "release": {
+      "$ref": "#/$defs/release"
+    },
+    "base": {
+      "$ref": "#/$defs/base"
+    },
+    "platform": {
+      "$ref": "#/$defs/platform"
+    },
+    "harness": {
+      "$ref": "#/$defs/harness"
+    },
+    "fixture": {
+      "$ref": "#/$defs/scenario_fixture"
+    },
+    "workload": {
+      "$ref": "#/$defs/scenario_workload"
+    },
+    "era": {
+      "$ref": "#/$defs/era"
+    },
+    "cells": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]{0,30}$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/scenario_cell_record"
+      }
+    },
+    "host_guard": {
+      "$ref": "#/$defs/host_guard"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "complete",
+        "partial",
+        "missing"
+      ]
+    },
+    "status_reason": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "preempted",
+        "cpu_mismatch",
+        "archive_missing",
+        "export_failed",
+        "contaminated",
+        "runner_offline",
+        "timeout",
+        "attempts_invalid",
+        "migration_failed",
+        "build_failed",
+        null
+      ]
+    },
+    "pipeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "generated_at",
+        "run_id",
+        "lease",
+        "exporter_version",
+        "exporter_files_sha256",
+        "runner_version",
+        "runner_files_sha256"
+      ],
+      "properties": {
+        "generated_at": {
+          "$ref": "#/$defs/datetime"
+        },
+        "run_id": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "lease": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 99
+        },
+        "exporter_version": {
+          "type": "string",
+          "pattern": "^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$"
+        },
+        "exporter_files_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "runner_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^t3cp-runner/\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$"
+        },
+        "runner_files_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "base": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "tag",
+        "date",
+        "sha"
+      ],
+      "properties": {
+        "tag": {
+          "$ref": "#/$defs/nightly_tag"
+        },
+        "date": {
+          "$ref": "#/$defs/date"
+        },
+        "sha": {
+          "$ref": "#/$defs/sha"
+        }
+      }
+    },
+    "date": {
+      "type": "string",
+      "pattern": "^20\\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+    },
+    "datetime": {
+      "type": "string",
+      "pattern": "^20\\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])T([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(\\.\\d{1,3})?Z$"
+    },
+    "era": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "has",
+        "missing"
+      ],
+      "properties": {
+        "has": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "effect_queue_wait",
+              "lock_wait",
+              "gauges",
+              "turn_start_span",
+              "run_metrics",
+              "thread_shell_span",
+              "event_prune"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "missing": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "effect_queue_wait",
+              "lock_wait",
+              "gauges",
+              "turn_start_span",
+              "run_metrics",
+              "thread_shell_span",
+              "event_prune"
+            ]
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "harness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "sha",
+        "files_sha256",
+        "driver_sha256",
+        "fakes_sha256",
+        "preload_sha256"
+      ],
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^t3cp-harness/\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$"
+        },
+        "sha": {
+          "$ref": "#/$defs/sha",
+          "description": "In a record: the public commit the harness version's tag points at, as pinned in tools/t3cp/public-refs.json. An attempt carries the commit its run reported; merge checks the four hashes below against the pin and replaces it with that public commit."
+        },
+        "files_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "run.ts's identity.harness_files_sha256, by its exported harnessFilesSha256(): sha256 over the lines '<repository-relative path>\\0<sha256 of the file>\\n' for every file of the harness's run-time closure (package.json, tools/server-bench, apps/server/scripts/dev-replay-agent.ts and the recordings), sorted by path, tests, docs and generated state excluded."
+        },
+        "driver_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "run.ts's knobs.workload.driver_sha256, by its exported driverHash(): sha256 over '<name>\\0<sha256>\\n' lines for the load driver, its module directory and the local modules they import."
+        },
+        "fakes_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "run.ts's knobs.workload.fakes_sha256, by its exported fakesHash(): sha256 over '<path>\\0<sha256>\\n' lines for the replaying fake providers' files (fake-claude, fake-codex, fake-acp, fake-common; tests and READMEs excluded) and the local modules they import."
+        },
+        "preload_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "run.ts's identity.preload.sha256: sha256 over the lines '<file name>\\0<sha256 of the file>\\n' for the preload file the run loaded (by default tools/server-bench/preload/bench-preload.cjs; run.ts --preload names another) and then bench-preload.mjs in that file's directory, each when present; null when the run loaded no preload."
+        }
+      }
+    },
+    "host_guard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contaminated",
+        "host_busy_pct_max",
+        "host_steal_pct_max",
+        "host_iowait_pct_max",
+        "foreign_pct_mean_max",
+        "thermal_limit_min"
+      ],
+      "properties": {
+        "contaminated": {
+          "type": "boolean"
+        },
+        "host_busy_pct_max": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "host_steal_pct_max": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "host_iowait_pct_max": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "foreign_pct_mean_max": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "thermal_limit_min": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      }
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "nightly",
+        "fork",
+        "base"
+      ],
+      "description": "base: an upstream tree built from source at a fork release's merge-base SHA"
+    },
+    "nightly_tag": {
+      "type": "string",
+      "pattern": "^v\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}-nightly\\.20\\d{6}\\.\\d{1,6}$"
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "machine",
+        "cpu_model",
+        "cores",
+        "memory_gib",
+        "os",
+        "kernel",
+        "provisioning",
+        "runtime_node"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/platform_id"
+        },
+        "machine": {
+          "type": "string",
+          "pattern": "^(n2d-standard-16|Mac\\d{1,2},\\d{1,2})$"
+        },
+        "cpu_model": {
+          "type": "string",
+          "pattern": "^(AMD EPYC 7B13|Apple M[1-9]( Pro| Max| Ultra)?)$"
+        },
+        "cores": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 256
+        },
+        "memory_gib": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "os": {
+          "type": "string",
+          "pattern": "^(Debian \\d{1,2}|macOS \\d{2}(\\.\\d{1,2}){0,2})$"
+        },
+        "kernel": {
+          "type": "string",
+          "pattern": "^\\d{1,2}\\.\\d{1,3}(\\.\\d{1,3})?(\\+deb\\d{2})?(-cloud)?(-amd64|-arm64)?$"
+        },
+        "provisioning": {
+          "type": "string",
+          "enum": [
+            "spot",
+            "on-demand",
+            "dedicated"
+          ]
+        },
+        "runtime_node": {
+          "type": "string",
+          "pattern": "^\\d{2}\\.\\d{1,2}\\.\\d{1,2}$"
+        }
+      }
+    },
+    "platform_id": {
+      "type": "string",
+      "enum": [
+        "linux-x64",
+        "darwin-arm64"
+      ]
+    },
+    "record_id": {
+      "type": "string",
+      "pattern": "^(20\\d{2}-\\d{2}-\\d{2}\\.(linux-x64|darwin-arm64)\\.(nightly|fork)|\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}-perf\\.\\d{1,3}\\.(linux-x64|darwin-arm64)\\.fork|[0-9a-f]{12}\\.(linux-x64|darwin-arm64)\\.base)$",
+      "description": "<date>.<platform>.nightly (a nightly); <version>.<platform>.fork (a fork release); <date>.<platform>.fork (the nightly fork-head record: the fork's latest release measured on that night, with paired_nightly); <first 12 hex of the merge-base SHA>.<platform>.base (a base record)."
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tag",
+        "sha",
+        "date",
+        "version",
+        "archive",
+        "binary_sha256",
+        "build"
+      ],
+      "properties": {
+        "tag": {
+          "$ref": "#/$defs/tag"
+        },
+        "sha": {
+          "$ref": "#/$defs/sha"
+        },
+        "date": {
+          "$ref": "#/$defs/date"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "archive": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "sha256",
+            "bytes"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "pattern": "^t3-\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}(-nightly\\.20\\d{6}\\.\\d{1,6}|-perf\\.\\d{1,3})?-(linux-x64|darwin-arm64)\\.tar\\.gz$"
+            },
+            "sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "bytes": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            }
+          }
+        },
+        "binary_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "build": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "source_repo",
+            "script_sha256"
+          ],
+          "description": "Fork and base records: the public repository the tree was built from (its commit is release.sha) and the build script's sha256; the built t3 is binary_sha256. Null for nightlies (the upstream archive).",
+          "properties": {
+            "source_repo": {
+              "type": "string",
+              "enum": [
+                "github.com/navidnadali/t3code",
+                "github.com/pingdotgg/t3code"
+              ]
+            },
+            "script_sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        }
+      }
+    },
+    "scenario_attempt_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "n",
+        "valid",
+        "problems",
+        "started_at",
+        "cycle_s",
+        "contaminated",
+        "maintenance_in_window"
+      ],
+      "properties": {
+        "n": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "valid": {
+          "type": "boolean"
+        },
+        "problems": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/scenario_problem"
+          },
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "started_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^20\\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])T([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(\\.\\d{1,3})?Z$"
+        },
+        "cycle_s": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "contaminated": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "true: other load on the machine disturbed the attempt; false: the host guard checked it and found it clean; null: the host guard could not judge it (problem host_guard_unavailable)"
+        },
+        "maintenance_in_window": {
+          "type": [
+            "integer",
+            "string",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000,
+          "pattern": "^(unscheduled_pre_marker|unobserved_no_span)$"
+        }
+      }
+    },
+    "scenario_cell_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempts",
+        "valid",
+        "total",
+        "metrics"
+      ],
+      "properties": {
+        "attempts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/scenario_attempt_summary"
+          },
+          "maxItems": 5
+        },
+        "valid": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "metrics": {
+          "$ref": "#/$defs/scenario_stats"
+        }
+      }
+    },
+    "scenario_fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "sha256",
+        "bytes",
+        "migration",
+        "recipe_sha256"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^(none|[a-z][a-z0-9]*(?:-[a-z0-9]+)*)$",
+          "maxLength": 41,
+          "description": "The row's fixture id (a published fixture, fixture/fixtures.json), or none: an empty database."
+        },
+        "sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "migration": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 9999
+        },
+        "recipe_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "scenario_load": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sessions",
+        "subscribers",
+        "pollers",
+        "mode",
+        "turn_gap_s",
+        "switch_interval_s",
+        "poll_interval_s",
+        "fixture",
+        "warmup_s",
+        "window_s",
+        "seed_compacted_at",
+        "post",
+        "mark_age_days"
+      ],
+      "properties": {
+        "sessions": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "subscribers": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "pollers": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "fresh",
+            "history",
+            "mixed"
+          ],
+          "description": "The driver's --mode."
+        },
+        "turn_gap_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "switch_interval_s": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "poll_interval_s": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "fixture": {
+          "type": "string",
+          "enum": [
+            "era",
+            "none"
+          ],
+          "description": "era: the cell starts from the row's fixture; none: from an empty database."
+        },
+        "warmup_s": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3600
+        },
+        "window_s": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 14400
+        },
+        "seed_compacted_at": {
+          "type": "boolean"
+        },
+        "post": {
+          "type": "string",
+          "enum": [
+            "none",
+            "turn-start-gap",
+            "prune-mark"
+          ]
+        },
+        "mark_age_days": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 30
+        }
+      }
+    },
+    "scenario_problem": {
+      "type": "string",
+      "enum": [
+        "server_start_failed",
+        "server_auth_failed",
+        "server_exited",
+        "driver_failed",
+        "driver_timeout",
+        "pid_gone",
+        "window_too_short",
+        "main_thread_missing",
+        "trace_missing",
+        "trace_coverage",
+        "trace_rotated_during_read",
+        "trace_stale",
+        "otlp_no_samples",
+        "db_ready_timeout",
+        "db_setup_failed",
+        "node_flags_mismatch",
+        "node_flags_unverified",
+        "preload_not_loaded",
+        "per_thread_unavailable",
+        "sessions_starved",
+        "driver_saturated",
+        "session_mcp_missing",
+        "call_timeouts",
+        "error_rate",
+        "distribution_mismatch",
+        "maintenance_in_window",
+        "maintenance_unverified",
+        "contaminated",
+        "host_guard_unavailable",
+        "attempt_invalid",
+        "other_problem",
+        "scenario_unmeasured"
+      ]
+    },
+    "scenario_stats": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "turn_start_history_gap_ms": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "median",
+            "min",
+            "max",
+            "n",
+            "values"
+          ],
+          "properties": {
+            "median": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 100000000
+            },
+            "min": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 100000000
+            },
+            "max": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 100000000
+            },
+            "n": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 5
+            },
+            "values": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 100000000
+              },
+              "maxItems": 5
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "no_turn_start_span",
+                "turn_start_incomplete",
+                "no_shell_span",
+                "shell_reads_missing",
+                "no_event_prune"
+              ],
+              "description": "no_turn_start_span: the release predates the turn-start span in the server trace, so no turn start can be timed; turn_start_incomplete: fewer than the row's 10 follow-up turn starts completed in the attempt; no_shell_span: the release predates the thread shell read as a named span, so the read cannot be timed; shell_reads_missing: fewer than 20 thread shell reads in the attempt, too few for a 95th percentile; no_event_prune: the release keeps no event-log prune mark, so there is no compaction boundary to read"
+            }
+          }
+        },
+        "turn_start_long_thread_ms": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "median",
+            "min",
+            "max",
+            "n",
+            "values"
+          ],
+          "properties": {
+            "median": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 100000000
+            },
+            "min": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 100000000
+            },
+            "max": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 100000000
+            },
+            "n": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 5
+            },
+            "values": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 100000000
+              },
+              "maxItems": 5
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "no_turn_start_span",
+                "turn_start_incomplete",
+                "no_shell_span",
+                "shell_reads_missing",
+                "no_event_prune"
+              ],
+              "description": "no_turn_start_span: the release predates the turn-start span in the server trace, so no turn start can be timed; turn_start_incomplete: fewer than the row's 10 follow-up turn starts completed in the attempt; no_shell_span: the release predates the thread shell read as a named span, so the read cannot be timed; shell_reads_missing: fewer than 20 thread shell reads in the attempt, too few for a 95th percentile; no_event_prune: the release keeps no event-log prune mark, so there is no compaction boundary to read"
+            }
+          }
+        },
+        "get_thread_shell_long_thread_ms": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "median",
+            "min",
+            "max",
+            "n",
+            "values"
+          ],
+          "properties": {
+            "median": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 100000000
+            },
+            "min": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 100000000
+            },
+            "max": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 100000000
+            },
+            "n": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 5
+            },
+            "values": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 100000000
+              },
+              "maxItems": 5
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "no_turn_start_span",
+                "turn_start_incomplete",
+                "no_shell_span",
+                "shell_reads_missing",
+                "no_event_prune"
+              ],
+              "description": "no_turn_start_span: the release predates the turn-start span in the server trace, so no turn start can be timed; turn_start_incomplete: fewer than the row's 10 follow-up turn starts completed in the attempt; no_shell_span: the release predates the thread shell read as a named span, so the read cannot be timed; shell_reads_missing: fewer than 20 thread shell reads in the attempt, too few for a 95th percentile; no_event_prune: the release keeps no event-log prune mark, so there is no compaction boundary to read"
+            }
+          }
+        },
+        "event_log_unpruned_days": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "median",
+            "min",
+            "max",
+            "n",
+            "values"
+          ],
+          "properties": {
+            "median": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 10000
+            },
+            "min": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 10000
+            },
+            "max": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 10000
+            },
+            "n": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 5
+            },
+            "values": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 10000
+              },
+              "maxItems": 5
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "no_turn_start_span",
+                "turn_start_incomplete",
+                "no_shell_span",
+                "shell_reads_missing",
+                "no_event_prune"
+              ],
+              "description": "no_turn_start_span: the release predates the turn-start span in the server trace, so no turn start can be timed; turn_start_incomplete: fewer than the row's 10 follow-up turn starts completed in the attempt; no_shell_span: the release predates the thread shell read as a named span, so the read cannot be timed; shell_reads_missing: fewer than 20 thread shell reads in the attempt, too few for a 95th percentile; no_event_prune: the release keeps no event-log prune mark, so there is no compaction boundary to read"
+            }
+          }
+        }
+      }
+    },
+    "scenario_workload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "suite",
+        "scenario",
+        "attempts_per_cell",
+        "seed",
+        "now"
+      ],
+      "properties": {
+        "suite": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*@[1-9][0-9]{0,5}$",
+          "description": "<id>@<version>: the scenarios.json row."
+        },
+        "scenario": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "version"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+              "maxLength": 41
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 999999
+            }
+          }
+        },
+        "attempts_per_cell": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "seed": {
+          "type": "string",
+          "pattern": "^\\d{1,12}$"
+        },
+        "now": {
+          "$ref": "#/$defs/datetime"
+        },
+        "cells": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,30}$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/scenario_load"
+          },
+          "description": "Per cell, the load it ran with, as the row gives it; written by the merge, absent on attempts."
+        }
+      }
+    },
+    "sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "tag": {
+      "type": "string",
+      "pattern": "^v\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}(-nightly\\.20\\d{6}\\.\\d{1,6}|-perf\\.\\d{1,3})?$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d{1,3}\\.\\d{1,3}\\.\\d{1,4}(-nightly\\.20\\d{6}\\.\\d{1,6}|-perf\\.\\d{1,3})?$"
+    }
+  }
+}

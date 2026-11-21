@@ -19,8 +19,8 @@ import * as path from "node:path";
 import { parseArgs } from "node:util";
 import { validate } from "./lib/validate.mjs";
 import { ScanConfigError, loadPrivatePatterns, scanText, scanValue } from "./lib/scan.mjs";
-import { EXPORTER_VERSION, isMain, loadCatalogue, loadSchema, median, roundValue } from "./lib/repo.mjs";
-import { BUILD_REPOS, EXTRAS_REASONS, PROBLEMS, forkHeadProblem, levelMetricIds, NOT_MEASURED_SATURATED } from "./lib/schemas.mjs";
+import { EXPORTER_VERSION, isMain, loadCatalogue, loadScenarios, loadSchema, median, roundValue } from "./lib/repo.mjs";
+import { BUILD_REPOS, EXTRAS_REASONS, PROBLEMS, SCENARIO_REASONS, forkHeadProblem, levelMetricIds, NOT_MEASURED_SATURATED } from "./lib/schemas.mjs";
 import { JsonError, parseNdjsonStrict, parseStrict } from "./lib/json.mjs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -43,7 +43,8 @@ export const EXPORTER_FILES = [
   "tools/t3cp/export.mjs", "tools/t3cp/merge.mjs", "tools/t3cp/lib/json.mjs", "tools/t3cp/lib/mapping.mjs", "tools/t3cp/lib/repo.mjs",
   "tools/t3cp/lib/scan.mjs", "tools/t3cp/lib/schemas.mjs", "tools/t3cp/lib/validate.mjs", "tools/t3cp/runner/profiles.mjs",
   "tools/t3cp/runner/is-main.mjs", "tools/t3cp/runner/profiles.json", "tools/t3cp/public-refs.json",
-  "catalogue/catalogue.json", "schema/attempt-1.json", "schema/extras-1.json", "schema/record-1.json",
+  "catalogue/catalogue.json", "scenarios.json", "schema/attempt-1.json", "schema/extras-1.json", "schema/record-1.json",
+  "schema/scenario-attempt-1.json",
   // run-record.sh validates its spec against this on the VM; the runner identity (run-record.sh, runner/*) omits it.
   "schema/record-spec-1.json",
 ];
@@ -208,13 +209,16 @@ const META_SCHEMA = {
   properties: {
     schema: { const: "t3cp/attempt-meta/1" },
     record_id: { type: "string" },
-    cell: { type: "string", enum: CELLS },
+    cell: { type: "string", pattern: "^[a-z0-9][a-z0-9-]{0,30}$" },
     n: { type: "integer", minimum: 1, maximum: 9 },
     level: { type: "integer", minimum: 1, maximum: 1000 },
     label: { type: "string", pattern: "^[a-z0-9][a-z0-9.-]{0,47}$" },
     profile: { type: "object" },
-    fixture: { type: "string", pattern: "^(large-\\d{2,3}(-s\\d{1,3})?|none)$" },
+    fixture: { type: "string", pattern: "^(large-\\d{2,3}(-s\\d{1,3})?|none|[a-z][a-z0-9]*(?:-[a-z0-9]+)*)$" },
     suite: { type: "object", additionalProperties: false, properties: { id: { type: "string" }, warmup_s: { type: "integer" }, window_s: { type: "integer" } } },
+    // A scenario cell's row, and whether its window is expected to hold maintenance passes (an unseeded cell).
+    scenario: { type: "object", additionalProperties: false, required: ["id", "version"], properties: { id: { type: "string" }, version: { type: "integer", minimum: 1 } } },
+    maintenance_expected: { const: true },
     now: { type: "string" },
     seed: { type: "string" },
     release: { type: "object", additionalProperties: false, properties: { tag: { type: "string" }, sha: { type: "string" }, version: { type: "string" } } },
@@ -633,37 +637,28 @@ function checkOrdered(src, loopWindow) {
 }
 
 /** Builds the attempt.json object from a raw attempt directory. Throws ExportError on any refusal. */
-export function exportAttempt(rawDir, spec, { privatePatterns = [], catalogue = loadCatalogue() } = {}) {
-  const reader = new Reader(rawDir);
-  const context = { privatePatterns, secrets: credsSecrets(reader.root) };
-  const name = path.basename(reader.root);
-  const dirMatch = /^(1|50|100|150|200|250|1e)-([1-9])$/.exec(name) ?? fail("raw directory name is not <cell>-<n>");
-  const cell = dirMatch[1];
-  const n = Number(dirMatch[2]);
-
-  const meta = reader.json("attempt-meta.json", { required: true });
-  const metaErrors = validate(META_SCHEMA, meta);
-  if (metaErrors.length > 0) fail(`attempt-meta.json: ${metaErrors.slice(0, 8).map((e) => `${e.path} ${e.message}`).join("; ")}`);
-  if (meta.record_id !== spec.record_id) fail("attempt-meta.json: record_id differs from the spec");
-  if (meta.release && (meta.release.tag !== spec.release.tag || meta.release.sha !== spec.release.sha || meta.release.version !== spec.release.version)) {
-    fail("attempt-meta.json: release differs from the spec");
-  }
-  if (meta.suite && meta.suite.id !== spec.suite.id) fail("attempt-meta.json: suite differs from the spec");
-  if (meta.seed !== undefined && meta.seed !== spec.seed) fail("attempt-meta.json: seed differs from the spec");
-  if (meta.now !== undefined && meta.now !== spec.now) fail("attempt-meta.json: now differs from the spec");
-  if (String(meta.cell) !== cell || meta.n !== n) fail("attempt-meta.json: cell or n differs from the directory name");
-  const facts = { host: meta.host, harness: meta.harness };
-  const factErrors = validate(HOST_SCHEMA, facts);
-  if (factErrors.length > 0) fail(`attempt-meta.json: ${factErrors.map((e) => `${e.path.replace(/^\$\./, "")} ${e.message}`).join("; ")}`);
-  if (cell !== "1e" && !spec.suite.levels.map(String).includes(cell)) fail("attempt-meta.json: cell is not a level of the suite");
-  const profileErrors = validate(PROFILE_SCHEMA, meta.profile);
-  if (profileErrors.length > 0) fail(`attempt-meta.json: ${profileErrors.map((e) => `profile${e.path.slice(1)} ${e.message}`).join("; ")}`);
-  const profile = {
-    ...Object.fromEntries(PROFILE_KEYS.filter((k) => meta.profile[k] !== undefined).map((k) => [k, meta.profile[k]])),
-    fixture: meta.fixture === "none" || cell === "1e" ? "none" : "era",
+/**
+ * The runner's host guard (percent of the whole host): busy max over every try, the final try's steal and iowait max
+ * and its foreign-load mean.
+ */
+function attemptGuard(meta) {
+  const guardNum = (what, value) => {
+    if (value === undefined || value === null) return null;
+    if (typeof value !== "number" || !Number.isFinite(value)) fail(`attempt-meta.json: ${what} is not a finite number`);
+    return roundValue(value);
   };
-  if (cell === "1e" && spec.suite.empty_cell !== true) fail("attempt-meta.json: the suite has no empty-database cell");
+  const guardValues = meta.host_guard ?? {};
+  return {
+    busy_pct_max: guardNum("host_guard_max_busy_pct", meta.host_guard_max_busy_pct ?? guardValues.busy_pct_max),
+    steal_pct_max: guardNum("host_guard.steal_pct_max", guardValues.steal_pct_max),
+    iowait_pct_max: guardNum("host_guard.iowait_pct_max", guardValues.iowait_pct_max),
+    foreign_pct_mean: guardNum("host_guard.foreign_pct_mean", guardValues.foreign_pct_mean),
+  };
+}
+const startedAtOf = (meta) => (typeof meta.started_at === "string" ? meta.started_at.replace(/\.\d+Z$/, "Z") : null);
 
+/** <label>.result.json: run.ts's result, its shape checked and its identity block scanned. */
+function readResult(reader, meta, context) {
   const label = meta.label ?? "release";
   const result = reader.json(`${label}.result.json`, { required: true });
   if (result.schema !== "t3-server-bench/result/1") fail(`${label}.result.json: schema is not t3-server-bench/result/1`);
@@ -672,7 +667,14 @@ export function exportAttempt(rawDir, spec, { privatePatterns = [], catalogue = 
   // The identity block names what ran; a private path or name in it refuses the attempt.
   scanOrFail(`${label}.result.json identity`, result.identity ?? {}, context, { valuesOnly: true });
 
-  const identity = identityOf(spec, meta, result, catalogue);
+  return { label, result };
+}
+
+/**
+ * The attempt's verdict: the chosen run (the last valid, else the last), the harness's classification re-checked, the
+ * host guard, maintenance in the window, the problem codes and whether the attempt is valid or saturated.
+ */
+function judgeRun(reader, meta, result, label, { maintenanceExpected = false } = {}) {
   const details = Array.isArray(result.run_details) ? result.run_details : [];
   const validRun = [...details].reverse().find((d) => d?.valid === true);
   const chosen = validRun ?? details.at(-1) ?? null;
@@ -711,7 +713,8 @@ export function exportAttempt(rawDir, spec, { privatePatterns = [], catalogue = 
   // Maintenance passes (event-store compaction or prune) inside the window distort every metric: a count above 0
   // invalidates the attempt. 0 and the runner's two codes are published as they are.
   const maintenance = meta.maintenance_in_window;
-  const maintenanceHit = typeof maintenance === "number" && maintenance > 0;
+  // An unseeded scenario cell measures the compaction itself: its passes in the window are expected, never a problem.
+  const maintenanceHit = !maintenanceExpected && typeof maintenance === "number" && maintenance > 0;
   if (maintenanceHit) problems.push("maintenance_in_window");
   const served = run.sessions_served;
   const total = run.sessions_total;
@@ -730,6 +733,59 @@ export function exportAttempt(rawDir, spec, { privatePatterns = [], catalogue = 
   if (guardUnavailable) problems.push("host_guard_unavailable");
   const distribution = distributionOf(run, codes);
   if (!runValid && !saturated && problems.length === 0) problems.push("attempt_invalid");
+  return { run, runRel, codes, problems, runValid, saturated, saturatedBy, valid, contaminated, guardUnavailable, maintenance, served, total, distribution };
+}
+
+/**
+ * attempt-meta.json, checked against the spec and the directory name (<cell>-<n>): its schema, record, release, suite,
+ * seed and now, the host and harness facts, and the profile's keys.
+ */
+function readMeta(reader, spec, cell, n) {
+  const meta = reader.json("attempt-meta.json", { required: true });
+  const metaErrors = validate(META_SCHEMA, meta);
+  if (metaErrors.length > 0) fail(`attempt-meta.json: ${metaErrors.slice(0, 8).map((e) => `${e.path} ${e.message}`).join("; ")}`);
+  if (meta.record_id !== spec.record_id) fail("attempt-meta.json: record_id differs from the spec");
+  if (meta.release && (meta.release.tag !== spec.release.tag || meta.release.sha !== spec.release.sha || meta.release.version !== spec.release.version)) {
+    fail("attempt-meta.json: release differs from the spec");
+  }
+  if (meta.suite && meta.suite.id !== spec.suite.id) fail("attempt-meta.json: suite differs from the spec");
+  if (meta.seed !== undefined && meta.seed !== spec.seed) fail("attempt-meta.json: seed differs from the spec");
+  if (meta.now !== undefined && meta.now !== spec.now) fail("attempt-meta.json: now differs from the spec");
+  if (String(meta.cell) !== cell || meta.n !== n) fail("attempt-meta.json: cell or n differs from the directory name");
+  const facts = { host: meta.host, harness: meta.harness };
+  const factErrors = validate(HOST_SCHEMA, facts);
+  if (factErrors.length > 0) fail(`attempt-meta.json: ${factErrors.map((e) => `${e.path.replace(/^\$\./, "")} ${e.message}`).join("; ")}`);
+  return meta;
+}
+
+const checkProfile = (meta) => {
+  const profileErrors = validate(PROFILE_SCHEMA, meta.profile);
+  if (profileErrors.length > 0) fail(`attempt-meta.json: ${profileErrors.map((e) => `profile${e.path.slice(1)} ${e.message}`).join("; ")}`);
+};
+
+export function exportAttempt(rawDir, spec, options = {}) {
+  if (spec?.suite?.scenario !== undefined) return exportScenarioAttempt(rawDir, spec, options);
+  const { privatePatterns = [], catalogue = loadCatalogue() } = options;
+  const reader = new Reader(rawDir);
+  const context = { privatePatterns, secrets: credsSecrets(reader.root) };
+  const name = path.basename(reader.root);
+  const dirMatch = /^(1|50|100|150|200|250|1e)-([1-9])$/.exec(name) ?? fail("raw directory name is not <cell>-<n>");
+  const cell = dirMatch[1];
+  const n = Number(dirMatch[2]);
+
+  const meta = readMeta(reader, spec, cell, n);
+  if (meta.scenario !== undefined || meta.maintenance_expected !== undefined) fail("attempt-meta.json: a ladder attempt names no scenario");
+  if (cell !== "1e" && !spec.suite.levels.map(String).includes(cell)) fail("attempt-meta.json: cell is not a level of the suite");
+  checkProfile(meta);
+  const profile = {
+    ...Object.fromEntries(PROFILE_KEYS.filter((k) => meta.profile[k] !== undefined).map((k) => [k, meta.profile[k]])),
+    fixture: meta.fixture === "none" || cell === "1e" ? "none" : "era",
+  };
+  if (cell === "1e" && spec.suite.empty_cell !== true) fail("attempt-meta.json: the suite has no empty-database cell");
+
+  const { result } = readResult(reader, meta, context);
+  const identity = identityOf(spec, meta, result, catalogue);
+  const { run, runRel, codes, problems, runValid, saturated, saturatedBy, valid, contaminated, guardUnavailable, maintenance, served, total, distribution } = judgeRun(reader, meta, result, meta.label ?? "release");
 
   const ids = levelMetricIds(catalogue);
   const metrics = Object.fromEntries(ids.map((id) => [id, null]));
@@ -799,21 +855,8 @@ export function exportAttempt(rawDir, spec, { privatePatterns = [], catalogue = 
     }
   }
 
-  // The runner's host guard (percent of the whole host): busy max over every try, the final try's steal and
-  // iowait max and its foreign-load mean.
-  const guardNum = (what, value) => {
-    if (value === undefined || value === null) return null;
-    if (typeof value !== "number" || !Number.isFinite(value)) fail(`attempt-meta.json: ${what} is not a finite number`);
-    return roundValue(value);
-  };
-  const guardValues = meta.host_guard ?? {};
-  const hostGuard = {
-    busy_pct_max: guardNum("host_guard_max_busy_pct", meta.host_guard_max_busy_pct ?? guardValues.busy_pct_max),
-    steal_pct_max: guardNum("host_guard.steal_pct_max", guardValues.steal_pct_max),
-    iowait_pct_max: guardNum("host_guard.iowait_pct_max", guardValues.iowait_pct_max),
-    foreign_pct_mean: guardNum("host_guard.foreign_pct_mean", guardValues.foreign_pct_mean),
-  };
-  const startedAt = typeof meta.started_at === "string" ? meta.started_at.replace(/\.\d+Z$/, "Z") : null;
+  const hostGuard = attemptGuard(meta);
+  const startedAt = startedAtOf(meta);
   const attempt = {
     schema: "t3cp/attempt/1",
     ...identity,
@@ -838,6 +881,207 @@ export function exportAttempt(rawDir, spec, { privatePatterns = [], catalogue = 
     pipeline: { exported_at: now(), exporter_version: EXPORTER_VERSION, exporter_files_sha256: exporterFilesSha256(), ...runnerIdentity(meta) },
   };
   schemaOrFail("attempt.json", "attempt-1.json", attempt);
+  scanOrFail("attempt.json", attempt, context);
+  return attempt;
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// one attempt of a scenario cell
+
+/** Codes a scenario post step writes when it could not measure: internal, never published; the attempt is invalid. */
+export const INTERNAL_SCENARIO_REASONS = ["no_run_window", "no_loop_samples", "db_unreadable", "mark_unreadable"];
+/** Where each scenario metric comes from: the post step's scenario.json, or run.ts's getThreadShell span. */
+const SCENARIO_SOURCES = {
+  turn_start_history_gap_ms: "post",
+  turn_start_long_thread_ms: "post",
+  event_log_unpruned_days: "post",
+  get_thread_shell_long_thread_ms: "shell",
+};
+/** A feature era's public reason, for a release that predates it. */
+const ERA_REASONS = { turn_start_span: "no_turn_start_span", thread_shell_span: "no_shell_span", event_prune: "no_event_prune" };
+/** Fewer shell reads than this give no p95 (shell_reads_missing). */
+const SHELL_MIN_READS = 20;
+const SCENARIO_RAW = {
+  type: "object",
+  additionalProperties: false,
+  required: ["schema", "scenario", "post", "window", "metrics"],
+  properties: {
+    schema: { const: "t3cp/scenario-raw/1" },
+    scenario: { type: "object", additionalProperties: false, required: ["id", "version"], properties: { id: { type: "string" }, version: { type: "integer" } } },
+    post: { type: "string" },
+    window: { type: "object" },
+    metrics: {
+      type: "object",
+      additionalProperties: {
+        type: "object",
+        additionalProperties: false,
+        required: ["value", "reason"],
+        properties: { value: { type: ["number", "null"] }, reason: { type: ["string", "null"], pattern: "^[a-z][a-z0-9_]{0,63}$" } },
+      },
+    },
+    detail: { type: "object" },
+  },
+};
+const durationS = (d) => {
+  const m = /^(\d+(?:\.\d+)?)(ms|s|m)$/.exec(d);
+  return Number(m[1]) * (m[2] === "ms" ? 0.001 : m[2] === "m" ? 60 : 1);
+};
+
+/** The row of scenarios.json the spec names: active, and not the ladder. */
+function scenarioRowOf(spec, scenarios) {
+  const sc = spec.suite.scenario;
+  if (typeof sc?.id !== "string" || !Number.isInteger(sc?.version) || spec.suite.id !== `${sc.id}@${sc.version}`) fail("spec: suite id is not the scenario's id@version");
+  const row = scenarios?.rows?.find((r) => r.id === sc.id && r.version === sc.version) ?? fail(`spec: scenario ${spec.suite.id} is not in scenarios.json`);
+  if (row.status !== "active") fail(`spec: scenario ${spec.suite.id} is retired`);
+  if (row.suite !== spec.suite.id) fail(`spec: scenario ${spec.suite.id} is not a scenario row (the ladder publishes as its own suite)`);
+  if ((spec.fixture?.id ?? "none") !== row.fixture) fail(`spec: fixture ${spec.fixture?.id} is not the row's (${row.fixture})`);
+  return row;
+}
+
+/** The cell's load as the row gives it (the record's workload.cells entry). */
+function scenarioLoad(row, c) {
+  const rate = c.poll_rate === undefined ? null : Number(c.poll_rate);
+  return {
+    sessions: c.sessions,
+    subscribers: c.subscribers,
+    pollers: c.pollers,
+    mode: c.mode,
+    turn_gap_s: durationS(c.turn_gap),
+    switch_interval_s: c.switch_interval === undefined ? null : durationS(c.switch_interval),
+    poll_interval_s: rate === null ? null : Math.round((1 / rate) * 1000) / 1000,
+    fixture: c.fixture === "none" || row.fixture === "none" ? "none" : "era",
+    warmup_s: c.warmup_s,
+    window_s: c.window_s,
+    seed_compacted_at: c.seed_compacted_at,
+    post: c.post,
+    mark_age_days: c.mark_age_days ?? null,
+  };
+}
+
+const LOAD_KEYS = ["sessions", "subscribers", "pollers", "mode", "turn_gap_s", "switch_interval_s", "poll_interval_s"];
+
+/**
+ * One attempt of a scenario cell (t3cp/scenario-attempt/1): the row of scenarios.json decides the cell, its load and
+ * its metrics; the verdict is the ladder's (the harness's classification re-checked, the host guard, maintenance),
+ * except that an unseeded cell expects maintenance passes in its window. The post step's metrics come from
+ * scenario.json and the shell read from run.ts's getThreadShell span. A public reason is published beside its null;
+ * an internal one (the step could not measure) makes the attempt invalid (scenario_unmeasured).
+ */
+export function exportScenarioAttempt(rawDir, spec, { privatePatterns = [], catalogue = loadCatalogue(), scenarios = loadScenarios() } = {}) {
+  const row = scenarioRowOf(spec, scenarios);
+  const reader = new Reader(rawDir);
+  const context = { privatePatterns, secrets: credsSecrets(reader.root) };
+  const dirMatch = /^([a-z0-9][a-z0-9-]{0,30})-([1-5])$/.exec(path.basename(reader.root)) ?? fail("raw directory name is not <cell>-<n>");
+  const cell = dirMatch[1];
+  const n = Number(dirMatch[2]);
+  const c = row.cells.find((x) => x.name === cell) ?? fail(`attempt-meta.json: the row has no cell ${cell}`);
+  if (n > row.attempts) fail(`raw directory ${cell}-${n}: the row runs ${row.attempts} attempts per cell`);
+
+  const meta = readMeta(reader, spec, cell, n);
+  if (meta.scenario?.id !== row.id || meta.scenario?.version !== row.version) fail("attempt-meta.json: scenario differs from the spec");
+  const unseeded = c.seed_compacted_at === false;
+  if ((meta.maintenance_expected === true) !== unseeded) fail("attempt-meta.json: maintenance_expected differs from the row's cell (only an unseeded cell expects maintenance)");
+  checkProfile(meta);
+  const load = scenarioLoad(row, c);
+  for (const k of LOAD_KEYS) {
+    if ((meta.profile[k] ?? null) !== load[k]) fail(`attempt-meta.json: the load (${k}) differs from the row's cell ${cell}`);
+  }
+  if (meta.level !== undefined && meta.level !== c.sessions) fail(`attempt-meta.json: level differs from the row's cell ${cell} sessions`);
+  if (meta.suite && (meta.suite.warmup_s !== c.warmup_s || meta.suite.window_s !== c.window_s)) fail(`attempt-meta.json: warm-up or window differs from the row's cell ${cell}`);
+  const fixtureId = load.fixture === "none" ? "none" : row.fixture;
+  if (meta.fixture !== undefined && meta.fixture !== fixtureId) fail(`attempt-meta.json: fixture differs from the row's cell ${cell}`);
+
+  const label = meta.label ?? "release";
+  const { result } = readResult(reader, meta, context);
+  const base = identityOf(spec, meta, result, catalogue);
+  const identity = {
+    ...base,
+    fixture: base.fixture,
+    workload: { suite: row.suite, scenario: { id: row.id, version: row.version }, attempts_per_cell: row.attempts, seed: spec.seed, now: spec.now },
+  };
+  const j = judgeRun(reader, meta, result, label, { maintenanceExpected: unseeded });
+  const problems = [...j.problems];
+  // A saturated try measured nothing a scenario publishes: only a run the harness itself calls valid counts.
+  let valid = j.valid && j.runValid;
+  if (!valid && problems.length === 0) problems.push("attempt_invalid");
+
+  const date = spec.kind === "fork" ? spec.base.date : releaseDate(spec);
+  const byId = new Map(catalogue.metrics.map((m) => [m.id, m]));
+  const metrics = Object.fromEntries(row.metrics.map((id) => [id, null]));
+  const reasons = {};
+  let unmeasured = false;
+  if (valid) {
+    const sources = row.metrics.map((id) => SCENARIO_SOURCES[id] ?? fail(`mapping: no source for scenario metric ${id}`));
+    const raw = sources.includes("post") ? reader.json("scenario.json") : null;
+    if (raw !== null) {
+      const rawErrors = validate(SCENARIO_RAW, raw);
+      if (rawErrors.length > 0) fail(`scenario.json: ${rawErrors.slice(0, 8).map((e) => `${e.path} ${e.message}`).join("; ")}`);
+      if (raw.scenario.id !== row.id || raw.scenario.version !== row.version || raw.post !== c.post) fail("scenario.json: scenario or post step differs from the row's cell");
+      for (const id of Object.keys(raw.metrics)) if (!row.metrics.includes(id)) fail(`scenario.json: ${id} is not one of the row's metrics`);
+    }
+    if (sources.includes("post") && raw === null) unmeasured = true;
+    const incomplete = raw !== null && Object.values(raw.metrics).some((e) => e.reason === "turn_start_incomplete");
+    for (const id of row.metrics) {
+      if (unmeasured) break;
+      const m = byId.get(id) ?? fail(`scenarios.json: ${id} is not a catalogue metric`);
+      const eraReason = m.era !== null && date < m.era_start ? (ERA_REASONS[m.era] ?? fail(`mapping: no public reason for the era ${m.era}`)) : null;
+      let value = null;
+      let reason = null;
+      if (SCENARIO_SOURCES[id] === "post") {
+        const entry = raw.metrics[id] ?? fail(`scenario.json: ${id} is missing`);
+        if (entry.value === null) {
+          if (entry.reason === null || INTERNAL_SCENARIO_REASONS.includes(entry.reason) || !SCENARIO_REASONS.includes(entry.reason)) {
+            unmeasured = true;
+            continue;
+          }
+          reason = entry.reason;
+        } else value = entry.value;
+      } else if (incomplete) {
+        reason = "turn_start_incomplete";
+      } else {
+        const tree = (j.runValid ? result.metrics : j.run.metrics) ?? {};
+        const span = tree.spans?.["OrchestratorV2.getThreadShell"];
+        if (span === undefined || span === null || !Number.isInteger(span.count) || span.count < SHELL_MIN_READS) reason = "shell_reads_missing";
+        else value = span.p95_ms;
+      }
+      // A release that predates the metric's feature era cannot give it: the era's reason, whatever the step read.
+      if (eraReason !== null) {
+        value = null;
+        reason = eraReason;
+      }
+      if (value !== null) {
+        if (typeof value !== "number" || !Number.isFinite(value)) fail(`metric ${id}: not a finite number`);
+        if (value < 0) fail(`metric ${id}: negative, where its unit cannot be`);
+        metrics[id] = value === 0 ? 0 : roundValue(value);
+      } else reasons[id] = reason;
+    }
+  }
+  if (unmeasured) {
+    valid = false;
+    problems.push("scenario_unmeasured");
+    for (const id of row.metrics) metrics[id] = null;
+    for (const id of Object.keys(reasons)) delete reasons[id];
+  }
+  const attempt = {
+    schema: "t3cp/scenario-attempt/1",
+    ...identity,
+    cell,
+    n,
+    load,
+    host_guard: attemptGuard(meta),
+    attempt: {
+      valid,
+      problems: [...new Set(problems)],
+      started_at: startedAtOf(meta),
+      cycle_s: typeof meta.cycle_s === "number" ? roundValue(meta.cycle_s) : null,
+      contaminated: j.guardUnavailable ? null : j.contaminated,
+      maintenance_in_window: j.maintenance,
+      metric_reasons: valid ? reasons : {},
+    },
+    metrics,
+    pipeline: { exported_at: now(), exporter_version: EXPORTER_VERSION, exporter_files_sha256: exporterFilesSha256(), ...runnerIdentity(meta) },
+  };
+  schemaOrFail("attempt.json", "scenario-attempt-1.json", attempt);
   scanOrFail("attempt.json", attempt, context);
   return attempt;
 }

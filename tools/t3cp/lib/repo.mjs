@@ -14,6 +14,9 @@ const readJson = (file) => {
 /** catalogue/catalogue.json, parsed once. */
 export const loadCatalogue = () => readJson(path.join(REPO_ROOT, "catalogue", "catalogue.json"));
 
+/** scenarios.json, the scenario catalogue (its rows), parsed once. */
+export const loadScenarios = () => readJson(path.join(REPO_ROOT, "scenarios.json"));
+
 /** schema/<name>, parsed once (for example "record-1.json"). */
 export const loadSchema = (name) => readJson(path.join(REPO_ROOT, "schema", name));
 

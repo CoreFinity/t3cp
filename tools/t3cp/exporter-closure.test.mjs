@@ -28,6 +28,7 @@ function closure() {
     // Data the code opens: schemas by name, the catalogue, JSON beside the module.
     for (const m of src.matchAll(/\b(?:loadSchema|schemaOrFail|readValidated)\([^)]*?"([a-z][a-z-]*-1\.json)"/g)) data.add(`schema/${m[1]}`);
     if (/loadCatalogue\b/.test(src)) data.add("catalogue/catalogue.json");
+    if (/loadScenarios\b/.test(src)) data.add("scenarios.json");
     for (const m of src.matchAll(/new URL\("(\.[^"]+\.json)", import\.meta\.url\)/g)) {
       const target = path.join(path.dirname(abs), m[1]);
       if (fs.existsSync(target)) data.add(rel(target));

@@ -120,7 +120,8 @@ test("the long-thread row: the shell-read p95 from release.result.json, null und
   let { dir, spec } = longThread({ shell: { count: 120, p95_ms: 4.25 } });
   let a = exportAttempt(dir, spec, opts);
   assert.equal(a.attempt.valid, true, a.attempt.problems.join(","));
-  assert.deepEqual(a.metrics, { turn_start_history_gap_ms: 812.5, turn_start_long_thread_ms: 240.125, get_thread_shell_long_thread_ms: 4.25 });
+  // Rounded as every published value is (report.ts: 3 decimals under 100, 1 above).
+  assert.deepEqual(a.metrics, { turn_start_history_gap_ms: 812.5, turn_start_long_thread_ms: 240.1, get_thread_shell_long_thread_ms: 4.25 });
   ({ dir, spec } = longThread({ shell: { count: 19, p95_ms: 4.25 } }));
   a = exportAttempt(dir, spec, opts);
   assert.equal(a.metrics.get_thread_shell_long_thread_ms, null);

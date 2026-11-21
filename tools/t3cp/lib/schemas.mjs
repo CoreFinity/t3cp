@@ -37,6 +37,7 @@ const UNIT_BOUNDS = {
   "0–1": { min: 0, max: 1 },
   MiB: { min: 0, max: 1e7 },
   "% per agent": { min: -1e5, max: 1e5 },
+  days: { min: 0, max: 1e4 },
 };
 export const boundsFor = (metric) => UNIT_BOUNDS[metric.unit] ?? { min: 0, max: 1e12 };
 const boundKey = (b) => `${b.integer ? "int" : "num"}_${String(b.min).replace("-", "neg")}_${b.max}`;
@@ -49,6 +50,31 @@ const valueSchema = (b) => ({ type: [b.integer ? "integer" : "number", "null"], 
  * (server_exited, not_reached_within_budget, no_fixture, ...) are internal and never published.
  */
 export const STAT_REASONS = ["fewer_than_two_served_levels", "not_measured_saturated", "extra_timeout", "no_setup_span"];
+/**
+ * Why a scenario metric is null (public, published beside the null): the release predates the span or feature the
+ * metric reads (no_turn_start_span, no_shell_span, no_event_prune), fewer than the row's 10 turn starts completed in
+ * the attempt (turn_start_incomplete), or too few shell reads to give a p95 (shell_reads_missing). A post step that
+ * could not measure at all (no valid run window, no loop samples, an unreadable database or mark) is internal: the
+ * attempt is invalid (problem scenario_unmeasured) and no reason is published.
+ */
+export const SCENARIO_REASONS = ["no_turn_start_span", "turn_start_incomplete", "no_shell_span", "shell_reads_missing", "no_event_prune"];
+/** What each public scenario reason means, in plain words. */
+export const SCENARIO_REASON_WORDS = {
+  no_turn_start_span: "the release predates the turn-start span in the server trace, so no turn start can be timed",
+  turn_start_incomplete: "fewer than the row's 10 follow-up turn starts completed in the attempt",
+  no_shell_span: "the release predates the thread shell read as a named span, so the read cannot be timed",
+  shell_reads_missing: "fewer than 20 thread shell reads in the attempt, too few for a 95th percentile",
+  no_event_prune: "the release keeps no event-log prune mark, so there is no compaction boundary to read",
+};
+/** An attempt's problems on a scenario cell: the ladder's, and a post step that could not measure. */
+export const SCENARIO_PROBLEMS = [...PROBLEMS, "scenario_unmeasured"];
+/** The scenario rows' metrics: the catalogue's scenario lane. */
+export const scenarioMetricIds = (catalogue) => catalogue.metrics.filter((m) => m.lane === "scenario").map((m) => m.id);
+/** A scenario row's suite: <id>@<version>. */
+export const SCENARIO_SUITE_PATTERN = "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*@[1-9][0-9]{0,5}$";
+/** A scenario cell's name (scenarios.json). */
+export const SCENARIO_CELL_PATTERN = "^[a-z0-9][a-z0-9-]{0,30}$";
+
 /** The extras reasons the exporter publishes, in precedence order: a release that cannot give the value comes first. */
 export const EXTRAS_REASONS = ["no_setup_span", "extra_timeout"];
 /**
@@ -78,6 +104,11 @@ const boundedStat = (b) => ({
     reason: { type: "string", enum: STAT_REASONS },
   },
 });
+/** A scenario metric's statistic over a cell's valid attempts: the ladder's, with the public scenario reasons. */
+const scenarioStat = (b) => {
+  const stat = boundedStat(b);
+  return { ...stat, properties: { ...stat.properties, n: { type: "integer", minimum: 0, maximum: 5 }, values: { type: "array", items: valueSchema(b), maxItems: 5 }, reason: { type: "string", enum: SCENARIO_REASONS, description: SCENARIO_REASONS.map((r) => `${r}: ${SCENARIO_REASON_WORDS[r]}`).join("; ") } } };
+};
 
 /** Suites: the published ladder, the noise-band run, and validation suites named val-<name>. */
 export const SUITE_PATTERN = "^(ladder-1|bands-1|val-[a-z0-9-]{1,32})$";
@@ -415,6 +446,76 @@ function definitions(catalogue) {
         per_migration: arrayOf(obj({ id: int(1, 9999), s: { type: "number", minimum: 0 } }), { maxItems: 200 }),
       },
     },
+    // Scenario records (scenarios.json rows other than the ladder): keyed by the row's cell names, with the row's
+    // metrics (the catalogue's scenario lane) and the public scenario reasons.
+    scenario_problem: { type: "string", enum: SCENARIO_PROBLEMS },
+    scenario_fixture: obj({
+      id: { type: "string", pattern: "^(none|[a-z][a-z0-9]*(?:-[a-z0-9]+)*)$", maxLength: 41, description: "The row's fixture id (a published fixture, fixture/fixtures.json), or none: an empty database." },
+      sha256: { type: ["string", "null"], pattern: "^[0-9a-f]{64}$" },
+      bytes: { type: ["integer", "null"], minimum: 1 },
+      migration: { type: ["integer", "null"], minimum: 1, maximum: 9999 },
+      recipe_sha256: { type: ["string", "null"], pattern: "^[0-9a-f]{64}$" },
+    }),
+    scenario_load: obj(
+      {
+        sessions: int(1, 1000),
+        subscribers: int(0, 1000),
+        pollers: int(0, 1000),
+        mode: { type: "string", enum: ["fresh", "history", "mixed"], description: "The driver's --mode." },
+        turn_gap_s: { type: "number", minimum: 0 },
+        switch_interval_s: { type: ["number", "null"], minimum: 0 },
+        poll_interval_s: { type: ["number", "null"], minimum: 0 },
+        fixture: { type: "string", enum: ["era", "none"], description: "era: the cell starts from the row's fixture; none: from an empty database." },
+        warmup_s: int(0, 3600),
+        window_s: int(10, 14400),
+        seed_compacted_at: { type: "boolean" },
+        post: { type: "string", enum: ["none", "turn-start-gap", "prune-mark"] },
+        mark_age_days: { type: ["integer", "null"], minimum: 1, maximum: 30 },
+      },
+      ["sessions", "subscribers", "pollers", "mode", "turn_gap_s", "switch_interval_s", "poll_interval_s", "fixture", "warmup_s", "window_s", "seed_compacted_at", "post", "mark_age_days"],
+    ),
+    scenario_workload: obj(
+      {
+        suite: { type: "string", pattern: SCENARIO_SUITE_PATTERN, description: "<id>@<version>: the scenarios.json row." },
+        scenario: obj({ id: { type: "string", pattern: "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", maxLength: 41 }, version: int(1, 999999) }),
+        attempts_per_cell: int(1, 5),
+        seed: { type: "string", pattern: "^\\d{1,12}$" },
+        now: ref("datetime"),
+        cells: {
+          type: "object",
+          propertyNames: { type: "string", pattern: SCENARIO_CELL_PATTERN },
+          additionalProperties: ref("scenario_load"),
+          description: "Per cell, the load it ran with, as the row gives it; written by the merge, absent on attempts.",
+        },
+      },
+      ["suite", "scenario", "attempts_per_cell", "seed", "now"],
+    ),
+    scenario_values: {
+      type: "object",
+      additionalProperties: false,
+      properties: Object.fromEntries(scenarioMetricIds(catalogue).map((id) => [id, valueSchema(boundsFor(byId.get(id)))])),
+      description: "The row's metrics, each a value or null (with its reason in metric_reasons, or on an invalid attempt).",
+    },
+    scenario_stats: {
+      type: "object",
+      additionalProperties: false,
+      properties: Object.fromEntries(scenarioMetricIds(catalogue).map((id) => [id, scenarioStat(boundsFor(byId.get(id)))])),
+    },
+    scenario_attempt_summary: obj({
+      n: int(1, 5),
+      valid: { type: "boolean" },
+      problems: arrayOf(ref("scenario_problem"), { maxItems: 16, uniqueItems: true }),
+      started_at: { type: ["string", "null"], pattern: DATETIME },
+      cycle_s: numOrNull,
+      contaminated: CONTAMINATED,
+      maintenance_in_window: { type: ["integer", "string", "null"], minimum: 0, maximum: 1000, pattern: "^(unscheduled_pre_marker|unobserved_no_span)$" },
+    }),
+    scenario_cell_record: obj({
+      attempts: arrayOf(ref("scenario_attempt_summary"), { maxItems: 5 }),
+      valid: int(0, 5),
+      total: int(0, 5),
+      metrics: ref("scenario_stats"),
+    }),
   };
 }
 
@@ -541,6 +642,76 @@ export function buildSchemas(catalogue) {
           }),
         },
         ["schema", ...Object.keys(identity), "cell", "n", "profile", "host_guard", "attempt", "metrics", "pipeline"],
+      ),
+    },
+    defs,
+  );
+
+  const scenarioIdentity = { ...identity, fixture: ref("scenario_fixture"), workload: ref("scenario_workload") };
+  const scenarioAttempt = withDefs(
+    {
+      $id: "https://t3cp.io/schema/scenario-attempt-1.json",
+      title: "t3cp/scenario-attempt/1: the exporter's output for one attempt of a scenario cell (a scenarios.json row's cell)",
+      ...obj(
+        {
+          schema: { const: "t3cp/scenario-attempt/1" },
+          synthetic,
+          ...scenarioIdentity,
+          cell: { type: "string", pattern: SCENARIO_CELL_PATTERN },
+          n: int(1, 5),
+          load: ref("scenario_load"),
+          host_guard: ref("attempt_guard"),
+          attempt: obj({
+            valid: { type: "boolean" },
+            problems: arrayOf(ref("scenario_problem"), { maxItems: 16, uniqueItems: true }),
+            started_at: { type: ["string", "null"], pattern: DATETIME },
+            cycle_s: numOrNull,
+            contaminated: CONTAMINATED,
+            maintenance_in_window: { type: ["integer", "string", "null"], minimum: 0, maximum: 1000, pattern: "^(unscheduled_pre_marker|unobserved_no_span)$" },
+            metric_reasons: {
+              type: "object",
+              additionalProperties: false,
+              description: "Per metric whose value is null although the attempt is valid, its public reason.",
+              properties: Object.fromEntries(scenarioMetricIds(catalogue).map((id) => [id, { type: "string", enum: SCENARIO_REASONS }])),
+            },
+          }),
+          metrics: ref("scenario_values"),
+          pipeline: obj({
+            exported_at: ref("datetime"),
+            ...CODE_IDS,
+          }),
+        },
+        ["schema", ...Object.keys(scenarioIdentity), "cell", "n", "load", "host_guard", "attempt", "metrics", "pipeline"],
+      ),
+    },
+    defs,
+  );
+
+  const scenarioRecord = withDefs(
+    {
+      $id: "https://t3cp.io/schema/scenario-record-1.json",
+      title: "t3cp/scenario-record/1: one record of a scenarios.json row for one release on one platform",
+      ...obj(
+        {
+          schema: { const: "t3cp/scenario-record/1" },
+          synthetic,
+          ...scenarioIdentity,
+          cells: {
+            type: "object",
+            propertyNames: { type: "string", pattern: SCENARIO_CELL_PATTERN },
+            additionalProperties: ref("scenario_cell_record"),
+          },
+          host_guard: ref("host_guard"),
+          status: { type: "string", enum: ["complete", "partial", "missing"] },
+          status_reason: { type: ["string", "null"], enum: [...STATUS_REASONS, null] },
+          pipeline: obj({
+            generated_at: ref("datetime"),
+            run_id: { type: ["integer", "null"], minimum: 0 },
+            lease: { type: ["integer", "null"], minimum: 0, maximum: 99 },
+            ...CODE_IDS,
+          }),
+        },
+        ["schema", ...Object.keys(scenarioIdentity), "cells", "host_guard", "status", "status_reason", "pipeline"],
       ),
     },
     defs,
@@ -1079,6 +1250,8 @@ export function buildSchemas(catalogue) {
     "changes-1.json": changes,
     "compare-1.json": compare,
     "release-bundle-1.json": releaseBundle,
+    "scenario-attempt-1.json": scenarioAttempt,
+    "scenario-record-1.json": scenarioRecord,
   };
 }
 
