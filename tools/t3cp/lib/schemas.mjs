@@ -717,6 +717,89 @@ export function buildSchemas(catalogue) {
     defs,
   );
 
+  // The aggregator's per-scenario outputs (site build; the VM never writes them).
+  const scenarioPoint = obj({
+    median: numOrNull,
+    min: numOrNull,
+    max: numOrNull,
+    n: int(0, 5),
+    reason: { type: ["string", "null"], enum: [...SCENARIO_REASONS, null] },
+    segment: { type: "integer", minimum: 0, maximum: 281474976710655, description: "An opaque id of the value's segment (fixture, row, harness tree, cell load): values compare only within one." },
+  });
+  const scenarioCells = { type: "object", propertyNames: { type: "string", pattern: SCENARIO_CELL_PATTERN }, additionalProperties: scenarioPoint };
+  const column = (items) => arrayOf(items, { maxItems: 400 });
+  const scenarioSeries = withDefs(
+    {
+      $id: "https://t3cp.io/schema/scenario-series-1.json",
+      title: "t3cp/scenario-series/1: one metric of one scenarios.json row on one platform, per cell, over its records",
+      ...obj(
+        {
+          schema: { const: "t3cp/scenario-series/1" },
+          synthetic,
+          generated_at: ref("datetime"),
+          suite: { type: "string", pattern: SCENARIO_SUITE_PATTERN },
+          scenario: obj({ id: { type: "string", pattern: "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", maxLength: 41 }, version: int(1, 999999) }),
+          platform: ref("platform_id"),
+          metric: { type: "string", enum: scenarioMetricIds(catalogue) },
+          unit: { type: "string" },
+          nightly: obj({
+            dates: column(ref("date")),
+            tags: column(ref("tag")),
+            cells: {
+              type: "object",
+              propertyNames: { type: "string", pattern: SCENARIO_CELL_PATTERN },
+              additionalProperties: obj({
+                median: column(numOrNull),
+                min: column(numOrNull),
+                max: column(numOrNull),
+                n: column(int(0, 5)),
+                reason: column({ type: ["string", "null"], enum: [...SCENARIO_REASONS, null] }),
+                segment: column({ type: "integer", minimum: 0, maximum: 281474976710655 }),
+              }),
+            },
+          }),
+          fork: arrayOf(obj({ tag: ref("tag"), date: ref("date"), base_tag: { type: ["string", "null"] }, base_date: { type: ["string", "null"], pattern: DATE }, cells: scenarioCells }), { maxItems: 200 }),
+          base: arrayOf(obj({ tag: ref("tag"), sha: ref("sha"), date: ref("date"), cells: scenarioCells }), { maxItems: 200 }),
+          eras: arrayOf(obj({ date: ref("date"), kind: { type: "string", enum: ["harness", "fixture", "metric"] }, label: { type: "string", maxLength: 200 } }), { maxItems: 100 }),
+        },
+        ["schema", "generated_at", "suite", "scenario", "platform", "metric", "unit", "nightly", "fork", "base", "eras"],
+      ),
+    },
+    defs,
+  );
+  const scenariosIndex = withDefs(
+    {
+      $id: "https://t3cp.io/schema/scenarios-index-1.json",
+      title: "t3cp/scenarios-index/1: the scenarios.json rows with published records, and their series",
+      ...obj(
+        {
+          schema: { const: "t3cp/scenarios-index/1" },
+          synthetic,
+          generated_at: ref("datetime"),
+          rows: arrayOf(
+            obj({
+              id: { type: "string", pattern: "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", maxLength: 41 },
+              version: int(1, 999999),
+              suite: { type: "string", pattern: SCENARIO_SUITE_PATTERN },
+              status: { type: "string", enum: ["active", "retired"] },
+              metrics: arrayOf({ type: "string", enum: scenarioMetricIds(catalogue) }, { minItems: 1, uniqueItems: true }),
+              cells: arrayOf({ type: "string", pattern: SCENARIO_CELL_PATTERN }, { minItems: 1, uniqueItems: true }),
+              platforms: {
+                type: "object",
+                propertyNames: ref("platform_id"),
+                additionalProperties: obj({ records: int(1, 100000), latest_date: { type: ["string", "null"], pattern: DATE }, latest_tag: { type: ["string", "null"] } }),
+              },
+              series: { type: "object", propertyNames: ref("platform_id"), additionalProperties: arrayOf({ type: "string", pattern: "^scenarios/[a-z0-9/._@-]+\\.json$" }) },
+            }),
+            { maxItems: 200 },
+          ),
+        },
+        ["schema", "generated_at", "rows"],
+      ),
+    },
+    defs,
+  );
+
   const extras = withDefs(
     {
       $id: "https://t3cp.io/schema/extras-1.json",
@@ -1252,6 +1335,8 @@ export function buildSchemas(catalogue) {
     "release-bundle-1.json": releaseBundle,
     "scenario-attempt-1.json": scenarioAttempt,
     "scenario-record-1.json": scenarioRecord,
+    "scenario-series-1.json": scenarioSeries,
+    "scenarios-index-1.json": scenariosIndex,
   };
 }
 

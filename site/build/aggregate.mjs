@@ -26,7 +26,7 @@ import { parseArgs } from "node:util";
 import { formatSafeErrors, parseJsonStrict, schemaErrors } from "../../tools/t3cp/lib/safe-errors.mjs";
 import { ScanConfigError, scanCsvText, scanJsonText, scanText, scanValue } from "../../tools/t3cp/lib/scan.mjs";
 import { cellSaturated, loadPublicRefs } from "../../tools/t3cp/merge.mjs";
-import { REPO_ROOT, isMain, loadCatalogue as loadCatalogueFile, loadSchema, median } from "../../tools/t3cp/lib/repo.mjs";
+import { REPO_ROOT, isMain, loadCatalogue as loadCatalogueFile, loadScenarios, loadSchema, median } from "../../tools/t3cp/lib/repo.mjs";
 import { EXTRAS_REASONS, PLATFORM_IDS, PROBLEMS, forkHeadProblem } from "../../tools/t3cp/lib/schemas.mjs";
 
 export class BuildError extends Error {}
@@ -48,6 +48,8 @@ export const BUDGETS = [
   { prefix: "fork/", limit: 256 * KB },
   { prefix: "compare/", limit: 48 * KB },
   { prefix: "releases/", limit: 48 * KB },
+  { prefix: "scenarios/index.json", limit: 32 * KB },
+  { prefix: "scenarios/", limit: 64 * KB },
 ];
 /** The overview's data payload: index.json, changes.json and the eight headline latest shards. */
 export const OVERVIEW_LIMIT = 100 * KB;
@@ -121,7 +123,15 @@ function recordMetricIds(record) {
  * Reads and checks the input tree. Returns {records, forks, bands, copies, synthetic}. Throws BuildError naming
  * the file on any problem.
  */
-export function loadInputs(inDir, { dev = false, catalogue = loadCatalogue(), publicRefs } = {}) {
+/** A scenario record's path: scenarios/<id>/<version>/ and the ladder's own records/, fork/ or base/ path. */
+const SCENARIO_PATH =
+  /^scenarios\/([a-z][a-z0-9]*(?:-[a-z0-9]+)*)\/([1-9][0-9]{0,5})\/(?:records\/(linux-x64|darwin-arm64)\/(\d{4}-\d{2}-\d{2})\.(v[0-9A-Za-z.-]+)\.json|fork\/(v[0-9A-Za-z.-]+)\.(linux-x64|darwin-arm64)\.json|base\/([0-9a-f]{12})\.(linux-x64|darwin-arm64)\.json)$/;
+
+export function loadInputs(inDir, { dev = false, catalogue = loadCatalogue(), publicRefs, scenarios = loadScenarios() } = {}) {
+  // The suites the ladder's paths accept: the ladder rows' (ladder-<version>); every other row publishes under
+  // scenarios/<id>/<version>/.
+  const ladderSuites = new Set(scenarios.rows.filter((r) => r.id === "ladder").map((r) => r.suite));
+  const scenarioRecords = [];
   // Every committed record names only public commits (the VM's merge checks this too): its harness a pinned version at
   // the pinned public commit and content hashes, a fork release the commit pinned for its tag. A dev build reads
   // synthetic data, which is never published, and skips this.
@@ -161,8 +171,8 @@ export function loadInputs(inDir, { dev = false, catalogue = loadCatalogue(), pu
       throw new BuildError(`${rel}: ${error.message}`);
     }
     if (value === null || typeof value !== "object" || Array.isArray(value)) throw new BuildError(`${rel}: not a JSON object`);
-    if (/^(records|fork|base|fork-nightly)\//.test(rel) && value.workload?.suite !== "ladder-1") {
-      throw new BuildError(`${rel}: only the published suite (ladder-1) is accepted here; validation and noise-band records are never published`);
+    if (/^(records|fork|base|fork-nightly)\//.test(rel) && !ladderSuites.has(value.workload?.suite)) {
+      throw new BuildError(`${rel}: only the published suite (${[...ladderSuites].join(", ")}) is accepted here; validation and noise-band records are never published`);
     }
     if (value.synthetic === true) {
       if (!dev) throw new BuildError(`${rel}: synthetic development data is refused (only --dev builds accept it)`);
@@ -246,6 +256,9 @@ export function loadInputs(inDir, { dev = false, catalogue = loadCatalogue(), pu
       }
       bands = value;
       copies.set(rel, published);
+    } else if (rel.startsWith("scenarios/")) {
+      scenarioRecords.push(scenarioInput(rel, value, { scenarios, refs, known, seen: scenarioRecords }));
+      copies.set(rel, published);
     } else if (rel === "status.json") {
       // written by the ops tick: numbers, dates and reason codes only (schema/status-1.json), published re-serialised
       const errors = schemaErrors(loadSchema("status-1.json"), value);
@@ -257,7 +270,131 @@ export function loadInputs(inDir, { dev = false, catalogue = loadCatalogue(), pu
     }
   }
   if (records.length === 0 && forks.length === 0) throw new BuildError("no records in the input tree");
-  return { records, forks, bases, forkNightlies, bands, copies, synthetic };
+  return { records, forks, bases, forkNightlies, bands, copies, synthetic, scenarioRecords };
+}
+
+/**
+ * One scenario record from scenarios/<id>/<version>/...: a t3cp/scenario-record/1 record of a row of scenarios.json
+ * (never the ladder's), under its own row's path and file name, running the harness its row pins, by its public pins.
+ */
+function scenarioInput(rel, value, { scenarios, refs, known, seen }) {
+  const m = SCENARIO_PATH.exec(rel);
+  if (!m) throw new BuildError(`${rel}: not a scenario record path (scenarios/<id>/<version>/records|fork|base/...)`);
+  if (value.schema !== "t3cp/scenario-record/1") throw new BuildError(`${rel}: not a t3cp/scenario-record/1 record`);
+  const suite = value.workload?.suite;
+  const row = scenarios.rows.find((r) => r.id !== "ladder" && r.suite === suite);
+  if (!row) throw new BuildError(`${rel}: suite ${typeof suite === "string" ? suite : "(none)"} is not a row of scenarios.json`);
+  if (row.id !== m[1] || String(row.version) !== m[2]) throw new BuildError(`${rel}: the path is not its row's (scenarios/${row.id}/${row.version}/)`);
+  if (refs !== null) publicOnly(rel, value, refs);
+  if (value.harness?.version !== row.harness) throw new BuildError(`${rel}: harness ${value.harness?.version} is not the one its row pins (${row.harness})`);
+  const schema = loadSchema("scenario-record-1.json");
+  const errors = schemaErrors(schema, value);
+  if (errors.length > 0) throw new BuildError(`${rel}: ${formatSafeErrors(errors, schema, 5)}`);
+  for (const [name, cell] of Object.entries(value.cells)) {
+    if (!row.cells.some((c) => c.name === name)) throw new BuildError(`${rel}: cell ${name} is not one of its row's`);
+    for (const id of Object.keys(cell.metrics)) {
+      if (!known.has(id) || !row.metrics.includes(id)) throw new BuildError(`${rel}: metric ${id} is not one of its row's`);
+    }
+  }
+  const platform = value.platform.id;
+  if (m[3]) {
+    if (value.kind !== "nightly" || m[3] !== platform || value.release.date !== m[4] || value.release.tag !== m[5] || value.record_id !== `${m[4]}.${platform}.nightly`) {
+      throw new BuildError(`${rel}: file name does not match the record's kind, platform, date and tag`);
+    }
+  } else if (m[6]) {
+    if (value.kind !== "fork" || m[7] !== platform || value.release.tag !== m[6] || value.base === null || value.record_id !== `${value.release.version}.${platform}.fork`) {
+      throw new BuildError(`${rel}: file name does not match the fork record's tag and platform, or base is missing`);
+    }
+  } else if (value.kind !== "base" || m[9] !== platform || !value.release.sha.startsWith(m[8]) || value.record_id !== `${m[8]}.${platform}.base`) {
+    throw new BuildError(`${rel}: file name does not match the base record's kind, platform and merge-base SHA`);
+  }
+  if (seen.some((x) => x.record.record_id === value.record_id && x.row === row)) throw new BuildError(`${rel}: a second record ${value.record_id} of ${row.suite}`);
+  return { rel, record: value, row };
+}
+
+/**
+ * A scenario series' segment at a cell: the fixture (id and content), the row, the harness tree and the cell's load. A
+ * value is comparable only with values of its own segment.
+ */
+const scenarioSegment = (r, cell) => JSON.stringify([r.fixture.id, r.fixture.sha256, r.workload.suite, r.harness.files_sha256, canonical(r.workload.cells?.[cell] ?? null)]);
+
+/**
+ * The scenario rows' outputs, for rows with records: per row, platform and metric one series shard
+ * (scenarios/<id>/<version>/series/<platform>/<metric>.json: nightly, fork and base values per cell with their segment,
+ * and the eras of that row's own records), and scenarios/index.json. Nothing when no scenario record exists.
+ */
+function scenarioOutputs(inputs, catalogue, scenarios, mark) {
+  const out = new Map();
+  if (inputs.scenarioRecords.length === 0) return out;
+  // The scenario outputs' own time: the latest of their records (the ladder's outputs keep theirs).
+  const generatedAt = inputs.scenarioRecords.map((x) => x.record.pipeline.generated_at).sort().at(-1);
+  const segmentId = (key) => Number.parseInt(sha256(key).slice(0, 12), 16);
+  const byId = new Map(catalogue.metrics.map((m) => [m.id, m]));
+  const rows = [];
+  for (const row of scenarios.rows) {
+    const mine = inputs.scenarioRecords.filter((x) => x.row === row).map((x) => x.record);
+    if (mine.length === 0) continue;
+    const platforms = {};
+    const seriesPaths = {};
+    for (const p of [...new Set(mine.map((r) => r.platform.id))].sort()) {
+      const onP = mine.filter((r) => r.platform.id === p);
+      const nightly = onP.filter((r) => r.kind === "nightly").sort(byKey((r) => r.release.date));
+      const forks = onP.filter((r) => r.kind === "fork").sort(byKey((r) => `${r.release.date}|${versionKey(r.release.tag)}`));
+      const bases = onP.filter((r) => r.kind === "base").sort(byKey((r) => `${r.release.date}|${r.release.sha}`));
+      const latest = nightly.at(-1) ?? null;
+      platforms[p] = { records: onP.length, latest_date: latest?.release.date ?? null, latest_tag: latest?.release.tag ?? null };
+      seriesPaths[p] = [];
+      for (const metric of row.metrics) {
+        const m = byId.get(metric);
+        const valueAt = (r, c) => {
+          const stat = r.cells[c.name]?.metrics?.[metric] ?? null;
+          return { median: stat?.median ?? null, min: stat?.min ?? null, max: stat?.max ?? null, n: stat?.n ?? 0, reason: stat?.reason ?? null, segment: segmentId(scenarioSegment(r, c.name)) };
+        };
+        const cells = Object.fromEntries(
+          row.cells.map((c) => {
+            const values = nightly.map((r) => valueAt(r, c));
+            return [c.name, Object.fromEntries(["median", "min", "max", "n", "reason", "segment"].map((k) => [k, values.map((v) => v[k])]))];
+          }),
+        );
+        const point = (r) => Object.fromEntries(row.cells.map((c) => [c.name, valueAt(r, c)]));
+        const eras = [];
+        for (let i = 1; i < nightly.length; i++) {
+          const [a, b] = [nightly[i - 1], nightly[i]];
+          if (a.harness.files_sha256 !== b.harness.files_sha256) eras.push({ date: b.release.date, kind: "harness", label: b.harness.version });
+          if (a.fixture.id !== b.fixture.id || a.fixture.sha256 !== b.fixture.sha256) eras.push({ date: b.release.date, kind: "fixture", label: b.fixture.id });
+        }
+        if (m.era_start !== null && nightly.length > 0 && nightly[0].release.date < m.era_start) {
+          const first = nightly.find((r) => r.release.date >= m.era_start);
+          const era = catalogue.feature_eras.find((e) => e.id === m.era);
+          if (first) eras.push({ date: first.release.date, kind: "metric", label: era?.what ?? "metric data starts" });
+        }
+        eras.sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : x.kind < y.kind ? -1 : 1));
+        const rel = `scenarios/${row.id}/${row.version}/series/${p}/${metric}.json`;
+        seriesPaths[p].push(rel);
+        out.set(
+          rel,
+          json(
+            mark({
+              schema: "t3cp/scenario-series/1",
+              generated_at: generatedAt,
+              suite: row.suite,
+              scenario: { id: row.id, version: row.version },
+              platform: p,
+              metric,
+              unit: m.unit,
+              nightly: { dates: nightly.map((r) => r.release.date), tags: nightly.map((r) => r.release.tag), cells },
+              fork: forks.map((r) => ({ tag: r.release.tag, date: r.release.date, base_tag: r.base?.tag ?? null, base_date: r.base?.date ?? null, cells: point(r) })),
+              base: bases.map((r) => ({ tag: r.release.tag, sha: r.release.sha, date: r.release.date, cells: point(r) })),
+              eras,
+            }),
+          ),
+        );
+      }
+    }
+    rows.push({ id: row.id, version: row.version, suite: row.suite, status: row.status, metrics: row.metrics, cells: row.cells.map((c) => c.name), platforms, series: seriesPaths });
+  }
+  out.set("scenarios/index.json", json(mark({ schema: "t3cp/scenarios-index/1", generated_at: generatedAt, rows })));
+  return out;
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -771,9 +908,9 @@ export function formatPct(value) {
 /** Builds every output file from an input directory. Returns Map<relative path, Buffer>. Pure apart from reading inDir. */
 export function buildOutputs(
   inDir,
-  { dev = false, budgets = BUDGETS, catalogue = loadCatalogue(), overviewLimit = OVERVIEW_LIMIT, warn = (line) => process.stderr.write(`WARN ${line}\n`), publicRefs } = {},
+  { dev = false, budgets = BUDGETS, catalogue = loadCatalogue(), overviewLimit = OVERVIEW_LIMIT, warn = (line) => process.stderr.write(`WARN ${line}\n`), publicRefs, scenarios = loadScenarios() } = {},
 ) {
-  const inputs = loadInputs(inDir, { dev, catalogue, publicRefs });
+  const inputs = loadInputs(inDir, { dev, catalogue, publicRefs, scenarios });
   const model = makeModel(inputs, catalogue);
   const synthetic = inputs.synthetic;
   const all = [...inputs.records, ...inputs.forks, ...inputs.bases, ...(inputs.forkNightlies ?? [])].map((x) => x.record);
@@ -1060,6 +1197,7 @@ export function buildOutputs(
     index.budgets.overview_gz_bytes = Object.fromEntries(model.platforms.map((p) => [p, round >= 4 ? Math.max(published[p] ?? 0, measured[p]) : measured[p]]));
   }
   files.set("index.json", indexBytes);
+  for (const [rel, bytes] of scenarioOutputs(inputs, catalogue, scenarios, mark)) files.set(rel, bytes);
   files.set(MARKER, Buffer.from("t3cp aggregate output\n"));
 
   // scan every derived JSON file, then the budgets and the overview payload

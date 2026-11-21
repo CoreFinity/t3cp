@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://t3cp.io/schema/scenarios-index-1.json",
+  "title": "t3cp/scenarios-index/1: the scenarios.json rows with published records, and their series",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "generated_at",
+    "rows"
+  ],
+  "properties": {
+    "schema": {
+      "const": "t3cp/scenarios-index/1"
+    },
+    "synthetic": {
+      "const": true,
+      "description": "Present only on development data from tools/t3cp/dev/synth-data.mjs; refused under data/."
+    },
+    "generated_at": {
+      "$ref": "#/$defs/datetime"
+    },
+    "rows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "suite",
+          "status",
+          "metrics",
+          "cells",
+          "platforms",
+          "series"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+            "maxLength": 41
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 999999
+          },
+          "suite": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*@[1-9][0-9]{0,5}$"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "retired"
+            ]
+          },
+          "metrics": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "turn_start_history_gap_ms",
+                "turn_start_long_thread_ms",
+                "get_thread_shell_long_thread_ms",
+                "event_log_unpruned_days"
+              ]
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "cells": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,30}$"
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "platforms": {
+            "type": "object",
+            "propertyNames": {
+              "$ref": "#/$defs/platform_id"
+            },
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "records",
+                "latest_date",
+                "latest_tag"
+              ],
+              "properties": {
+                "records": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100000
+                },
+                "latest_date": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "pattern": "^20\\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+                },
+                "latest_tag": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "series": {
+            "type": "object",
+            "propertyNames": {
+              "$ref": "#/$defs/platform_id"
+            },
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^scenarios/[a-z0-9/._@-]+\\.json$"
+              }
+            }
+          }
+        }
+      },
+      "maxItems": 200
+    }
+  },
+  "$defs": {
+    "datetime": {
+      "type": "string",
+      "pattern": "^20\\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])T([01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(\\.\\d{1,3})?Z$"
+    },
+    "platform_id": {
+      "type": "string",
+      "enum": [
+        "linux-x64",
+        "darwin-arm64"
+      ]
+    }
+  }
+}
