@@ -27,6 +27,9 @@ import { formatSafeErrors, parseJsonStrict, schemaErrors } from "../../tools/t3c
 import { ScanConfigError, scanCsvText, scanJsonText, scanText, scanValue } from "../../tools/t3cp/lib/scan.mjs";
 import { cellSaturated, loadPublicRefs } from "../../tools/t3cp/merge.mjs";
 import { REPO_ROOT, isMain, loadCatalogue as loadCatalogueFile, loadScenarios, loadSchema, median } from "../../tools/t3cp/lib/repo.mjs";
+import { ladderFeatureEras, scenarioLoad } from "../../tools/t3cp/lib/scenarios.mjs";
+
+export { ladderFeatureEras };
 import { EXTRAS_REASONS, PLATFORM_IDS, PROBLEMS, forkHeadProblem } from "../../tools/t3cp/lib/schemas.mjs";
 
 export class BuildError extends Error {}
@@ -290,11 +293,21 @@ function scenarioInput(rel, value, { scenarios, refs, known, seen }) {
   const schema = loadSchema("scenario-record-1.json");
   const errors = schemaErrors(schema, value);
   if (errors.length > 0) throw new BuildError(`${rel}: ${formatSafeErrors(errors, schema, 5)}`);
+  // The record implements its row: the scenario, attempts per cell, fixture and platform; per cell it ran, the row's load
+  // for that cell and exactly the row's metrics (a cell with no attempt is left out of a partial record).
+  const w = value.workload;
+  if (w.scenario.id !== row.id || w.scenario.version !== row.version) throw new BuildError(`${rel}: workload.scenario is not its row's`);
+  if (w.attempts_per_cell !== row.attempts) throw new BuildError(`${rel}: attempts_per_cell is not its row's (${row.attempts})`);
+  if (value.fixture.id !== row.fixture) throw new BuildError(`${rel}: fixture ${value.fixture.id} is not its row's (${row.fixture})`);
+  if (!row.platforms.includes(value.platform.id)) throw new BuildError(`${rel}: platform ${value.platform.id} is not one of its row's`);
+  for (const name of Object.keys(w.cells ?? {})) if (!value.cells[name]) throw new BuildError(`${rel}: workload.cells names ${name}, which has no cell`);
+  const rowMetrics = canonical([...row.metrics].sort());
   for (const [name, cell] of Object.entries(value.cells)) {
-    if (!row.cells.some((c) => c.name === name)) throw new BuildError(`${rel}: cell ${name} is not one of its row's`);
-    for (const id of Object.keys(cell.metrics)) {
-      if (!known.has(id) || !row.metrics.includes(id)) throw new BuildError(`${rel}: metric ${id} is not one of its row's`);
-    }
+    const c = row.cells.find((x) => x.name === name);
+    if (!c) throw new BuildError(`${rel}: cell ${name} is not one of its row's`);
+    if (canonical(w.cells?.[name] ?? null) !== canonical(scenarioLoad(row, c))) throw new BuildError(`${rel}: cell ${name} did not run its row's load`);
+    for (const id of Object.keys(cell.metrics)) if (!known.has(id)) throw new BuildError(`${rel}: unknown metric id ${id}`);
+    if (canonical(Object.keys(cell.metrics).sort()) !== rowMetrics) throw new BuildError(`${rel}: cell ${name} does not carry exactly its row's metrics`);
   }
   const platform = value.platform.id;
   if (m[3]) {
@@ -334,6 +347,8 @@ function scenarioOutputs(inputs, catalogue, scenarios, mark) {
   for (const row of scenarios.rows) {
     const mine = inputs.scenarioRecords.filter((x) => x.row === row).map((x) => x.record);
     if (mine.length === 0) continue;
+    // A row's series carry its own records' time, so another row's records never move them.
+    const rowGeneratedAt = mine.map((r) => r.pipeline.generated_at).sort().at(-1);
     const platforms = {};
     const seriesPaths = {};
     for (const p of [...new Set(mine.map((r) => r.platform.id))].sort()) {
@@ -376,7 +391,7 @@ function scenarioOutputs(inputs, catalogue, scenarios, mark) {
           json(
             mark({
               schema: "t3cp/scenario-series/1",
-              generated_at: generatedAt,
+              generated_at: rowGeneratedAt,
               suite: row.suite,
               scenario: { id: row.id, version: row.version },
               platform: p,
@@ -441,16 +456,6 @@ function makeModel(inputs, catalogue) {
   }
   const seriesMetrics = catalogue.metrics.filter((m) => m.lane === "daily" || m.lane === "record");
   return { catalogue, byId, pins, nightlies, forks, bases, heads, platforms, seriesMetrics, bands: inputs.bands };
-}
-
-/**
- * The feature eras of the ladder: the catalogue's, less those only scenario-lane metrics use (a scenario row's era
- * belongs to its own outputs, never to the ladder's index or series).
- */
-export function ladderFeatureEras(catalogue) {
-  const ladderEras = new Set(catalogue.metrics.filter((m) => m.lane !== "scenario").map((m) => m.era));
-  const scenarioOnly = new Set(catalogue.metrics.filter((m) => m.lane === "scenario" && !ladderEras.has(m.era)).map((m) => m.era));
-  return catalogue.feature_eras.filter((e) => !scenarioOnly.has(e.id));
 }
 
 /** The levels a metric has: the six ladder levels (scope level) or "once" (scope record), plus "1e" when flagged. */

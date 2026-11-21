@@ -22,6 +22,7 @@ import { ScanConfigError, loadPrivatePatterns, scanText, scanValue } from "./lib
 import { EXPORTER_VERSION, isMain, loadCatalogue, loadScenarios, loadSchema, median, roundValue } from "./lib/repo.mjs";
 import { BUILD_REPOS, EXTRAS_REASONS, PROBLEMS, SCENARIO_REASONS, forkHeadProblem, levelMetricIds, NOT_MEASURED_SATURATED } from "./lib/schemas.mjs";
 import { JsonError, parseNdjsonStrict, parseStrict } from "./lib/json.mjs";
+import { ladderFeatureEras, scenarioLoad } from "./lib/scenarios.mjs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { MAPPING, MappingError, procWindow } from "./lib/mapping.mjs";
@@ -43,7 +44,7 @@ export const EXPORTER_FILES = [
   "tools/t3cp/export.mjs", "tools/t3cp/merge.mjs", "tools/t3cp/lib/json.mjs", "tools/t3cp/lib/mapping.mjs", "tools/t3cp/lib/repo.mjs",
   "tools/t3cp/lib/scan.mjs", "tools/t3cp/lib/schemas.mjs", "tools/t3cp/lib/validate.mjs", "tools/t3cp/runner/profiles.mjs",
   "tools/t3cp/runner/is-main.mjs", "tools/t3cp/runner/profiles.json", "tools/t3cp/public-refs.json",
-  "catalogue/catalogue.json", "scenarios.json", "schema/attempt-1.json", "schema/extras-1.json", "schema/record-1.json",
+  "tools/t3cp/lib/scenarios.mjs", "catalogue/catalogue.json", "scenarios.json", "schema/attempt-1.json", "schema/extras-1.json", "schema/record-1.json",
   "schema/scenario-attempt-1.json", "schema/scenario-record-1.json",
   // run-record.sh validates its spec against this on the VM; the runner identity (run-record.sh, runner/*) omits it.
   "schema/record-spec-1.json",
@@ -522,10 +523,10 @@ function checkSpec(spec) {
   }
 }
 
-function featureEra(catalogue, date) {
+function featureEra(eras, date) {
   return {
-    has: catalogue.feature_eras.filter((e) => date >= e.from).map((e) => e.id),
-    missing: catalogue.feature_eras.filter((e) => date < e.from).map((e) => e.id),
+    has: eras.filter((e) => date >= e.from).map((e) => e.id),
+    missing: eras.filter((e) => date < e.from).map((e) => e.id),
   };
 }
 
@@ -539,7 +540,11 @@ const sizeOf = (file) => {
 };
 
 /** The identity block shared by every attempt and extras file of one record. */
-function identityOf(spec, meta, result, catalogue) {
+/**
+ * The identity block of an attempt: release, platform, harness, fixture, workload and the feature eras the release has
+ * (`eras`: the ladder's by default, so a scenario-only era never reaches a ladder record).
+ */
+function identityOf(spec, meta, result, catalogue, eras = ladderFeatureEras(catalogue)) {
   checkSpec(spec);
   const date = releaseDate(spec);
   const platformId = /\.(linux-x64|darwin-arm64)\.(nightly|fork|base)$/.exec(spec.record_id)?.[1] ?? fail("spec: record_id has no platform");
@@ -603,7 +608,7 @@ function identityOf(spec, meta, result, catalogue) {
       seed: spec.seed,
       now: spec.now,
     },
-    era: featureEra(catalogue, spec.kind === "fork" ? spec.base.date : date),
+    era: featureEra(eras, spec.kind === "fork" ? spec.base.date : date),
   };
 }
 
@@ -733,7 +738,7 @@ function judgeRun(reader, meta, result, label, { maintenanceExpected = false } =
   if (guardUnavailable) problems.push("host_guard_unavailable");
   const distribution = distributionOf(run, codes);
   if (!runValid && !saturated && problems.length === 0) problems.push("attempt_invalid");
-  return { run, runRel, codes, problems, runValid, saturated, saturatedBy, valid, contaminated, guardUnavailable, maintenance, served, total, distribution };
+  return { run, runRel, k, codes, problems, runValid, saturated, saturatedBy, valid, contaminated, guardUnavailable, maintenance, served, total, distribution };
 }
 
 /**
@@ -922,11 +927,6 @@ const SCENARIO_RAW = {
     detail: { type: "object" },
   },
 };
-const durationS = (d) => {
-  const m = /^(\d+(?:\.\d+)?)(ms|s|m)$/.exec(d);
-  return Number(m[1]) * (m[2] === "ms" ? 0.001 : m[2] === "m" ? 60 : 1);
-};
-
 /** The row of scenarios.json the spec names: active, and not the ladder. */
 function scenarioRowOf(spec, scenarios) {
   const sc = spec.suite.scenario;
@@ -936,26 +936,6 @@ function scenarioRowOf(spec, scenarios) {
   if (row.suite !== spec.suite.id) fail(`spec: scenario ${spec.suite.id} is not a scenario row (the ladder publishes as its own suite)`);
   if ((spec.fixture?.id ?? "none") !== row.fixture) fail(`spec: fixture ${spec.fixture?.id} is not the row's (${row.fixture})`);
   return row;
-}
-
-/** The cell's load as the row gives it (the record's workload.cells entry). */
-function scenarioLoad(row, c) {
-  const rate = c.poll_rate === undefined ? null : Number(c.poll_rate);
-  return {
-    sessions: c.sessions,
-    subscribers: c.subscribers,
-    pollers: c.pollers,
-    mode: c.mode,
-    turn_gap_s: durationS(c.turn_gap),
-    switch_interval_s: c.switch_interval === undefined ? null : durationS(c.switch_interval),
-    poll_interval_s: rate === null ? null : Math.round((1 / rate) * 1000) / 1000,
-    fixture: c.fixture === "none" || row.fixture === "none" ? "none" : "era",
-    warmup_s: c.warmup_s,
-    window_s: c.window_s,
-    seed_compacted_at: c.seed_compacted_at,
-    post: c.post,
-    mark_age_days: c.mark_age_days ?? null,
-  };
 }
 
 const LOAD_KEYS = ["sessions", "subscribers", "pollers", "mode", "turn_gap_s", "switch_interval_s", "poll_interval_s"];
@@ -979,6 +959,7 @@ export function exportScenarioAttempt(rawDir, spec, { privatePatterns = [], cata
 
   const meta = readMeta(reader, spec, cell, n);
   if (meta.scenario?.id !== row.id || meta.scenario?.version !== row.version) fail("attempt-meta.json: scenario differs from the spec");
+  if (meta.harness?.version !== row.harness) fail(`attempt-meta.json: harness ${meta.harness?.version} is not the row's (${row.harness})`);
   const unseeded = c.seed_compacted_at === false;
   if ((meta.maintenance_expected === true) !== unseeded) fail("attempt-meta.json: maintenance_expected differs from the row's cell (only an unseeded cell expects maintenance)");
   checkProfile(meta);
@@ -987,13 +968,17 @@ export function exportScenarioAttempt(rawDir, spec, { privatePatterns = [], cata
     if ((meta.profile[k] ?? null) !== load[k]) fail(`attempt-meta.json: the load (${k}) differs from the row's cell ${cell}`);
   }
   if (meta.level !== undefined && meta.level !== c.sessions) fail(`attempt-meta.json: level differs from the row's cell ${cell} sessions`);
-  if (meta.suite && (meta.suite.warmup_s !== c.warmup_s || meta.suite.window_s !== c.window_s)) fail(`attempt-meta.json: warm-up or window differs from the row's cell ${cell}`);
+  if (!meta.suite || typeof meta.suite.warmup_s !== "number" || typeof meta.suite.window_s !== "number") fail("attempt-meta.json: a scenario cell names its suite, warm-up and window");
+  if (meta.suite.warmup_s !== c.warmup_s || meta.suite.window_s !== c.window_s) fail(`attempt-meta.json: warm-up or window differs from the row's cell ${cell}`);
   const fixtureId = load.fixture === "none" ? "none" : row.fixture;
   if (meta.fixture !== undefined && meta.fixture !== fixtureId) fail(`attempt-meta.json: fixture differs from the row's cell ${cell}`);
 
   const label = meta.label ?? "release";
   const { result } = readResult(reader, meta, context);
-  const base = identityOf(spec, meta, result, catalogue);
+  // What run.ts ran: its knobs name the warm-up and window, which must be the cell's.
+  const knobs = result.knobs?.workload;
+  if (knobs?.warmup_s !== c.warmup_s || knobs?.window_s !== c.window_s) fail(`${label}.result.json: run.ts ran another warm-up or window than the row's cell ${cell}`);
+  const base = identityOf(spec, meta, result, catalogue, catalogue.feature_eras);
   const identity = {
     ...base,
     fixture: base.fixture,
@@ -1003,6 +988,13 @@ export function exportScenarioAttempt(rawDir, spec, { privatePatterns = [], cata
   const problems = [...j.problems];
   // A saturated try measured nothing a scenario publishes: only a run the harness itself calls valid counts.
   let valid = j.valid && j.runValid;
+  // The measured window: as long as the cell's (5 % slack), or the attempt measured something else.
+  const runStart = isoMs(j.run.window?.start);
+  const runEnd = isoMs(j.run.window?.end);
+  if (valid && !(Number.isFinite(runStart) && Number.isFinite(runEnd) && (runEnd - runStart) / 1000 >= c.window_s * 0.95)) {
+    valid = false;
+    problems.push("window_too_short");
+  }
   if (!valid && problems.length === 0) problems.push("attempt_invalid");
 
   const date = spec.kind === "fork" ? spec.base.date : releaseDate(spec);
@@ -1017,6 +1009,10 @@ export function exportScenarioAttempt(rawDir, spec, { privatePatterns = [], cata
       const rawErrors = validate(SCENARIO_RAW, raw);
       if (rawErrors.length > 0) fail(`scenario.json: ${rawErrors.slice(0, 8).map((e) => `${e.path} ${e.message}`).join("; ")}`);
       if (raw.scenario.id !== row.id || raw.scenario.version !== row.version || raw.post !== c.post) fail("scenario.json: scenario or post step differs from the row's cell");
+      // The step measured the run the exporter chose: valid, that run, that window (1 s slack); else nothing is known.
+      const w = raw.window;
+      const near = (a, b) => typeof a === "number" && Number.isFinite(a) && Math.abs(a - b) <= 1000;
+      if (w.valid !== true || w.run !== j.k || !near(w.start_ms, runStart) || !near(w.end_ms, runEnd)) unmeasured = true;
       for (const id of Object.keys(raw.metrics)) if (!row.metrics.includes(id)) fail(`scenario.json: ${id} is not one of the row's metrics`);
     }
     if (sources.includes("post") && raw === null) unmeasured = true;
@@ -1029,13 +1025,15 @@ export function exportScenarioAttempt(rawDir, spec, { privatePatterns = [], cata
       let reason = null;
       if (SCENARIO_SOURCES[id] === "post") {
         const entry = raw.metrics[id] ?? fail(`scenario.json: ${id} is missing`);
-        if (entry.value === null) {
-          if (entry.reason === null || INTERNAL_SCENARIO_REASONS.includes(entry.reason) || !SCENARIO_REASONS.includes(entry.reason)) {
-            unmeasured = true;
-            continue;
-          }
-          reason = entry.reason;
-        } else value = entry.value;
+        // A value, or null with a public reason: anything else (an internal or unknown code, a value with a reason,
+        // null with none) is no measurement.
+        const publicReason = entry.reason !== null && SCENARIO_REASONS.includes(entry.reason);
+        if (entry.value === null ? !publicReason : entry.reason !== null) {
+          unmeasured = true;
+          continue;
+        }
+        if (entry.value === null) reason = entry.reason;
+        else value = entry.value;
       } else if (incomplete) {
         reason = "turn_start_incomplete";
       } else {

@@ -21,6 +21,7 @@ import { NOT_MEASURED_SATURATED, SCENARIO_REASONS, forkHeadProblem, levelMetricI
 import { ScanConfigError, scanValue } from "./lib/scan.mjs";
 import { JsonError, parseStrict } from "./lib/json.mjs";
 import { cellProfile, loadProfiles, metaProfile } from "./runner/profiles.mjs";
+import { scenarioLoad } from "./lib/scenarios.mjs";
 
 // paired_nightly: only on a nightly fork-head record (<date>.<platform>.fork); absent on every other record.
 const IDENTITY_KEYS = ["record_id", "kind", "release", "base", "paired_nightly", "platform", "harness", "fixture", "workload", "era"];
@@ -307,10 +308,7 @@ export function mergeRecord({ attempts, extras = [], catalogue = loadCatalogue()
 // The identity a scenario record's attempts share (no paired_nightly: scenario records are nightly, fork or base).
 const SCENARIO_IDENTITY_KEYS = ["record_id", "kind", "release", "base", "platform", "harness", "fixture", "workload", "era"];
 const SCENARIO_LOAD_KEYS = ["sessions", "subscribers", "pollers", "mode", "turn_gap_s", "switch_interval_s", "poll_interval_s", "fixture", "warmup_s", "window_s", "seed_compacted_at", "post", "mark_age_days"];
-const durationS = (d) => {
-  const m = /^(\d+(?:\.\d+)?)(ms|s|m)$/.exec(d);
-  return Number(m[1]) * (m[2] === "ms" ? 0.001 : m[2] === "m" ? 60 : 1);
-};
+
 
 /**
  * Builds one t3cp/scenario-record/1 object from a scenario row's validated attempts (t3cp/scenario-attempt/1): per row
@@ -343,6 +341,8 @@ export function mergeScenarioRecord({ attempts, scenarios = loadScenarios(), gen
   const row = scenarios.rows.find((r) => r.id === id && r.version === version);
   if (!row || row.suite !== first.workload.suite) throw new MergeError(`scenario ${first.workload.suite}: not a row of scenarios.json`);
   if (first.workload.attempts_per_cell !== row.attempts) throw new MergeError(`scenario ${row.suite}: attempts_per_cell is not the row's`);
+  if (first.harness.version !== row.harness) throw new MergeError(`scenario ${row.suite}: harness ${first.harness.version} is not the row's (${row.harness})`);
+  if (first.fixture.id !== row.fixture) throw new MergeError(`scenario ${row.suite}: fixture ${first.fixture.id} is not the row's (${row.fixture})`);
   const harness = publicHarness(first.harness, publicRefs);
   if (first.kind === "fork") {
     const pinned = publicRefs.fork[first.release.tag];
@@ -353,22 +353,7 @@ export function mergeScenarioRecord({ attempts, scenarios = loadScenarios(), gen
     const c = row.cells.find((x) => x.name === a.cell);
     if (!c) throw new MergeError(`attempt ${a.cell}-${a.n}: the row has no cell ${a.cell}`);
     if (a.n > row.attempts) throw new MergeError(`attempt ${a.cell}-${a.n}: the row runs ${row.attempts} attempts per cell`);
-    const rate = c.poll_rate === undefined ? null : Number(c.poll_rate);
-    const planned = {
-      sessions: c.sessions,
-      subscribers: c.subscribers,
-      pollers: c.pollers,
-      mode: c.mode,
-      turn_gap_s: durationS(c.turn_gap),
-      switch_interval_s: c.switch_interval === undefined ? null : durationS(c.switch_interval),
-      poll_interval_s: rate === null ? null : Math.round((1 / rate) * 1000) / 1000,
-      fixture: c.fixture === "none" || row.fixture === "none" ? "none" : "era",
-      warmup_s: c.warmup_s,
-      window_s: c.window_s,
-      seed_compacted_at: c.seed_compacted_at,
-      post: c.post,
-      mark_age_days: c.mark_age_days ?? null,
-    };
+    const planned = scenarioLoad(row, c);
     if (SCENARIO_LOAD_KEYS.some((k) => a.load?.[k] !== planned[k])) throw new MergeError(`attempt ${a.cell}-${a.n}: the load is not the row's cell ${a.cell}`);
     if (canonical(Object.keys(a.metrics).sort()) !== canonical([...row.metrics].sort())) throw new MergeError(`attempt ${a.cell}-${a.n}: its metrics are not the row's`);
   }

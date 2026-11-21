@@ -394,6 +394,7 @@ export function writeRawScenarioAttempt(root, { row, cell, n = 1, spec = fakeSce
       files.meta.level = c.sessions;
       files.meta.profile = profile;
       files.meta.scenario = { id: row.id, version: row.version };
+      files.meta.harness.version = row.harness;
       files.meta.fixture = c.fixture === "none" || row.fixture === "none" ? "none" : spec.fixture.id;
       if (c.seed_compacted_at === false) files.meta.maintenance_expected = true;
       // run.ts ran the cell's warm-up and window: its knobs say so, and the measured window is that long.

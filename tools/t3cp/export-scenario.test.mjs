@@ -152,6 +152,8 @@ test("the row decides: an unknown or retired row, a cell it lacks, other load ar
   const retired = { ...SCENARIOS, rows: [{ ...COMPACTION, status: "retired" }] };
   assert.throws(() => exportAttempt(dir, spec, { ...opts, scenarios: retired }), /retired/);
   assert.throws(() => exportAttempt(dir, { ...spec, suite: { ...spec.suite, id: "event-log-compaction@2" } }, opts), /suite/);
+  const harness = compaction({ edit: (f) => (f.meta.harness.version = "t3cp-harness/1.9.9") });
+  assert.throws(() => exportAttempt(harness.dir, harness.spec, opts), /harness t3cp-harness\/1\.9\.9 is not the row's/);
   const other = compaction({ edit: (f) => (f.meta.profile.subscribers = 3) });
   assert.throws(() => exportAttempt(other.dir, other.spec, opts), /load .*row's cell cmp/);
   const extra = compaction({ metrics: { event_log_unpruned_days: ok(2), turn_start_long_thread_ms: ok(1) } });

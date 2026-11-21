@@ -137,7 +137,7 @@ test("refused: a record of no row, a record under another row's path or another 
   const ladder = LADDER[0];
   assert.throws(() => build(writeTree(LADDER, [], { [`scenarios/event-log-compaction/1/records/linux-x64/${ladder.release.date}.${ladder.release.tag}.json`]: ladder })), BuildError);
   // A record that runs another harness than its row pins is refused.
-  const otherHarness = fakeScenarioRecord({ row: COMPACTION, date: "2026-11-10", harness: HARNESS_B });
+  const otherHarness = fakeScenarioRecord({ row: { ...COMPACTION, harness: HARNESS_B.version }, date: "2026-11-10", harness: HARNESS_B });
   assert.throws(() => build(writeTree(LADDER, [otherHarness])), (e) => e instanceof BuildError && /harness/.test(e.message));
 });
 
@@ -168,7 +168,10 @@ test("review: a scenario record must implement its row: scenario, attempts, fixt
     scenario: (r) => (r.workload.scenario = { id: "second-row", version: 1 }),
     attempts: (r) => (r.workload.attempts_per_cell = 2),
     fixture: (r) => (r.fixture = { ...r.fixture, id: "large-63" }),
-    platform: (r) => (r.platform = { ...r.platform, id: "darwin-arm64" }),
+    platform: (r) => {
+      r.platform = { ...r.platform, id: "darwin-arm64" };
+      r.record_id = r.record_id.replace("linux-x64", "darwin-arm64");
+    },
     load: (r) => (r.workload.cells.cmp = { ...r.workload.cells.cmp, sessions: 50, window_s: 10 }),
     "load missing": (r) => delete r.workload.cells.cmp,
     "metric missing": (r) => delete r.cells.cmp.metrics.event_log_unpruned_days,
@@ -179,7 +182,7 @@ test("review: a scenario record must implement its row: scenario, attempts, fixt
     edit(r);
     const rel = what === "platform" ? scenarioRecordPath(r) : scenarioRecordPath(good);
     const scenarios = what === "platform" ? { ...SCENARIOS, rows: [LADDER_ROW, narrowRow, SECOND, SECOND_V2] } : SCENARIOS;
-    assert.throws(() => build(writeTree(LADDER, [], { [rel]: r }), { scenarios }), BuildError, what);
+    assert.throws(() => build(writeTree(LADDER, [], { [rel]: r }), { scenarios }), (e) => e instanceof BuildError && /its row|row's|workload\.cells/.test(e.message), what);
   }
   // A partial record (a cell with no attempts) is still published.
   const partial = structuredClone(good);
