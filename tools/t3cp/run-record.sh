@@ -33,7 +33,8 @@
 # (<cell>-<n>), each with the cell's counts, driver mode and turn gap, warm-up and window, the compaction marker seeded
 # only when the cell says so, and after each try the cell's post step (runner/scenario-post.mjs), which writes
 # <raw>/scenario.json; it measures no record extras. A row the catalogue does not have, or a retired one, is refused
-# before any attempt (scenario_unknown, exit 2).
+# before any attempt (scenario_unknown, exit 2), and so is a harness other than the one the row pins (harness_missing,
+# exit 3).
 # Layout of <out> and <work>, exit codes and reason codes: schema/record-spec-1.json ($defs). The runner knows no
 # bucket, host, region or token: storage is the launcher's, through the hooks:
 #   T3CP_ON_ATTEMPT <attempt dir>   after each attempt.json (an executable; retried 3 times, then hook_failed)
@@ -434,7 +435,7 @@ if [ -n "$SCENARIO_REF" ]; then
   # A scenario record: the row's attempts, from the catalogue (every lib and scenarios.mjs call reads the same one).
   SCENARIOS=${T3CP_SCENARIOS:-$REPO/scenarios.json}
   export T3CP_SCENARIOS=$SCENARIOS
-  SC_FIXTURE="" SC_PLATFORMS="" SC_ORDER="" SC_ATTEMPTS_TOTAL=0 SC_JSON=""
+  SC_FIXTURE="" SC_HARNESS="" SC_PLATFORMS="" SC_ORDER="" SC_ATTEMPTS_TOTAL=0 SC_JSON=""
   sc_err=$WORK/scenario.err
   sc_sh=$("$NODE" "$HERE/runner/scenarios.mjs" order "$SCENARIOS" "$SCENARIO_REF" 2> "$sc_err") ||
     fail scenario_unknown false 2 "$(tail -c 400 "$sc_err" | tr '\n' ' ')"
@@ -520,6 +521,11 @@ HARNESS_MIN=t3cp-harness/2.0.0
 harness_version=$(lib json-get "$HARNESS/t3cp-harness.json" version 2>/dev/null || true)
 lib version-at-least "${harness_version:-none}" "$HARNESS_MIN" ||
   fail harness_missing true 3 "harness ${harness_version:-without t3cp-harness.json or a version}: $HARNESS_MIN or later needed"
+# A scenario row pins its harness, and the exporter takes an attempt only from that one: any other installation would
+# run every attempt for nothing, so it is refused here, once.
+if [ -n "$SCENARIO_REF" ] && [ "$harness_version" != "$SC_HARNESS" ]; then
+  fail harness_missing true 3 "harness $harness_version: scenario $SCENARIO_REF pins $SC_HARNESS"
+fi
 [ -f "$EXPORTER" ] || fail exporter_missing true 3 "tools/t3cp/export.mjs missing"
 # The exporter refuses every attempt without a usable private pattern list: found out now, not after 21 attempts.
 pp_error=$(lib private-patterns 2>&1) || fail exporter_missing true 3 "the exporter cannot run: $pp_error"
@@ -714,7 +720,8 @@ one_try() { # cell try fixture-arg: one run.ts invocation with its sidecars (the
   for a in $P_DRIVER_ARGS; do args+=("--driver-arg=$a"); done
   [ "$PIN" = 1 ] && args+=(--server-cpus "$SERVER_CPUS" --driver-cpus "$DRIVER_CPUS")
   # A cell that names mark_age_days starts each try with the migrated fixture's prune mark that many days old (run.ts
-  # restores the fixture from that file), so the try reads the row's age, not the time since the fixture was made.
+  # restores the fixture from that file), so the try reads the row's age, not the time since the fixture was made. A
+  # mark that cannot be written stops the record before the try: the post step would measure the fixture's own mark.
   if [ -n "$P_MARK_AGE_DAYS" ]; then
     local mark_set
     if [ "$fixture_arg" = none ]; then
@@ -726,7 +733,7 @@ one_try() { # cell try fixture-arg: one run.ts invocation with its sidecars (the
         *) log "$cell try $try: no prune mark to set ($mark_set)" ;;
       esac
     else
-      log "$cell try $try: the prune mark could not be set ($mark_set)"
+      fail runner_error true 4 "$cell try $try: the prune mark could not be set (${mark_set:-no result})"
     fi
   fi
   started=$(date -u +%FT%TZ)

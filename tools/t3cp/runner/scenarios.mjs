@@ -20,6 +20,8 @@ export const MODES = ["fresh", "history", "mixed"];
 const NAME = /^[a-z0-9][a-z0-9-]{0,40}$/;
 const CELL = /^[a-z0-9][a-z0-9-]{0,30}$/;
 const REF = /^([a-z0-9][a-z0-9-]{0,40})@([1-9][0-9]{0,5})$/;
+/** The harness release a row pins, as the catalogue's schema (schema/scenarios-1.json) writes it. */
+const HARNESS = /^t3cp-harness\/(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/;
 
 const seconds = (duration) => {
   const m = /^(\d+(?:\.\d+)?)(ms|s|m)$/.exec(String(duration));
@@ -47,6 +49,10 @@ export function scenarioRow(catalogue, ref) {
     throw new Error(`scenario ${ref} is not a scenario row: its suite is ${JSON.stringify(row.suite ?? null)}, not ${ref}`);
   }
   if (row.status === "retired") throw new Error(`scenario ${ref} is retired`);
+  // The exporter takes an attempt only from the harness the row pins, so the runner runs the row on that one alone.
+  if (typeof row.harness !== "string" || !HARNESS.test(row.harness)) {
+    throw new Error(`scenario ${ref}: harness must be t3cp-harness/<major>.<minor>.<patch>, not ${JSON.stringify(row.harness ?? null)}`);
+  }
   if (!Number.isInteger(row.attempts) || row.attempts < 1 || row.attempts > 5) throw new Error(`scenario ${ref}: attempts must be 1 to 5`);
   if (typeof row.fixture !== "string" || !(row.fixture === "none" || NAME.test(row.fixture))) throw new Error(`scenario ${ref}: not a fixture id`);
   if (!Array.isArray(row.platforms) || row.platforms.some((p) => p !== "linux-x64" && p !== "darwin-arm64")) {
@@ -186,6 +192,7 @@ if (isMain(import.meta.url)) {
           SC_ID: row.id,
           SC_VERSION: row.version,
           SC_FIXTURE: row.fixture,
+          SC_HARNESS: row.harness,
           SC_PLATFORMS: row.platforms.join(" "),
           SC_ORDER: order.map((a) => a.cell).join(" "),
           SC_ATTEMPTS_TOTAL: order.length,
