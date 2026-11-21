@@ -154,3 +154,16 @@ test('the ladder row counts the ladder records; a row\'s latest date is its newe
     assert.ok(ix.some(r => r.startsWith('event-log-compaction ') && r.endsWith(`6 records, latest ${T.dLong('2026-10-09')}`)), ix.join(' | '));
   } finally { s.done(); }
 });
+
+test('a ladder row counts only the records of its own suite', () => {
+  const v1 = SCENARIOS.rows.find(r => r.id === 'ladder');
+  const v2 = { ...v1, version: 2, suite: 'ladder-2', added: '2026-11-02' };
+  const files = { 'r1.json': { workload: { suite: 'ladder-1' } }, 'r2.json': { workload: { suite: 'ladder-2' } } };
+  const c = {
+    T, catFile: catalogue, mac: { show: false }, ix: { fork: [], bases: [] },
+    records: [{ date: '2026-11-01', platforms: { 'linux-x64': { path: 'r1.json' } } }, { date: '2026-11-02', platforms: { 'linux-x64': { path: 'r2.json' } } }],
+    read: p => files[p] || null,
+  };
+  const ix = rowsOf(scenarioPages(c, { rows: [v1, v2] }).find(p => p.path === 'scenarios/index.html').body);
+  assert.deepEqual(ix.slice(1).map(r => r.replace(/^.* Metrics /, '')), [`1 record, latest ${T.dLong('2026-11-01')}`, `1 record, latest ${T.dLong('2026-11-02')}`]);
+});
