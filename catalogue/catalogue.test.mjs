@@ -182,3 +182,17 @@ test("catalogue: targets and mappings name catalogue metrics and say what they m
   }
   for (const x of catalogue.mappings) assert.deepEqual(Object.keys(x), ["metric", "text"]);
 });
+
+test("catalogue: the commit lane's busy share and the killed stops are ladder metrics, daily per level, before the scenario metrics", () => {
+  const lane = metrics.find((m) => m.id === "commit_lane_busy_share");
+  const killed = metrics.find((m) => m.id === "shutdown_killed");
+  assert.ok(lane && killed);
+  assert.deepEqual([lane.lane, lane.scope, lane.unit, lane.better, lane.era, lane.era_start, lane.source.file], ["daily", "level", "0–1", "lower", "commit_batch", "2026-11-06", "result.json"]);
+  assert.deepEqual([killed.lane, killed.scope, killed.unit, killed.better, killed.era, killed.era_start, killed.source.file], ["daily", "level", "n", "lower", null, catalogue.window_start, "merge"]);
+  assert.equal(catalogue.feature_eras.find((e) => e.id === "commit_batch")?.from, "2026-11-06");
+  const ids = metrics.map((m) => m.id);
+  const firstScenario = metrics.findIndex((m) => m.lane === "scenario");
+  assert.ok(ids.indexOf("commit_lane_busy_share") < firstScenario && ids.indexOf("shutdown_killed") < firstScenario);
+  // Appended after every earlier ladder metric: the synthetic kit draws its values in catalogue order.
+  assert.deepEqual(ids.slice(firstScenario - 2, firstScenario), ["commit_lane_busy_share", "shutdown_killed"]);
+});
