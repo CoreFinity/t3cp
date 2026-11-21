@@ -34,14 +34,23 @@ export function scenarioPages(c, scenarios) {
   const isLatest = row => ids.get(row.id)[0] === row;
 
   // ---------- the index ----------
+  // A ladder record's suite, read once per file.
+  const suites = new Map();
+  const suiteOf = path => { if (!suites.has(path)) { const r = c.read(path); suites.set(path, (r && r.workload && r.workload.suite) || null); } return suites.get(path); };
   // A row's records and the date of its newest of any kind (nightly, fork release, upstream base): the ladder's from
   // the ladder's own lists, a scenario row's from the aggregator's index and its series.
   const recordsOf = row => {
     const plats = shown(row);
     if (row.metrics === 'catalogue') {
-      const ix0 = c.ix || {};
-      const lists = [c.records || [], ix0.fork || [], ix0.bases || []].map(l => l.filter(e => plats.some(p => e.platforms && e.platforms[p])));
-      return { n: lists.reduce((s, l) => s + l.reduce((k, e) => k + plats.filter(p => e.platforms[p]).length, 0), 0), dates: lists.flat().map(e => e.date) };
+      // Each ladder record of this row's suite (its file's workload.suite), on a shown platform.
+      const ix0 = c.ix || {}, mine = [];
+      for (const e of [...(c.records || []), ...(ix0.fork || []), ...(ix0.bases || [])]) {
+        for (const p of plats) {
+          const at = e.platforms && e.platforms[p], rec = at && at.path ? suiteOf(at.path) : null;
+          if (rec === row.suite) mine.push(e.date);
+        }
+      }
+      return { n: mine.length, dates: mine };
     }
     const r = indexRow(row);
     if (!r) return { n: 0, dates: [] };
