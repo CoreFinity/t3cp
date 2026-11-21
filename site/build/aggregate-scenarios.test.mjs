@@ -202,3 +202,28 @@ test("review: each scenario's series keeps its own time: a newer record of anoth
     if (rel.startsWith(`scenarios/${COMPACTION.id}/`)) assert.ok(both.get(rel)?.equals(bytes), `${rel} moved`);
   }
 });
+
+test("long-thread-turn-start@1: before 2026-10-26 the shell series is null with no_shell_span and marks its era; the turn-start series publish", async () => {
+  const { loadScenarios: rows } = await import("../../tools/t3cp/lib/repo.mjs");
+  const repoRow = rows().rows.find((r) => r.id === "long-thread-turn-start" && r.version === 1);
+  assert.ok(repoRow, "the row is in scenarios.json");
+  const row = { ...repoRow, harness: HARNESS.version };
+  const scenarios = { ...SCENARIOS, rows: [...SCENARIOS.rows, row] };
+  const dates = ["2026-10-24", "2026-10-25", "2026-10-26", "2026-10-27"];
+  const records = dates.map((d) =>
+    fakeScenarioRecord({
+      row,
+      date: d,
+      value: (id) => (id === "get_thread_shell_long_thread_ms" ? (d < "2026-10-26" ? null : 28) : id === "turn_start_history_gap_ms" ? 700 : 2700),
+      reason: (id) => (id === "get_thread_shell_long_thread_ms" && d < "2026-10-26" ? "no_shell_span" : undefined),
+    }),
+  );
+  const files = build(writeTree(LADDER, records), { scenarios });
+  const s = shard(files, row, "linux-x64", "get_thread_shell_long_thread_ms");
+  assert.deepEqual(s.nightly.cells.lt.median, [null, null, 28, 28]);
+  assert.deepEqual(s.nightly.cells.lt.reason, ["no_shell_span", "no_shell_span", null, null]);
+  assert.deepEqual(s.eras, [{ date: "2026-10-26", kind: "metric", label: catalogue.feature_eras.find((e) => e.id === "thread_shell_span").what }]);
+  const gap = shard(files, row, "linux-x64", "turn_start_history_gap_ms");
+  assert.deepEqual(gap.nightly.cells.lt.median, [700, 700, 700, 700]);
+  assert.deepEqual(gap.eras, []);
+});
