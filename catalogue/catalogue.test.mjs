@@ -8,7 +8,7 @@ const metrics = catalogue.metrics;
 
 const ENUMS = {
   better: ["lower", "higher", "context"],
-  lane: ["daily", "record", "weekly", "release", "later"],
+  lane: ["daily", "record", "weekly", "release", "later", "scenario"],
   scope: ["level", "record"],
   form: ["ts", "ladder", "bars", "slope"],
   upstream: ["yes", "yes L", "pre", "fork"],
@@ -72,7 +72,8 @@ test("catalogue: every metric has exactly the known fields with valid values", (
     assert.equal(typeof m.source.file, "string");
     assert.equal(typeof m.source.field, "string");
     assert.deepEqual(Object.keys(m.source), ["file", "field"]);
-    if (m.scope === "record") assert.ok(["daily", "record"].includes(m.lane), `${m.id}: record scope lane`);
+    if (m.scope === "record") assert.ok(["daily", "record", "scenario"].includes(m.lane), `${m.id}: record scope lane`);
+    if (m.lane === "scenario") assert.equal(m.scope, "record", `${m.id}: a scenario metric is measured per scenario cell, never per ladder level`);
     if (m.empty_cell) assert.ok(["daily", "record"].includes(m.lane), `${m.id}: empty cell on ${m.lane}`);
     if (m.upstream === "fork") assert.equal(m.era_start, null, `${m.id}: fork-only rows have no upstream era`);
   }
@@ -133,4 +134,51 @@ test("catalogue: the event loop delay rows name their source: eld_* is the prelo
   assert.match(gauge.name, /server gauge/);
   assert.equal(gauge.era, "gauges");
   assert.equal(gauge.source.field, "metrics.otlp.event_loop_delay_max_ms");
+});
+
+// The scenario metrics (lane scenario): measured by a scenario row of scenarios.json, per row cell, never on the
+// ladder. No ladder path reads this lane, so adding them moves no ladder series, compare file or index entry.
+const SCENARIO_METRICS = {
+  turn_start_history_gap_ms: { era: "turn_start_span", era_start: "2026-10-20", unit: "ms" },
+  turn_start_long_thread_ms: { era: "turn_start_span", era_start: "2026-10-20", unit: "ms" },
+  get_thread_shell_long_thread_ms: { era: "thread_shell_span", era_start: "2026-10-26", unit: "ms" },
+  event_log_unpruned_days: { era: "event_prune", era_start: "2026-11-04", unit: "days" },
+};
+
+test("catalogue: the scenario metrics, their feature eras, and no other metric on the scenario lane", () => {
+  assert.deepEqual(metrics.filter((m) => m.lane === "scenario").map((m) => m.id).sort(), Object.keys(SCENARIO_METRICS).sort());
+  for (const [id, want] of Object.entries(SCENARIO_METRICS)) {
+    const m = metrics.find((x) => x.id === id);
+    assert.equal(m.era, want.era, id);
+    assert.equal(m.era_start, want.era_start, id);
+    assert.equal(m.unit, want.unit, id);
+    assert.equal(m.form, "ts", id);
+    assert.equal(m.better, "lower", id);
+    assert.equal(m.upstream, "yes", id);
+    assert.deepEqual([m.empty_cell, m.gate, m.counter, m.headline], [false, false, null, null], id);
+    assert.ok(!Object.values(catalogue.headlines).flat().includes(id), `${id} is no headline`);
+  }
+  const eras = Object.fromEntries(catalogue.feature_eras.map((e) => [e.id, e.from]));
+  assert.deepEqual(
+    { turn_start_span: eras.turn_start_span, thread_shell_span: eras.thread_shell_span, event_prune: eras.event_prune },
+    { turn_start_span: "2026-10-20", thread_shell_span: "2026-10-26", event_prune: "2026-11-04" },
+  );
+  // Appended after every ladder metric: the synthetic kit draws its values in catalogue order.
+  const firstScenario = metrics.findIndex((m) => m.lane === "scenario");
+  assert.ok(metrics.slice(firstScenario).every((m) => m.lane === "scenario"), "the scenario metrics come last");
+});
+
+test("catalogue: targets and mappings name catalogue metrics and say what they mean in plain words", () => {
+  const ids = new Set(metrics.map((m) => m.id));
+  assert.deepEqual(catalogue.targets, [
+    { metric: "turn_start_history_gap_ms", below: 1000, unit: "ms", text: catalogue.targets[0].text },
+  ]);
+  assert.deepEqual(catalogue.mappings.map((x) => x.metric), ["turn_start_history_gap_ms", "get_thread_shell_p95_ms", "shutdown_s", "finalize_subagent_p50_ms"]);
+  for (const entry of [...catalogue.targets, ...catalogue.mappings]) {
+    assert.ok(ids.has(entry.metric), entry.metric);
+    assert.equal(typeof entry.text, "string");
+    assert.ok(entry.text.length > 40 && entry.text.length < 1200, `${entry.metric}: text length`);
+    assert.doesNotMatch(entry.text, /perf\.\d|nightly\.\d{8}/, `${entry.metric}: no release names`);
+  }
+  for (const x of catalogue.mappings) assert.deepEqual(Object.keys(x), ["metric", "text"]);
 });

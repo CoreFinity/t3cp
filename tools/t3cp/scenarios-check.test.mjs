@@ -50,7 +50,7 @@ function testRow(overrides = {}) {
     platforms: ["linux-x64"],
     fixture: "none",
     attempts: 3,
-    metrics: [repo.catalogue.metrics.find((m) => m.lane === "record").id],
+    metrics: [repo.catalogue.metrics.find((m) => m.lane === "scenario").id],
     cells: [{ name: "c", mode: "fresh", sessions: 1, subscribers: 1, pollers: 0, turn_gap: "5s", warmup_s: 10, window_s: 30, seed_compacted_at: true, post: "none" }],
     ...overrides,
   };
@@ -203,7 +203,10 @@ test("the validator refuses an unknown metric key", () => {
   assert.deepEqual(check([testRow()]), []);
   assert.deepEqual(check([testRow({ metrics: ["no_such_metric"] })]), ["test-row@1: unknown metric key no_such_metric"]);
   const weekly = repo.catalogue.metrics.find((m) => m.lane === "weekly").id;
-  assert.deepEqual(check([testRow({ metrics: [weekly] })]), [`test-row@1: ${weekly} is a weekly metric, which no record publishes`]);
+  assert.deepEqual(check([testRow({ metrics: [weekly] })]), [`test-row@1: ${weekly} is a weekly metric; a scenario row publishes scenario-lane metrics only`]);
+  // The ladder's own metrics (daily and record lanes) are never a scenario row's: the ladder publishes them.
+  const ladder = repo.catalogue.metrics.find((m) => m.lane === "record").id;
+  assert.deepEqual(check([testRow({ metrics: [ladder] })]), [`test-row@1: ${ladder} is a record metric; a scenario row publishes scenario-lane metrics only`]);
 });
 
 test("the validator refuses a harness version with no pin in public-refs.json", () => {
