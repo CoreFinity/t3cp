@@ -794,6 +794,8 @@ export function exportAttempt(rawDir, spec, options = {}) {
 
   const ids = levelMetricIds(catalogue);
   const metrics = Object.fromEntries(ids.map((id) => [id, null]));
+  // Whether the commit lane had no flush in a measured window (no flush entry, or one with no samples).
+  let laneNoFlush = false;
   if (valid) {
     const startMs = isoMs(run.window?.start);
     const endMs = isoMs(run.window?.end);
@@ -828,6 +830,8 @@ export function exportAttempt(rawDir, spec, options = {}) {
       kind: spec.kind,
     };
     checkOrdered(src.metrics, src.loopWindow);
+    const flush = src.metrics?.spans?.["orchestrationV2.ProviderCommitBatch.flush"];
+    laneNoFlush = src.window !== null && (flush === undefined || flush === null || flush.count === 0);
     const preloadMissing = codes.includes("preload_not_loaded");
     const preloadIds = new Set(catalogue.metrics.filter((m) => m.upstream === "pre").map((m) => m.id));
     for (const id of ids) {
@@ -856,7 +860,7 @@ export function exportAttempt(rawDir, spec, options = {}) {
   // The commit lane in its era with no flush ending in the window (an idle level): null, with its public reason.
   const lane = catalogue.metrics.find((m) => m.id === "commit_lane_busy_share");
   const laneDate = spec.kind === "fork" ? spec.base.date : releaseDate(spec);
-  if (valid && lane && metrics.commit_lane_busy_share === null && laneDate >= lane.era_start) metricReasons.commit_lane_busy_share = "no_flush_in_window";
+  if (valid && lane && laneNoFlush && metrics.commit_lane_busy_share === null && laneDate >= lane.era_start) metricReasons.commit_lane_busy_share = "no_flush_in_window";
   if (valid && saturated) {
     for (const id of NOT_MEASURED_SATURATED) {
       metrics[id] = null;
