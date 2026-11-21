@@ -162,6 +162,10 @@ test("APP_VERSION wins where the tree reads it, and is ignored where it does not
   try {
     assert.equal(versionOf(reads, { APP_VERSION: " 2.0.0 " }), "2.0.0");
     assert.equal(versionOf(reads, { APP_VERSION: "   " }), "0.1.10", "a blank APP_VERSION is unset");
+    // Trimmed as the server trims it (String.prototype.trim): newlines and tabs too, and stdout is exactly the version.
+    const padded = printVersion(reads, { APP_VERSION: "\n\t2.0.0 \n" });
+    assert.equal(padded.status, 0, padded.stderr);
+    assert.equal(padded.stdout, "2.0.0\n");
     assert.equal(versionOf(ignores, { APP_VERSION: "2.0.0" }), "0.1.9");
   } finally {
     rmSync(reads, { recursive: true, force: true });
