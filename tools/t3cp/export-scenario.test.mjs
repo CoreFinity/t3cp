@@ -275,3 +275,10 @@ test("review: the run the exporter chose must have run the cell: its driver's mo
   ({ dir, spec } = compaction({ edit: (f) => Object.assign(f.run.driver.workload, { fixture_thread_sessions: 0, new_thread_sessions: 1 }) }));
   assert.throws(() => exportAttempt(dir, spec, opts), /fixture threads/);
 });
+
+test("review: run.ts must have restored a fixture file exactly where the cell starts from one", () => {
+  for (const observed of [null, { kind: "none", sha256: null, bytes: null }]) {
+    const { dir, spec } = compaction({ edit: (f) => (f.result.identity.fixture = observed) });
+    assert.throws(() => exportAttempt(dir, spec, opts), /without a fixture file/, JSON.stringify(observed));
+  }
+});
