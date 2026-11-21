@@ -217,7 +217,12 @@ export function mergeRecord({ attempts, extras = [], catalogue = loadCatalogue()
     const valid = inCell.filter((a) => a.attempt.valid);
     if (valid.length < 2) complete = false;
     const metrics = {};
-    for (const id of cellMetricIds(catalogue, cell, first.kind)) metrics[id] = stat(valid.map((a) => a.metrics[id] ?? null));
+    for (const id of cellMetricIds(catalogue, cell, first.kind)) {
+      metrics[id] = stat(valid.map((a) => a.metrics[id] ?? null));
+      // No flush ended in any valid attempt's window: the cell keeps that public reason beside its null.
+      const nulls = valid.filter((a) => (a.metrics[id] ?? null) === null);
+      if (metrics[id].median === null && nulls.length > 0 && nulls.every((a) => a.attempt.metric_reasons?.[id] === "no_flush_in_window")) metrics[id].reason = "no_flush_in_window";
+    }
     // A count not measured on a saturated attempt is not measured for the cell either, when any of its attempts is.
     if (valid.some((a) => a.attempt.saturated === true)) {
       for (const id of NOT_MEASURED_SATURATED) {

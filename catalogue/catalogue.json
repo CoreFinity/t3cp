@@ -70,6 +70,11 @@
       "id": "event_prune",
       "from": "2026-11-04",
       "what": "event-log pruning past a prune mark"
+    },
+    {
+      "id": "commit_batch",
+      "from": "2026-11-06",
+      "what": "provider commit batching (the commit lane and its flush spans)"
     }
   ],
   "groups": [
@@ -3117,6 +3122,56 @@
       "source": {
         "file": "server.log",
         "field": "count of \"Orchestration effect admission changed\""
+      }
+    },
+    {
+      "id": "commit_lane_busy_share",
+      "name": "Provider commit lane busy share",
+      "short": "Commit lane busy",
+      "group": "sqlite",
+      "unit": "0–1",
+      "better": "lower",
+      "definition": "Share of the window in which the server's commit lane was committing: the summed duration of its flush spans that end in the window, over the window's length. A flush that began before the window counts whole, so the share can slightly exceed 1. The lane is one worker committing every agent's provider events in order: near 1 it is saturated, and those events and the writes behind them wait.",
+      "lane": "daily",
+      "scope": "level",
+      "form": "ts",
+      "era": "commit_batch",
+      "era_start": "2026-11-06",
+      "upstream": "yes",
+      "platforms": ["linux-x64", "darwin-arm64"],
+      "na_on": [],
+      "empty_cell": false,
+      "gate": false,
+      "counter": null,
+      "headline": null,
+      "source": {
+        "file": "result.json",
+        "field": "spans[\"orchestrationV2.ProviderCommitBatch.flush\"].total_ms (spans ending in the window, not clipped) / window ms"
+      }
+    },
+    {
+      "id": "shutdown_killed",
+      "name": "Stops that did not finish gracefully",
+      "short": "Killed stops",
+      "group": "startup",
+      "unit": "n",
+      "better": "lower",
+      "definition": "Attempts in the cell whose server did not exit on its own after SIGTERM within the harness's stop grace, so the harness had to kill it. A graceful stop releases every session and reconciles the orchestration state before it exits; a killed one leaves that work for the next start. 0 means every stop in the cell finished on its own.",
+      "lane": "daily",
+      "scope": "level",
+      "form": "ts",
+      "era": null,
+      "era_start": "2026-10-17",
+      "upstream": "yes",
+      "platforms": ["linux-x64", "darwin-arm64"],
+      "na_on": [],
+      "empty_cell": false,
+      "gate": false,
+      "counter": null,
+      "headline": null,
+      "source": {
+        "file": "merge",
+        "field": "count of attempts in the cell whose run.json says server.stop.forced"
       }
     },
     {

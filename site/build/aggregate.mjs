@@ -480,7 +480,7 @@ const ranNoValid = (record, m, L) => m.scope === "level" && inEra(record, m) && 
  */
 function missingReason(record, m, L) {
   const stat = statAt(record, m, L);
-  if (EXTRAS_REASONS.includes(stat?.reason)) return stat.reason;
+  if (EXTRAS_REASONS.includes(stat?.reason) || stat?.reason === "no_flush_in_window") return stat.reason;
   if (record.status_reason !== "timeout" || !inEra(record, m)) return null;
   if (m.scope === "level") return record.cells?.[L] === undefined ? "timeout" : null;
   return stat === null ? "timeout" : null;
@@ -492,7 +492,16 @@ function statAt(record, m, L) {
   if (m.source.file === "merge" && m.scope === "level") {
     const cell = record.cells[L];
     if (!cell) return null;
-    const value = m.id === "attempts_valid" ? cell.valid : m.id === "attempts_total" ? cell.total : cell.attempts.filter((a) => a.contaminated).length;
+    // Killed stops: the attempts whose stop the harness forced, where every attempt says; else not known.
+    if (m.id === "shutdown_killed" && !cell.attempts.every((a) => typeof a.stop_forced === "boolean")) return null;
+    const value =
+      m.id === "attempts_valid"
+        ? cell.valid
+        : m.id === "attempts_total"
+          ? cell.total
+          : m.id === "shutdown_killed"
+            ? cell.attempts.filter((a) => a.stop_forced === true).length
+            : cell.attempts.filter((a) => a.contaminated).length;
     return { median: value, min: value, max: value, n: cell.total };
   }
   const stat = m.scope === "level" ? record.cells[L]?.metrics?.[m.id] : (L === "once" ? record.extras.fixture : record.extras.empty)?.metrics?.[m.id];

@@ -226,6 +226,7 @@ export function fakeAttempt(catalogue, { identity, cell, n, valid = true, proble
       // The driver's distribution check: none on the empty database, a passing one elsewhere.
       distribution: cell === "1e" ? null : { test: "binomial", p50_ratio: 1.02, p95_ratio: 0.97, passed: !problems.includes("distribution_mismatch") },
       metric_reasons: {},
+      stop_forced: false,
     },
     metrics,
     pipeline: { exported_at: `${identity.release.date}T12:00:00Z`, ...FAKE_CODE },

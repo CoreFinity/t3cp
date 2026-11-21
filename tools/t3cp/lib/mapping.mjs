@@ -174,6 +174,13 @@ const sumOver = (entries, field, what) => {
  *    shutdownS: number|null, kind: "nightly"|"fork"|"base"}
  */
 export const MAPPING = {
+  // The commit lane's busy share: the flush spans' summed duration (spans ending in the window, counted whole) over the
+  // window's length. Null when no flush span is listed (the exporter gives the reason in the commit batch era).
+  commit_lane_busy_share: (s) => {
+    const total = span(s, "orchestrationV2.ProviderCommitBatch.flush", "total_ms");
+    if (total === null || !s.window) return null;
+    return roundValue(total / (s.window.endMs - s.window.startMs));
+  },
   // The harness lists a call type when any session started such a call in the window: a row of count 0 when only
   // unserved sessions did, no row when none did. In a measured window with a call table, no row is 0 turns completed.
   turns_completed: (s) => {

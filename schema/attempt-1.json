@@ -89,7 +89,8 @@
         "saturated_by",
         "agents_total",
         "distribution",
-        "metric_reasons"
+        "metric_reasons",
+        "stop_forced"
       ],
       "properties": {
         "valid": {
@@ -158,519 +159,618 @@
         "metric_reasons": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Per metric whose value is null although the attempt is valid, why: not_measured_saturated (a count taken by start time on a saturated attempt).",
+          "description": "Per metric whose value is null although the attempt is valid, why: not_measured_saturated (a count taken by start time on a saturated attempt); no_flush_in_window (no commit lane flush ended in the window).",
           "properties": {
             "turns_completed": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "agents_served": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "turn_p50_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "turn_p95_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "dispatch_p50_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "dispatch_p95_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "first_item_p50_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "push_p95_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "switch_open_p50_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "switch_sync_p95_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "shell_sync_p95_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "poll_thread_read_p95_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "poll_project_list_p95_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "poll_http_bounded_p95_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "session_mcp_p95_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "thread_events_per_s": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "shell_events_per_s": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "client_errors": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "client_unfinished": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "main_busy_pct": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "main_user_pct": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "main_sys_pct": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "proc_cpu_pct": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "workers_cpu_pct": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "children_cpu_pct": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "children_n": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "elu": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "elu_max": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "eld_p50_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "eld_p99_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "eld_max_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "server_eld_max_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "gc_ms_per_s": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "stall_share_40ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "stall_share_100ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "stall_share_500ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "main_busy_1s_p95": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "main_runq_wait_ms_per_s": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "main_minflt_per_s": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "main_vcs_per_s": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "main_nvcs_per_s": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "main_syscr_per_s": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "main_syscw_per_s": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "proc_syscr_per_s": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "rss_peak_mib": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "heap_peak_mib": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "heap_floor_mib": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "wal_max_mib": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "wal_median_mib": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "reader_tx_avg_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "reader_tx_p95_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "reader_tx_wait_avg_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "reader_tx_wait_p95_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "reader_stmt_p95_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "writer_tx_avg_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "writer_tx_p95_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "writer_tx_wait_p95_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "reader_tx_per_s": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "writer_tx_per_s": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "reader_pool_occupancy": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "reader_free_while_waiting_s": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "sql_time_ms_per_s": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "get_thread_shell_p95_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "snapshot_window_p95_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "mcp_auth_p95_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "turn_start_p50_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "handle_run_update_p95_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "effect_queue_wait_p50_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "effect_queue_wait_p90_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "spans_in_window": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "trace_dropped": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "git_commands_per_turn": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "git_ms_per_turn": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "shutdown_s": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "buffer_full_warnings": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "server_warn_lines": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "server_error_lines": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "stream_resyncs": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "host_busy_pct": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "host_steal_pct": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "host_iowait_pct": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "fork_effect_queue_wait_p95_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "fork_run_effect_p95_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "fork_decode_projection_p95_ms": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             },
             "fork_admission_changes": {
               "type": "string",
               "enum": [
-                "not_measured_saturated"
+                "not_measured_saturated",
+                "no_flush_in_window"
+              ]
+            },
+            "commit_lane_busy_share": {
+              "type": "string",
+              "enum": [
+                "not_measured_saturated",
+                "no_flush_in_window"
               ]
             }
           }
+        },
+        "stop_forced": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "The harness killed the server after the stop grace (run.json server.stop.forced); null when the run does not say."
         }
       }
     },
@@ -935,7 +1035,8 @@
               "turn_start_span",
               "run_metrics",
               "thread_shell_span",
-              "event_prune"
+              "event_prune",
+              "commit_batch"
             ]
           },
           "uniqueItems": true
@@ -951,7 +1052,8 @@
               "turn_start_span",
               "run_metrics",
               "thread_shell_span",
-              "event_prune"
+              "event_prune",
+              "commit_batch"
             ]
           },
           "uniqueItems": true
@@ -1153,7 +1255,8 @@
         "fork_effect_queue_wait_p95_ms",
         "fork_run_effect_p95_ms",
         "fork_decode_projection_p95_ms",
-        "fork_admission_changes"
+        "fork_admission_changes",
+        "commit_lane_busy_share"
       ],
       "properties": {
         "turns_completed": {
@@ -1835,6 +1938,14 @@
           ],
           "minimum": 0,
           "maximum": 1000000000
+        },
+        "commit_lane_busy_share": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 2
         }
       }
     },

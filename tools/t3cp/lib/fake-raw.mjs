@@ -88,6 +88,7 @@ export function fakeMetricTree() {
     otlp: { exports: 60, samples: 300, samples_in_window: 300, intervals_in_window: 299, elu_mean: 0.62, elu_max: 0.97, event_loop_delay_max_ms: 412, cpu_utilization_mean: 1.9, rss_peak_mib: 2040, heap_used_peak_mib: 1210.4 },
     trace: { spans: 51234, errors: 0 },
     spans: {
+      "orchestrationV2.ProviderCommitBatch.flush": span(15, 40),
       "OrchestratorV2.getThreadShell": span(20, 61.5),
       "OrchestratorV2.getThreadSnapshotWindow": span(30, 95),
       "McpHttpServer.authenticateRequest": span(2, 7.5),

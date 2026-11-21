@@ -853,6 +853,10 @@ export function exportAttempt(rawDir, spec, options = {}) {
   // ends by its close, and at saturation turns outlast the window, so the count would read near zero. Agents served is
   // the measure there.
   const metricReasons = {};
+  // The commit lane in its era with no flush ending in the window (an idle level): null, with its public reason.
+  const lane = catalogue.metrics.find((m) => m.id === "commit_lane_busy_share");
+  const laneDate = spec.kind === "fork" ? spec.base.date : releaseDate(spec);
+  if (valid && lane && metrics.commit_lane_busy_share === null && laneDate >= lane.era_start) metricReasons.commit_lane_busy_share = "no_flush_in_window";
   if (valid && saturated) {
     for (const id of NOT_MEASURED_SATURATED) {
       metrics[id] = null;
@@ -881,6 +885,8 @@ export function exportAttempt(rawDir, spec, options = {}) {
       agents_total: total ?? (Number.isInteger(meta.profile.sessions) ? meta.profile.sessions : null),
       distribution,
       metric_reasons: metricReasons,
+      // Whether the harness killed the server after the stop grace (the aggregator counts these per cell).
+      stop_forced: typeof run.server?.stop?.forced === "boolean" ? run.server.stop.forced : null,
     },
     metrics,
     pipeline: { exported_at: now(), exporter_version: EXPORTER_VERSION, exporter_files_sha256: exporterFilesSha256(), ...runnerIdentity(meta) },

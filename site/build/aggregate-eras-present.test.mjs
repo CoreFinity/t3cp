@@ -52,15 +52,18 @@ const featureFrom = (ix) => Object.fromEntries(ix.eras.feature.map((e) => [e.id,
 test("the catalogue plans eras before the launch window (the premise of these tests)", () => {
   assert.equal(catalogueEra("large-63").from, "2026-10-17");
   assert.equal(catalogueEra("large-76").to, null);
-  assert.ok(ladderFeatureEras(catalogue).every((e) => e.from <= "2026-10-21"));
+  // Every ladder era starts before the launch window, but the commit lane's (commit_batch, 11-06), inside it.
+  assert.ok(ladderFeatureEras(catalogue).filter((e) => e.id !== "commit_batch").every((e) => e.from <= "2026-10-21"));
+  assert.equal(ladderFeatureEras(catalogue).find((e) => e.id === "commit_batch").from, "2026-11-06");
 });
 
 test("launch shape (nightlies from 11-02 only): one fixture era, from the first record, open; every feature era starts there", () => {
   const ix = indexOf(days("2026-11-02", 3));
   assert.deepEqual(ix.eras.fixture, [{ ...catalogueEra("large-76"), from: "2026-11-02", to: null }]);
+  // An era that starts after the last record (commit_batch, 11-06) is left out.
   assert.deepEqual(
     ix.eras.feature,
-    ladderFeatureEras(catalogue).map((e) => ({ ...e, from: "2026-11-02" })),
+    ladderFeatureEras(catalogue).filter((e) => e.from <= "2026-11-04").map((e) => ({ ...e, from: "2026-11-02" })),
   );
 });
 

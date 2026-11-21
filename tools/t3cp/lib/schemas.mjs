@@ -39,7 +39,12 @@ const UNIT_BOUNDS = {
   "% per agent": { min: -1e5, max: 1e5 },
   days: { min: 0, max: 1e4 },
 };
-export const boundsFor = (metric) => UNIT_BOUNDS[metric.unit] ?? { min: 0, max: 1e12 };
+/**
+ * A metric whose value may leave its unit's range by design: the commit lane's busy share counts the flushes that end in
+ * the window whole, so it can slightly exceed 1.
+ */
+const BOUND_OVERRIDES = { commit_lane_busy_share: { min: 0, max: 2 } };
+export const boundsFor = (metric) => BOUND_OVERRIDES[metric.id] ?? UNIT_BOUNDS[metric.unit] ?? { min: 0, max: 1e12 };
 const boundKey = (b) => `${b.integer ? "int" : "num"}_${String(b.min).replace("-", "neg")}_${b.max}`;
 const valueSchema = (b) => ({ type: [b.integer ? "integer" : "number", "null"], minimum: b.min, maximum: b.max });
 /**
@@ -49,7 +54,7 @@ const valueSchema = (b) => ({ type: [b.integer ? "integer" : "number", "null"], 
  * the release writes no database setup span, so it cannot give db_ready (no_setup_span). The runner's other codes
  * (server_exited, not_reached_within_budget, no_fixture, ...) are internal and never published.
  */
-export const STAT_REASONS = ["fewer_than_two_served_levels", "not_measured_saturated", "extra_timeout", "no_setup_span"];
+export const STAT_REASONS = ["fewer_than_two_served_levels", "not_measured_saturated", "extra_timeout", "no_setup_span", "no_flush_in_window"];
 /**
  * Why a scenario metric is null (public, published beside the null): the release predates the span or feature the
  * metric reads (no_turn_start_span, no_shell_span, no_event_prune), fewer than the row's 10 turn starts completed in
@@ -81,9 +86,9 @@ export const EXTRAS_REASONS = ["no_setup_span", "extra_timeout"];
  * Why a series value is missing where the record says (levels.<L>.reason, beside the note no_data): an extras stat's
  * public reason, or timeout, the status_reason of a record that did not finish in time, for what it never measured.
  */
-export const SERIES_REASONS = [...EXTRAS_REASONS, "timeout"];
+export const SERIES_REASONS = [...EXTRAS_REASONS, "no_flush_in_window", "timeout"];
 /** Why an attempt's metric is null although the attempt is valid: a count taken by start time on a saturated attempt. */
-export const METRIC_REASONS = ["not_measured_saturated"];
+export const METRIC_REASONS = ["not_measured_saturated", "no_flush_in_window"];
 /**
  * Counts taken by start time in the window (a turn counts when it starts in the window and ends by its close): at
  * saturation they outlast the window and would read near zero, so they are not measured there.
@@ -395,9 +400,10 @@ function definitions(catalogue) {
       metric_reasons: {
         type: "object",
         additionalProperties: false,
-        description: "Per metric whose value is null although the attempt is valid, why: not_measured_saturated (a count taken by start time on a saturated attempt).",
+        description: "Per metric whose value is null although the attempt is valid, why: not_measured_saturated (a count taken by start time on a saturated attempt); no_flush_in_window (no commit lane flush ended in the window).",
         properties: Object.fromEntries(levelMetricIds(catalogue).map((id) => [id, { type: "string", enum: METRIC_REASONS }])),
       },
+      stop_forced: { type: ["boolean", "null"], description: "The harness killed the server after the stop grace (run.json server.stop.forced); null when the run does not say. Absent on records before it was published." },
     }, ["n", "valid", "problems", "started_at", "cycle_s", "contaminated", "maintenance_in_window", "saturated", "saturated_by", "agents_total"]),
     distribution_check: {
       ...obj({
@@ -631,9 +637,10 @@ export function buildSchemas(catalogue) {
             metric_reasons: {
               type: "object",
               additionalProperties: false,
-              description: "Per metric whose value is null although the attempt is valid, why: not_measured_saturated (a count taken by start time on a saturated attempt).",
+              description: "Per metric whose value is null although the attempt is valid, why: not_measured_saturated (a count taken by start time on a saturated attempt); no_flush_in_window (no commit lane flush ended in the window).",
               properties: Object.fromEntries(levelMetricIds(catalogue).map((id) => [id, { type: "string", enum: METRIC_REASONS }])),
             },
+            stop_forced: { type: ["boolean", "null"], description: "The harness killed the server after the stop grace (run.json server.stop.forced); null when the run does not say." },
           }),
           metrics: ref("level_values"),
           pipeline: obj({
