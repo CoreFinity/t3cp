@@ -4,6 +4,7 @@
 #
 # usage: build-fork.sh --src <checkout> --out <new-dir> [--node <dir>] [--archive-name <file>]
 #                      [--allow-dirty] [--no-verify] [--port <n>]
+#        build-fork.sh --print-version --src <checkout>
 #
 #   --src          git checkout of the tree to build (a public fork tag, or an upstream commit)
 #   --out          output directory; must not exist or must be empty
@@ -16,6 +17,7 @@
 #   --allow-dirty  build a checkout with uncommitted or untracked changes, or a repo .env (recorded)
 #   --no-verify    skip the checks after the build (archive smoke, t3 --version, scratch t3 serve)
 #   --port         port on 127.0.0.1 for the scratch `serve` checks (default 3791)
+#   --print-version print the version the tree's build stamps (the one the checks expect) and exit
 #
 # Builds for the host it runs on: linux-x64 (or linux-arm64) on Debian or Ubuntu, which needs
 # patchelf, ldd, dpkg-query and libatomic1; darwin-arm64 on macOS, which needs codesign (ad hoc
@@ -30,11 +32,11 @@
 set -euo pipefail
 
 SCRIPT_PATH="${BASH_SOURCE[0]}"
-usage() { sed -n '2,29p' "$SCRIPT_PATH" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '2,31p' "$SCRIPT_PATH" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 die() { echo "build-fork: ERROR: $*" >&2; exit 1; }
 refuse() { echo "build-fork: REFUSED: $*" >&2; exit 3; }
 
-SRC="" OUT="" NODE_DIR="" ARCHIVE_NAME_OPT="" ALLOW_DIRTY=0 VERIFY=1 PORT=3791
+SRC="" OUT="" NODE_DIR="" ARCHIVE_NAME_OPT="" ALLOW_DIRTY=0 VERIFY=1 PORT=3791 PRINT_VERSION=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --src) [ $# -ge 2 ] || usage; SRC=$2; shift 2 ;;
@@ -44,11 +46,13 @@ while [ $# -gt 0 ]; do
     --allow-dirty) ALLOW_DIRTY=1; shift ;;
     --no-verify) VERIFY=0; shift ;;
     --port) [ $# -ge 2 ] || usage; PORT=$2; shift 2 ;;
+    --print-version) PRINT_VERSION=1; shift ;;
     -h|--help) usage ;;
     *) echo "build-fork: unknown argument: $1" >&2; usage ;;
   esac
 done
-[ -n "$SRC" ] && [ -n "$OUT" ] || usage
+[ -n "$SRC" ] || usage
+[ -n "$OUT" ] || [ "$PRINT_VERSION" -eq 1 ] || usage
 case "$PORT" in ''|*[!0-9]*) echo "build-fork: --port must be a number" >&2; usage ;; esac
 if [ "${ARCHIVE_NAME_SET:-0}" -eq 1 ]; then
   case "$ARCHIVE_NAME_OPT" in
@@ -74,6 +78,44 @@ SRC=$(cd "$SRC" && pwd -P)
 [ -f "$SRC/package.json" ] && [ -f "$SRC/scripts/build-cli-archive.ts" ] \
   || die "--src is not a T3 Code checkout (no scripts/build-cli-archive.ts)"
 git -C "$SRC" rev-parse --git-dir >/dev/null 2>&1 || die "--src is not a git checkout"
+
+# The version the tree's own server build stamps into the binary (apps/server/vite.config.ts): the archive is named
+# after it, and the smoke and the --version check expect it. APP_VERSION where the tree reads it (the release
+# packagers' knob); else the tree's own scripts/lib/tagged-source-version.ts (upstream #36350, 2026-11-13: a commit
+# with exactly one vX.Y.Z tag and unedited release manifests stamps that version, as a release commit does before
+# its manifest bump lands); else, in a tree older than that resolver, the manifest. Sets VERSION, VERSION_SOURCE
+# and MANIFEST_VERSION; a resolver that cannot run fails the build.
+resolve_build_version() {
+  local app strip=()
+  MANIFEST_VERSION=$(node -p "require(process.argv[1]).version" "$SRC/apps/server/package.json") \
+    || die "cannot read the version in apps/server/package.json"
+  app=$(printf '%s' "${APP_VERSION:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+  if [ -n "$app" ] && grep -qs APP_VERSION "$SRC/apps/server/vite.config.ts" "$SRC/scripts/lib/tagged-source-version.ts"; then
+    VERSION=$app VERSION_SOURCE=app_version
+  elif [ -f "$SRC/scripts/lib/tagged-source-version.ts" ]; then
+    # The build's node (engines.node) strips types itself; an older node (--print-version) needs the flag.
+    [ "$(node -p 'String(process.features.typescript ?? false)')" != false ] || strip=(--experimental-strip-types --no-warnings)
+    VERSION=$(node ${strip[@]+"${strip[@]}"} --input-type=module -e '
+      const [file, root, manifest] = process.argv.slice(1);
+      const { pathToFileURL } = await import("node:url");
+      const resolved = (await import(pathToFileURL(file).href)).resolveTaggedSourceVersion(root, manifest);
+      if (typeof resolved !== "string" || resolved.trim() === "") throw new Error("no version");
+      process.stdout.write(resolved.trim());
+    ' "$SRC/scripts/lib/tagged-source-version.ts" "$SRC" "$MANIFEST_VERSION") \
+      || die "the tree's scripts/lib/tagged-source-version.ts could not resolve the build version"
+    VERSION_SOURCE=tree_resolver
+  else
+    VERSION=$MANIFEST_VERSION VERSION_SOURCE=manifest
+  fi
+}
+
+if [ "$PRINT_VERSION" -eq 1 ]; then
+  command -v node >/dev/null 2>&1 || die "--print-version needs node on PATH"
+  resolve_build_version
+  echo "build-fork: version $VERSION ($VERSION_SOURCE; manifest $MANIFEST_VERSION)" >&2
+  printf '%s\n' "$VERSION"
+  exit 0
+fi
 
 # cargo and vp from their standard per-user installs when not already on PATH: the vp installer
 # writes an env file, CI's setup action a bin directory.
@@ -183,7 +225,7 @@ step() {
   echo "   ok in ${s}s"
 }
 
-VERSION=$(node -p "require(process.argv[1]).version" "$SRC/apps/server/package.json")
+resolve_build_version
 COMMIT=$(git -C "$SRC" rev-parse HEAD)
 TAGS_AT_COMMIT=$(git -C "$SRC" tag --points-at HEAD | tr '\n' ' ' | sed 's/ $//')
 if [ "$PLATFORM" = mac ]; then
@@ -196,6 +238,8 @@ m tags_at_commit "${TAGS_AT_COMMIT:-none}"
 m dirty "$([ -z "$DIRTY" ] && echo no || echo "yes (--allow-dirty)")"
 m repo_env_files "${REPO_ENV:- none}"
 m version "$VERSION"
+m version_source "$VERSION_SOURCE"
+m manifest_version "$MANIFEST_VERSION"
 m platform_key "$KEY"
 m build_os "$OS_DESC / $(uname -sr)"
 m build_cpus "$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo n/a)"
