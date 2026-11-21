@@ -57,3 +57,16 @@ test("each attempt says whether its server's stop was forced (the harness killed
   assert.equal(exported({ edit: (f) => (f.run.server.stop.forced = true) }).attempt.stop_forced, true);
   assert.equal(exported({ edit: (f) => delete f.run.server.stop }).attempt.stop_forced, null);
 });
+
+test("review: no_flush_in_window only where a measured window had no flush; a flush entry without its duration, or no window, gives no reason", () => {
+  let a = exported({ edit: (f) => delete f.result.metrics.spans[FLUSH].total_ms });
+  assert.equal(a.metrics.commit_lane_busy_share, null);
+  assert.equal(a.attempt.metric_reasons.commit_lane_busy_share, undefined);
+  a = exported({ totalMs: null, edit: (f) => (f.run.window = null) });
+  assert.equal(a.metrics.commit_lane_busy_share, null);
+  assert.equal(a.attempt.metric_reasons.commit_lane_busy_share, undefined);
+  // A listed flush entry with no samples is no flush.
+  a = exported({ edit: (f) => Object.assign(f.result.metrics.spans[FLUSH], { count: 0, total_ms: 0 }) });
+  assert.equal(a.metrics.commit_lane_busy_share, null);
+  assert.equal(a.attempt.metric_reasons.commit_lane_busy_share, "no_flush_in_window");
+});
