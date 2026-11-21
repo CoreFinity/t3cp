@@ -349,3 +349,83 @@ export function writeRawExtras(root, edit) {
   write(path.join(root, "migration-sampler.tsv"), "t\tdb\twal\n");
   return root;
 }
+
+/**
+ * A scenario spec: the ladder fake's release, fixture and identity, running one row of scenarios.json (suite.id is
+ * <id>@<version>, suite.scenario the row).
+ */
+export function fakeScenarioSpec(row, overrides = {}) {
+  const spec = { ...fakeSpec(overrides), suite: { id: `${row.id}@${row.version}`, scenario: { id: row.id, version: row.version } } };
+  if (row.fixture === "none") spec.fixture = { id: "none" };
+  else spec.fixture = { ...spec.fixture, id: row.fixture };
+  return spec;
+}
+
+/**
+ * <root>/<cell>-<n>/ as the runner writes a scenario cell's attempt: the ladder attempt's files with the cell's
+ * attempt-meta.json (cell, level = sessions, the cell's suite warm-up and window, scenario, the row's fixture,
+ * maintenance_expected on an unseeded cell), scenario-cell.json, scenario.json (the post step's metrics, each
+ * {value, reason}) and, in release.result.json, the getThreadShell span (`shell`: {count, p95_ms}; null drops it).
+ */
+export function writeRawScenarioAttempt(root, { row, cell, n = 1, spec = fakeScenarioSpec(row), metrics = {}, window, shell = { count: 120, p95_ms: 3.5 }, edit } = {}) {
+  const c = row.cells.find((x) => x.name === cell);
+  if (!c) throw new Error(`fake: row ${row.id}@${row.version} has no cell ${cell}`);
+  const staging = fs.mkdtempSync(path.join(root, ".staging-"));
+  const ladderSpec = { ...spec, suite: { id: spec.suite.id, warmup_s: c.warmup_s, window_s: c.window_s } };
+  const seconds = (d) => {
+    const m = /^(\d+(?:\.\d+)?)(ms|s|m)$/.exec(d);
+    return Number(m[1]) * (m[2] === "ms" ? 0.001 : m[2] === "m" ? 60 : 1);
+  };
+  const profile = {
+    sessions: c.sessions,
+    subscribers: c.subscribers,
+    pollers: c.pollers,
+    mode: c.mode,
+    turn_gap_s: seconds(c.turn_gap),
+    switch_interval_s: c.switch_interval === undefined ? null : seconds(c.switch_interval),
+    poll_interval_s: c.poll_rate === undefined ? null : Math.round((1 / Number(c.poll_rate)) * 1000) / 1000,
+  };
+  const built = writeRawAttempt(staging, {
+    cell: "1",
+    n,
+    spec: ladderSpec,
+    edit: (files) => {
+      files.meta.cell = cell;
+      files.meta.level = c.sessions;
+      files.meta.profile = profile;
+      files.meta.scenario = { id: row.id, version: row.version };
+      files.meta.fixture = c.fixture === "none" || row.fixture === "none" ? "none" : spec.fixture.id;
+      if (c.seed_compacted_at === false) files.meta.maintenance_expected = true;
+      if (shell === null) delete files.result.metrics.spans?.["OrchestratorV2.getThreadShell"];
+      else {
+        files.result.metrics.spans ??= {};
+        files.result.metrics.spans["OrchestratorV2.getThreadShell"] = { count: shell.count, errors: 0, total_ms: shell.p95_ms * shell.count, avg_ms: shell.p95_ms / 2, p50_ms: shell.p95_ms / 2, p95_ms: shell.p95_ms, max_ms: shell.p95_ms * 2 };
+      }
+      edit?.(files);
+    },
+  });
+  const dir = path.join(root, `${cell}-${n}`);
+  fs.renameSync(built, dir);
+  fs.rmSync(staging, { recursive: true, force: true });
+  write(path.join(dir, "scenario-cell.json"), {
+    scenario: { id: row.id, version: row.version },
+    cell,
+    warmup_s: c.warmup_s,
+    window_s: c.window_s,
+    seed_compacted_at: c.seed_compacted_at,
+    post: c.post,
+    mark_age_days: c.mark_age_days ?? null,
+    profile,
+  });
+  if (c.post !== "none") {
+    write(path.join(dir, "scenario.json"), {
+      schema: "t3cp/scenario-raw/1",
+      scenario: { id: row.id, version: row.version },
+      post: c.post,
+      window: window ?? { start_ms: WINDOW_START, end_ms: WINDOW_END, run: 1, valid: true },
+      metrics,
+      detail: {},
+    });
+  }
+  return dir;
+}
