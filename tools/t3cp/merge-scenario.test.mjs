@@ -84,7 +84,7 @@ test("the merge refuses attempts of another record, another cell or load than th
   refs.harness[a1.harness.version].files_sha256 = "0".repeat(64);
   assert.throws(() => mergeScenarioRecord({ attempts: [a1, a2], publicRefs: refs }), /files_sha256 is not the pinned public tree's/);
   assert.throws(() => mergeScenarioRecord({ attempts: [a1, a2], publicRefs: { ...refs, harness: {} } }), /no public tag pinned/);
-  assert.throws(() => merge([]), MergeError);
+  assert.throws(() => mergeScenarioRecord({ attempts: [], publicRefs: refsFor(a1) }), /no attempts/);
 });
 
 test("mergeDirectory merges a scenario record's attempts, and refuses ladder and scenario attempts together", () => {

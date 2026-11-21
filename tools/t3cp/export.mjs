@@ -44,7 +44,7 @@ export const EXPORTER_FILES = [
   "tools/t3cp/lib/scan.mjs", "tools/t3cp/lib/schemas.mjs", "tools/t3cp/lib/validate.mjs", "tools/t3cp/runner/profiles.mjs",
   "tools/t3cp/runner/is-main.mjs", "tools/t3cp/runner/profiles.json", "tools/t3cp/public-refs.json",
   "catalogue/catalogue.json", "scenarios.json", "schema/attempt-1.json", "schema/extras-1.json", "schema/record-1.json",
-  "schema/scenario-attempt-1.json",
+  "schema/scenario-attempt-1.json", "schema/scenario-record-1.json",
   // run-record.sh validates its spec against this on the VM; the runner identity (run-record.sh, runner/*) omits it.
   "schema/record-spec-1.json",
 ];

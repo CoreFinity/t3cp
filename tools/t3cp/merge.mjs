@@ -16,8 +16,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { parseArgs } from "node:util";
 import { validate } from "./lib/validate.mjs";
-import { EXPORTER_VERSION, isMain, loadCatalogue, loadSchema, median, roundValue } from "./lib/repo.mjs";
-import { NOT_MEASURED_SATURATED, forkHeadProblem, levelMetricIds } from "./lib/schemas.mjs";
+import { EXPORTER_VERSION, isMain, loadCatalogue, loadScenarios, loadSchema, median, roundValue } from "./lib/repo.mjs";
+import { NOT_MEASURED_SATURATED, SCENARIO_REASONS, forkHeadProblem, levelMetricIds } from "./lib/schemas.mjs";
 import { ScanConfigError, scanValue } from "./lib/scan.mjs";
 import { JsonError, parseStrict } from "./lib/json.mjs";
 import { cellProfile, loadProfiles, metaProfile } from "./runner/profiles.mjs";
@@ -304,6 +304,146 @@ export function mergeRecord({ attempts, extras = [], catalogue = loadCatalogue()
   };
 }
 
+// The identity a scenario record's attempts share (no paired_nightly: scenario records are nightly, fork or base).
+const SCENARIO_IDENTITY_KEYS = ["record_id", "kind", "release", "base", "platform", "harness", "fixture", "workload", "era"];
+const SCENARIO_LOAD_KEYS = ["sessions", "subscribers", "pollers", "mode", "turn_gap_s", "switch_interval_s", "poll_interval_s", "fixture", "warmup_s", "window_s", "seed_compacted_at", "post", "mark_age_days"];
+const durationS = (d) => {
+  const m = /^(\d+(?:\.\d+)?)(ms|s|m)$/.exec(d);
+  return Number(m[1]) * (m[2] === "ms" ? 0.001 : m[2] === "m" ? 60 : 1);
+};
+
+/**
+ * Builds one t3cp/scenario-record/1 object from a scenario row's validated attempts (t3cp/scenario-attempt/1): per row
+ * cell, the attempts in order, the valid and total counts, and per row metric the median of the valid attempts' values
+ * (null kept), with the first public reason (in SCENARIO_REASONS order) where no valid attempt has a value. Complete
+ * when every cell of the row has two valid attempts (or the row's attempts, when it runs fewer). Throws MergeError on
+ * any inconsistency: attempts of another record, a cell the row lacks or another load than the row's, a duplicate, a
+ * harness whose hashes are not the pinned public tree's, an unpinned fork tag.
+ */
+export function mergeScenarioRecord({ attempts, scenarios = loadScenarios(), generatedAt, runId = null, lease = null, publicRefs = loadPublicRefs(), timedOut = false }) {
+  if (attempts.length === 0) throw new MergeError("no attempts");
+  void runId;
+  const first = attempts[0];
+  for (const a of attempts) {
+    if (a.schema !== "t3cp/scenario-attempt/1") throw new MergeError(`attempt ${a.cell}-${a.n}: not a scenario attempt`);
+    for (const key of SCENARIO_IDENTITY_KEYS) {
+      if (canonical(a[key]) !== canonical(first[key])) throw new MergeError(`attempt ${a.cell}-${a.n}: ${key} differs from attempt ${first.cell}-${first.n}`);
+    }
+    for (const key of ["exporter_version", "exporter_files_sha256", "runner_version", "runner_files_sha256"]) {
+      if ((a.pipeline?.[key] ?? null) !== (first.pipeline?.[key] ?? null)) throw new MergeError(`attempt ${a.cell}-${a.n}: pipeline differs (${key}) from attempt ${first.cell}-${first.n}`);
+    }
+  }
+  const seen = new Set();
+  for (const a of attempts) {
+    const key = `${a.cell}-${a.n}`;
+    if (seen.has(key)) throw new MergeError(`duplicate attempt ${key}`);
+    seen.add(key);
+  }
+  const { id, version } = first.workload.scenario;
+  const row = scenarios.rows.find((r) => r.id === id && r.version === version);
+  if (!row || row.suite !== first.workload.suite) throw new MergeError(`scenario ${first.workload.suite}: not a row of scenarios.json`);
+  if (first.workload.attempts_per_cell !== row.attempts) throw new MergeError(`scenario ${row.suite}: attempts_per_cell is not the row's`);
+  const harness = publicHarness(first.harness, publicRefs);
+  if (first.kind === "fork") {
+    const pinned = publicRefs.fork[first.release.tag];
+    if (pinned === undefined) throw new MergeError(`fork ${first.release.tag}: fork_tag_unpinned (no public commit pinned for the tag in public-refs.json)`);
+    if (pinned !== first.release.sha) throw new MergeError(`fork ${first.release.tag}: release.sha is not the public commit pinned for the tag in public-refs.json`);
+  }
+  for (const a of attempts) {
+    const c = row.cells.find((x) => x.name === a.cell);
+    if (!c) throw new MergeError(`attempt ${a.cell}-${a.n}: the row has no cell ${a.cell}`);
+    if (a.n > row.attempts) throw new MergeError(`attempt ${a.cell}-${a.n}: the row runs ${row.attempts} attempts per cell`);
+    const rate = c.poll_rate === undefined ? null : Number(c.poll_rate);
+    const planned = {
+      sessions: c.sessions,
+      subscribers: c.subscribers,
+      pollers: c.pollers,
+      mode: c.mode,
+      turn_gap_s: durationS(c.turn_gap),
+      switch_interval_s: c.switch_interval === undefined ? null : durationS(c.switch_interval),
+      poll_interval_s: rate === null ? null : Math.round((1 / rate) * 1000) / 1000,
+      fixture: c.fixture === "none" || row.fixture === "none" ? "none" : "era",
+      warmup_s: c.warmup_s,
+      window_s: c.window_s,
+      seed_compacted_at: c.seed_compacted_at,
+      post: c.post,
+      mark_age_days: c.mark_age_days ?? null,
+    };
+    if (SCENARIO_LOAD_KEYS.some((k) => a.load?.[k] !== planned[k])) throw new MergeError(`attempt ${a.cell}-${a.n}: the load is not the row's cell ${a.cell}`);
+    if (canonical(Object.keys(a.metrics).sort()) !== canonical([...row.metrics].sort())) throw new MergeError(`attempt ${a.cell}-${a.n}: its metrics are not the row's`);
+  }
+  const needed = Math.min(2, row.attempts);
+  const cells = {};
+  const loads = {};
+  let complete = true;
+  for (const c of row.cells) {
+    const inCell = attempts.filter((a) => a.cell === c.name).sort((a, b) => a.n - b.n);
+    if (inCell.length === 0) {
+      complete = false;
+      continue;
+    }
+    loads[c.name] = structuredClone(inCell[0].load);
+    const valid = inCell.filter((a) => a.attempt.valid);
+    if (valid.length < needed) complete = false;
+    const metrics = {};
+    for (const mid of row.metrics) {
+      const s = stat(valid.map((a) => a.metrics[mid] ?? null));
+      if (s.median === null) {
+        const reasons = new Set(valid.map((a) => a.attempt.metric_reasons?.[mid]).filter(Boolean));
+        const reason = SCENARIO_REASONS.find((r) => reasons.has(r));
+        if (reason) s.reason = reason;
+      }
+      metrics[mid] = s;
+    }
+    cells[c.name] = {
+      attempts: inCell.map((a) => ({
+        n: a.n,
+        valid: a.attempt.valid,
+        problems: a.attempt.problems,
+        started_at: a.attempt.started_at,
+        cycle_s: a.attempt.cycle_s,
+        contaminated: a.attempt.contaminated,
+        maintenance_in_window: a.attempt.maintenance_in_window,
+      })),
+      valid: valid.length,
+      total: inCell.length,
+      metrics,
+    };
+  }
+  const maxOf = (values) => {
+    const numbers = values.filter((v) => typeof v === "number");
+    return numbers.length === 0 ? null : Math.max(...numbers);
+  };
+  const guard = (key) => maxOf(attempts.map((a) => a.host_guard?.[key]));
+  return {
+    schema: "t3cp/scenario-record/1",
+    ...(first.synthetic === true ? { synthetic: true } : {}),
+    ...Object.fromEntries(SCENARIO_IDENTITY_KEYS.map((key) => [key, structuredClone(first[key])])),
+    harness,
+    workload: { ...structuredClone(first.workload), cells: loads },
+    cells,
+    host_guard: {
+      contaminated: attempts.some((a) => a.attempt.contaminated),
+      host_busy_pct_max: guard("busy_pct_max"),
+      host_steal_pct_max: guard("steal_pct_max"),
+      host_iowait_pct_max: guard("iowait_pct_max"),
+      foreign_pct_mean_max: guard("foreign_pct_mean"),
+      thermal_limit_min: null,
+    },
+    status: complete && !timedOut ? "complete" : "partial",
+    status_reason: timedOut ? "timeout" : complete ? null : "attempts_invalid",
+    pipeline: {
+      generated_at: generatedAt ?? new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+      run_id: null,
+      lease,
+      exporter_version: first.pipeline?.exporter_version ?? EXPORTER_VERSION,
+      exporter_files_sha256: first.pipeline?.exporter_files_sha256 ?? null,
+      runner_version: first.pipeline?.runner_version ?? null,
+      runner_files_sha256: first.pipeline?.runner_files_sha256 ?? null,
+    },
+  };
+}
+
 function readValidated(file, schemaName) {
   let value;
   try {
@@ -350,13 +490,25 @@ function readTimedOut(dir, recordId) {
 export function mergeDirectory(dir, options = {}) {
   const attemptsDir = path.join(dir, "attempts");
   const attempts = [];
+  // A scenario record's attempts (t3cp/scenario-attempt/1, <cell>-<n> with the row's cell names) and the ladder's are
+  // never mixed: the first attempt read decides which this directory holds.
+  let scenario = null;
   if (fs.existsSync(attemptsDir)) {
     for (const name of fs.readdirSync(attemptsDir).sort()) {
       if (name.startsWith(".")) continue;
-      if (!/^(1|50|100|150|200|250|1e)-[1-9]$/.test(name)) throw new MergeError(`attempts/${name}: unexpected directory name`);
+      if (!/^[a-z0-9][a-z0-9-]{0,30}-[1-9]$/.test(name)) throw new MergeError(`attempts/${name}: unexpected directory name`);
       const file = path.join(attemptsDir, name, "attempt.json");
       if (!fs.existsSync(file)) continue; // an attempt that never exported counts as missing
-      const attempt = readValidated(file, "attempt-1.json");
+      let kind;
+      try {
+        kind = parseStrict(fs.readFileSync(file, "utf8"))?.schema === "t3cp/scenario-attempt/1";
+      } catch {
+        kind = false; // readValidated below names the problem
+      }
+      if (scenario === null) scenario = kind;
+      if (kind !== scenario) throw new MergeError(`attempts/${name}: a scenario record's attempts and the ladder's are never mixed`);
+      if (!scenario && !/^(1|50|100|150|200|250|1e)-[1-9]$/.test(name)) throw new MergeError(`attempts/${name}: unexpected directory name`);
+      const attempt = readValidated(file, scenario ? "scenario-attempt-1.json" : "attempt-1.json");
       if (`${attempt.cell}-${attempt.n}` !== name) throw new MergeError(`attempts/${name}: cell and n do not match the directory`);
       attempts.push(attempt);
     }
@@ -370,6 +522,16 @@ export function mergeDirectory(dir, options = {}) {
     }
   }
   const timedOut = attempts.length > 0 && readTimedOut(dir, attempts[0].record_id);
+  if (scenario === true) {
+    if (extras.length > 0) throw new MergeError("extras: a scenario record measures no record extras");
+    const { extras: _extras, ...rest } = options;
+    const record = mergeScenarioRecord({ attempts, ...rest, timedOut });
+    const errors = validate(loadSchema("scenario-record-1.json"), record);
+    if (errors.length > 0) throw new MergeError(`record: ${errors.slice(0, 5).map((e) => `${e.path} ${e.message}`).join("; ")}`);
+    const hits = scanValue(record);
+    if (hits.length > 0) throw new MergeError(`record: forbidden pattern(s) ${[...new Set(hits.map((h) => h.pattern))].join(", ")}`);
+    return record;
+  }
   const record = mergeRecord({ attempts, extras, ...options, timedOut });
   const errors = validate(loadSchema("record-1.json"), record);
   if (errors.length > 0) throw new MergeError(`record: ${errors.slice(0, 5).map((e) => `${e.path} ${e.message}`).join("; ")}`);
