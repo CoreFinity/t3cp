@@ -282,3 +282,19 @@ test("review: run.ts must have restored a fixture file exactly where the cell st
     assert.throws(() => exportAttempt(dir, spec, opts), /without a fixture file/, JSON.stringify(observed));
   }
 });
+
+test("review: run.ts's recorded driver arguments and compaction seeding must be the cell's", () => {
+  const withArgs = (edit) => compaction({ edit: (f) => edit(f.result.knobs) });
+  const cases = {
+    subscribers: (k) => k.workload.driver_args.splice(3, 1, "3"),
+    pollers: (k) => k.workload.driver_args.push("--pollers", "2"),
+    "turn-gap": (k) => k.workload.driver_args.push("--turn-gap", "60s"),
+    mode: (k) => k.workload.driver_args.push("--mode", "mixed"),
+    "no arguments": (k) => delete k.workload.driver_args,
+    seeding: (k) => (k.run.seed_compacted_at = true),
+  };
+  for (const [what, edit] of Object.entries(cases)) {
+    const { dir, spec } = withArgs(edit);
+    assert.throws(() => exportAttempt(dir, spec, opts), /driver arguments|seeding/, what);
+  }
+});

@@ -400,6 +400,13 @@ export function writeRawScenarioAttempt(root, { row, cell, n = 1, spec = fakeSce
       // run.ts ran the cell's warm-up and window: its knobs say so, and the measured window is that long.
       files.result.knobs.workload.warmup_s = c.warmup_s;
       files.result.knobs.workload.window_s = c.window_s;
+      // run.ts records the driver arguments it passed (its own count flags, then each --driver-arg) and the seeding.
+      files.result.knobs.workload.driver_args = [
+        "--sessions", String(c.sessions), "--subscribers", String(c.subscribers), ...(c.pollers > 0 ? ["--pollers", String(c.pollers)] : []),
+        "--mode", c.mode, ...(c.switch_interval ? ["--switch-interval", c.switch_interval] : []), ...(c.poll_rate ? ["--poll-rate", c.poll_rate] : []),
+        "--turn-gap", c.turn_gap, ...(c.pollers === 0 ? ["--pollers", "0"] : []), "--call-timeout", "300s",
+      ];
+      files.result.knobs.run.seed_compacted_at = c.seed_compacted_at;
       files.run.window = { start: new Date(WINDOW_START).toISOString(), end: new Date(WINDOW_START + c.window_s * 1000).toISOString() };
       files.meta.window_end_ms = WINDOW_START + c.window_s * 1000;
       // run.ts restored a fixture file only where the cell starts from one.
