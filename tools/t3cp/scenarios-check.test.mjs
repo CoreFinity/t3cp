@@ -35,8 +35,14 @@ const j = (...parts) => parts.join("");
 const temps = [];
 after(() => temps.forEach((d) => fs.rmSync(d, { recursive: true, force: true })));
 
-const repo = loadRepo();
 const clone = (value) => structuredClone(value);
+// The repository, with one more scenario-lane metric that no repository row publishes: the test rows' own, so a test row
+// never collides with a real row's metrics as rows are added.
+const TEST_METRIC = { ...clone(loadRepo().catalogue.metrics.find((m) => m.lane === "scenario")), id: "zz_test_scenario_metric" };
+const repo = (() => {
+  const r = loadRepo();
+  return { ...r, catalogue: { ...r.catalogue, metrics: [...r.catalogue.metrics, TEST_METRIC] } };
+})();
 
 /** A scenario row the validator accepts (a test row: an invented id, the pinned harness, a record-lane metric). */
 function testRow(overrides = {}) {
@@ -50,7 +56,7 @@ function testRow(overrides = {}) {
     platforms: ["linux-x64"],
     fixture: "none",
     attempts: 3,
-    metrics: [repo.catalogue.metrics.find((m) => m.lane === "scenario").id],
+    metrics: [TEST_METRIC.id],
     cells: [{ name: "c", mode: "fresh", sessions: 1, subscribers: 1, pollers: 0, turn_gap: "5s", warmup_s: 10, window_s: 30, seed_compacted_at: true, post: "none" }],
     ...overrides,
   };
@@ -63,10 +69,12 @@ const check = (rows, base = repo.scenarios) => checkScenarios({ ...repo, scenari
 function scratch(scenarios, lock) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "t3cp-scenarios-"));
   temps.push(root);
-  for (const rel of ["schema/scenarios-1.json", "catalogue/catalogue.json", "tools/t3cp/public-refs.json", "fixture/fixtures.json"]) {
+  for (const rel of ["schema/scenarios-1.json", "tools/t3cp/public-refs.json", "fixture/fixtures.json"]) {
     fs.mkdirSync(path.join(root, path.dirname(rel)), { recursive: true });
     fs.copyFileSync(path.join(REPO_ROOT, rel), path.join(root, rel));
   }
+  fs.mkdirSync(path.join(root, "catalogue"), { recursive: true });
+  fs.writeFileSync(path.join(root, "catalogue", "catalogue.json"), `${JSON.stringify(repo.catalogue, null, 2)}\n`);
   fs.writeFileSync(path.join(root, SCENARIOS_FILE), `${JSON.stringify(scenarios, null, 2)}\n`);
   if (lock !== null) fs.writeFileSync(path.join(root, LOCK_FILE), `${JSON.stringify(lock, null, 2)}\n`);
   return root;

@@ -47,7 +47,8 @@ const ok = (value) => ({ value, reason: null });
 test("before the shell span's era (2026-10-26): the shell read is null with no_shell_span; the turn-start values publish", () => {
   const a = exportLt("2026-10-20", { metrics: { turn_start_history_gap_ms: ok(724.6), turn_start_long_thread_ms: ok(2729.3) }, shell: null });
   assert.equal(a.attempt.valid, true, a.attempt.problems.join(","));
-  assert.deepEqual(a.metrics, { turn_start_history_gap_ms: 724.6, turn_start_long_thread_ms: 2729, get_thread_shell_long_thread_ms: null });
+  // Rounded as every published value is (3 decimals under 100, 1 above).
+  assert.deepEqual(a.metrics, { turn_start_history_gap_ms: 724.6, turn_start_long_thread_ms: 2729.3, get_thread_shell_long_thread_ms: null });
   assert.deepEqual(a.attempt.metric_reasons, { get_thread_shell_long_thread_ms: "no_shell_span" });
   const later = exportLt("2026-10-27", { metrics: { turn_start_history_gap_ms: ok(120), turn_start_long_thread_ms: ok(1110) }, shell: { count: 280, p95_ms: 28 } });
   assert.deepEqual(later.metrics, { turn_start_history_gap_ms: 120, turn_start_long_thread_ms: 1110, get_thread_shell_long_thread_ms: 28 });
