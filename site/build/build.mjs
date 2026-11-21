@@ -150,10 +150,12 @@ export function loadFixtures(root) {
       if (!want) throw new Error(`fixture: fixture/fixtures.json names ${part.name}, which fixture/SHA256SUMS does not list`);
       if (part.sha256 !== want) throw new Error(`fixture: fixture/fixtures.json gives ${part.name} sha256 ${part.sha256}, but fixture/SHA256SUMS lists ${want}`);
     }
-    return Object.assign({}, f, { measured: f.shape_measured ? fixtureFile(root, f.shape_measured, sums) : null });
+    // A fixture's own input shape where it names one other than the era fixtures' shared public-large shape.
+    const input = f.shape?.path && f.shape.path !== 'fixture/public-large.shape.json' ? fixtureFile(root, f.shape.path, sums) : null;
+    return Object.assign({}, f, { measured: f.shape_measured ? fixtureFile(root, f.shape_measured, sums) : null, input });
   }) : list;
   const shapeFile = fixtureFile(root, 'fixture/public-large.shape.json', sums);
-  const fixtureFiles = [shapeFile].concat((fixtures || []).map(f => f.measured)).filter((f, i, all) => f && all.findIndex(g => g && g.path === f.path) === i);
+  const fixtureFiles = [shapeFile].concat((fixtures || []).flatMap(f => [f.input, f.measured])).filter((f, i, all) => f && all.findIndex(g => g && g.path === f.path) === i);
   return { fixtures, shapeFile, fixtureFiles };
 }
 
@@ -201,7 +203,7 @@ function context(dv, cfg, log, js) {
   const releases = {};
   const release = tag => (tag in releases ? releases[tag] : (releases[tag] = read(`releases/${tag}.json`)));
   return {
-    T, ix, records, heads, cat, catalogue, catFile, plat, platName: 'Linux x64', mac, first, pending, read, size, shard, model, latest, downloads, fixtures, shapeFile, fixtureFiles, release, log, cfg,
+    T, ix, records, heads, cat, catalogue, catFile, plat, platName: 'Linux x64', mac, first, pending, read, size, shard, model, latest, downloads, fixtures, shapeFile, fixtureFiles, release, log, cfg, scenarios: loadScenarios(),
     harness: ix ? ix.eras.harness : [],
     groups: ix ? ix.groups : catFile.groups, headlines: (ix ? ix.headlines : catFile.headlines)[plat], forks: ix ? ix.fork : [],
     eras: ix ? ix.eras.fixture : catFile.fixture_eras, bands: read('bands.json'), mrs: read('mrs.json'),

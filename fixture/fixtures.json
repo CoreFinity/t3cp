@@ -78,5 +78,45 @@
       "sqlite": "3.54.0"
     },
     "scan": "fixture.ts scan --keep-content: clean"
+  },
+  {
+    "id": "long-thread-1",
+    "version": 1,
+    "era_from": null,
+    "era_to": null,
+    "migration": 63,
+    "sqlite": {
+      "name": "long-thread-1-v1.sqlite",
+      "bytes": 623276032,
+      "sha256": "c6360a21eb36e9a00231b22b74fd1e58536dc546121bf948cd98cc03744201be"
+    },
+    "zst": {
+      "name": "long-thread-1-v1.sqlite.zst",
+      "bytes": 24512700,
+      "sha256": "c450d385739f0ce0e823cf725943b862df7160e166341221bc59ee05e75f27d4",
+      "compression": "zstd -19 --long=31"
+    },
+    "shape": {
+      "path": "fixture/long-thread-1.shape.json",
+      "sha256": "16f821e3340d3fa1bb220fc8f296591d5876e50433099a02a741f308601b60e0"
+    },
+    "shape_measured": "fixture/long-thread-1-v1.shape.json",
+    "builder": {
+      "repository": "https://github.com/navidnadali/t3code",
+      "tag": "t3cp-fixture/long-thread-1-v1",
+      "commit": "79594c648f296a5fe5269c60ef50c46909f664df",
+      "upstream_base": "13aa882c22d584de5388dfce3b3ca413387ba059",
+      "first_nightly": "v0.1.1-nightly.20261017.3272"
+    },
+    "recipe": "node tools/server-bench/fixture.ts synth --like fixture/long-thread-1.shape.json --scale 1 --seed 20261017 --now 2026-10-17T00:00:00Z --workspace-root /t3-bench-synthetic long-thread-1-v1.sqlite && node tools/server-bench/fixture.ts scan --keep-content long-thread-1-v1.sqlite",
+    "build": {
+      "seed": 20261017,
+      "now": "2026-10-17T00:00:00Z",
+      "workspace_root": "/t3-bench-synthetic",
+      "scale": 1,
+      "node": "26.12.1",
+      "sqlite": "3.54.0"
+    },
+    "scan": "fixture.ts scan --keep-content: clean"
   }
 ]

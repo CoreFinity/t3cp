@@ -29,3 +29,9 @@ test('a scenario fixture is listed by the scenario rows that run on it, not as a
   // The era fixture reads as before.
   assert.match(html, /<h2>large-76\.<\/h2><p>Serves nightlies from/);
 });
+
+test('a scenario fixture no published row runs on yet says so', () => {
+  const c = { T, downloads: [], fixtures: [scenario], eras: [], shapeFile: null, harness: [], records: [], scenarios: { rows: rows.slice(0, 1) } };
+  const html = P.downloads(c).body;
+  assert.match(html, /<h2>long-thread-1\.<\/h2><p>Not used by a published scenario yet\. Migration head 63\.<\/p>/);
+});

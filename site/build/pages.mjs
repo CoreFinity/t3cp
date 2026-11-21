@@ -314,14 +314,22 @@ export function downloads(c) {
   const pend = '<span class="dim">pending</span>';
   const fixtures = (fx && fx.length ? fx : c.eras.map(e => ({ id: e.id, era_from: e.from, era_to: e.to, migration: e.migration, pending: true }))).map(f => {
     const zst = f.zst || {}, sq = f.sqlite || {}, name = zst.name || `${f.id}-v${f.version || 1}.sqlite.zst`;
-    return `<section class="sec"><div class="sec-h"><div><h2>${esc(f.id)}.</h2><p>Serves nightlies from ${c.T.dLong(f.era_from)}${f.era_to ? ' to ' + c.T.dLong(f.era_to) : ' onwards'}, migration head ${esc(f.migration)}.${eraMeasured(c, f.era_from, f.era_to) ? '' : ' Its nightlies are still to be measured.'}</p></div></div>
+    // A scenario fixture (no nightly era) is named by the scenarios.json rows that run on it.
+    const users = f.era_from ? [] : ((c.scenarios && c.scenarios.rows) || []).filter(r => r.fixture === f.id).map(r => `<code>${esc(r.suite)}</code>`);
+    const serves = f.era_from
+      ? `Serves nightlies from ${c.T.dLong(f.era_from)}${f.era_to ? ' to ' + c.T.dLong(f.era_to) : ' onwards'}, migration head ${esc(f.migration)}.${eraMeasured(c, f.era_from, f.era_to) ? '' : ' Its nightlies are still to be measured.'}`
+      : users.length
+        ? `Used by the scenario${users.length > 1 ? 's' : ''} ${users.join(', ')}, migration head ${esc(f.migration)}.`
+        : `Not used by a published scenario yet. Migration head ${esc(f.migration)}.`;
+    const shape = f.input || c.shapeFile;
+    return `<section class="sec"><div class="sec-h"><div><h2>${esc(f.id)}.</h2><p>${serves}</p></div></div>
 <dl class="spec">
   <dt>File</dt><dd><a href="https://files.t3cp.io/fixtures/${esc(name)}"><code>https://files.t3cp.io/fixtures/${esc(name)}</code></a></dd>
   <dt>Builder</dt><dd>${f.pending ? pend : `The tag <a href="https://github.com/navidnadali/t3code/tree/t3cp-fixture/${esc(f.id)}-v${esc(f.version || 1)}"><code>t3cp-fixture/${esc(f.id)}-v${esc(f.version || 1)}</code></a> on the fork.`}</dd>
   <dt>Compressed</dt><dd>${zst.bytes ? `<b>${bytes(zst.bytes)}</b>` : pend}<br><span class="sha">sha256 ${zst.sha256 ? esc(zst.sha256) : pend}</span></dd>
   <dt>Uncompressed</dt><dd>${sq.bytes ? `<b>${bytes(sq.bytes)}</b>` : pend}<br><span class="sha">sha256 ${sq.sha256 ? esc(sq.sha256) : pend}</span></dd>
   <dt>Decompress</dt><dd><code>zstd -d --long=31 ${esc(name)}</code><br>The <code>--long=31</code> flag is required: the file was compressed with a 2 GiB window.</dd>
-  <dt>Shape</dt><dd>${c.shapeFile ? `<a href="/${esc(c.shapeFile.path)}"><code>${esc(c.shapeFile.path)}</code></a>, ${bytes(c.shapeFile.bytes)}, sha256 <span class="sha">${esc(c.shapeFile.sha256)}</span>` : pend}${f.measured ? `<br>Measured counts and sizes: <a href="/${esc(f.measured.path)}"><code>${esc(f.measured.path)}</code></a>, ${bytes(f.measured.bytes)}, sha256 <span class="sha">${esc(f.measured.sha256)}</span>` : f.shape_measured ? `<br>Measured counts and sizes: <code>${esc(f.shape_measured)}</code>` : ''}</dd>
+  <dt>Shape</dt><dd>${shape ? `<a href="/${esc(shape.path)}"><code>${esc(shape.path)}</code></a>, ${bytes(shape.bytes)}, sha256 <span class="sha">${esc(shape.sha256)}</span>` : pend}${f.measured ? `<br>Measured counts and sizes: <a href="/${esc(f.measured.path)}"><code>${esc(f.measured.path)}</code></a>, ${bytes(f.measured.bytes)}, sha256 <span class="sha">${esc(f.measured.sha256)}</span>` : f.shape_measured ? `<br>Measured counts and sizes: <code>${esc(f.shape_measured)}</code>` : ''}</dd>
   <dt>Recipe</dt><dd>${f.recipe ? `<code>${esc(f.recipe)}</code>` : pend}</dd>
   <dt>Licence</dt><dd>CC BY 4.0, attributed to t3cp.io.</dd>
 </dl></section>`;
