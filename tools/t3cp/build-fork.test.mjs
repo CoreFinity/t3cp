@@ -374,6 +374,43 @@ test("--normalize-archive writes only a scratch file of its own, and refuses an 
   }
 });
 
+// Run as a user permissions apply to (CI's runner is one; root reads and removes anything).
+const AS_ROOT = process.getuid?.() === 0 ? "root ignores the permissions this checks" : false;
+
+test("--normalize-archive repacks read-only directories and unreadable files, and leaves no scratch behind", { skip: NO_GNU_TAR || AS_ROOT }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "build-fork-normalize-"));
+  try {
+    const stem = "t3-0.1.9-perf.9-linux-x64";
+    const base = join(dir, "base");
+    mkdirSync(join(base, stem, "ro"), { recursive: true });
+    writeFileSync(join(base, stem, "ro", "a.txt"), "a\n");
+    writeFileSync(join(base, stem, "secret.txt"), "s\n");
+    // The archive carries the modes (each member appended with its own --mode); the files on disk stay readable.
+    const build = (name, roMode, fileMode) => {
+      const tar = join(dir, `${name}.tar`);
+      sh(`${gnuTar} -cf "${tar}" -C "${base}" --no-recursion ${stem}`);
+      sh(`${gnuTar} -rf "${tar}" -C "${base}" --no-recursion --mode=${roMode} ${stem}/ro`);
+      sh(`${gnuTar} -rf "${tar}" -C "${base}" --mode=644 ${stem}/ro/a.txt`);
+      sh(`${gnuTar} -rf "${tar}" -C "${base}" --mode=${fileMode} ${stem}/secret.txt`);
+      sh(`gzip -n "${tar}"`);
+      return `${tar}.gz`;
+    };
+    const plain = build("plain", "755", "644");
+    const locked = build("locked", "555", "200");
+    const scratch = join(dir, "tmp");
+    mkdirSync(scratch);
+    for (const [i, o] of [[plain, join(dir, "np.tar.gz")], [locked, join(dir, "nl.tar.gz")]]) {
+      const r = normalizeWith({ TMPDIR: scratch }, i, o, "1795132800");
+      assert.equal(r.status, 0, r.stderr);
+    }
+    assert.equal(sha(join(dir, "np.tar.gz")), sha(join(dir, "nl.tar.gz")), "the same members, whatever their owner bits");
+    assert.deepEqual(sh(`ls -A "${scratch}"`).trim(), "", "no scratch tree left behind");
+  } finally {
+    sh(`chmod -R u+rwX "${dir}"`);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("--normalize-archive refuses a gzip that is not GNU gzip: another implementation compresses differently", { skip: NO_GNU_TAR }, () => {
   const dir = mkdtempSync(join(tmpdir(), "build-fork-normalize-"));
   try {
