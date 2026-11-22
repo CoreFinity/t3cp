@@ -28,7 +28,10 @@ const addDays = (date, n) => new Date(Date.parse(`${date}T00:00:00Z`) + n * 8640
 // The repository's rows, the compaction row's harness the fake one so the fake records pass its pin check.
 const REAL = loadScenarios();
 const SCENARIOS = { ...REAL, rows: REAL.rows.map(r => (r.id === 'event-log-compaction' ? { ...r, harness: HARNESS.version } : r)) };
-const COMPACTION = SCENARIOS.rows.find(r => r.id === 'event-log-compaction');
+// The compaction row: version 2 publishes; version 1 is retired, never having published.
+const COMPACTION = SCENARIOS.rows.find(r => r.id === 'event-log-compaction' && r.version === 2);
+const RETIRED = SCENARIOS.rows.find(r => r.id === 'event-log-compaction' && r.version === 1);
+const MARK_AGE = catalogue.metrics.find(m => m.id === 'prune_mark_age_days');
 const UNPRUNED = catalogue.metrics.find(m => m.id === 'event_log_unpruned_days');
 const EMPTY = 'No records yet: this scenario has not run on a published build yet.';
 const LEDE = 'A scenario is a fixed workload measured on the same machine type as the nightlies, with its own fixture, cells and metrics. A scenario is never edited: any change is a new version.';
@@ -72,7 +75,7 @@ test('with no scenario record: the index lists every row, a row page has its fac
     assert.match(ix, /<a href="\/scenarios\/event-log-compaction\/"><code>event-log-compaction<\/code><\/a>/);
 
     const page = s.main('scenarios/event-log-compaction/index.html');
-    assert.match(page, /<h1>event-log-compaction, version 1\.<\/h1>/);
+    assert.match(page, /<h1>event-log-compaction, version 2\.<\/h1>/);
     assert.match(s.read('scenarios/event-log-compaction/index.html'), /<title>event-log-compaction · Scenarios · t3cp<\/title>/);
     const facts = txt((/<dl class="spec[^"]*">([^]*?)<\/dl>/.exec(page) || [])[1] || '');
     assert.equal(facts, `Suite ${COMPACTION.suite} Status active Added ${T.dLong(COMPACTION.added)} Harness ${COMPACTION.harness} Fixture large-76 Attempts per cell 3 Platforms Linux x64`, 'macOS is hidden while it has no record');
@@ -80,11 +83,24 @@ test('with no scenario record: the index lists every row, a row page has its fac
     // Every field the row's cells carry, one column each (Fixture always): here no switch interval or poll rate.
     assert.equal(cells[0], 'Cell Fixture Mode Agents Watching live Status pollers Turn gap Warm-up Window Seeded compaction mark After the window Mark age');
     assert.deepEqual(cells.slice(1), ['cmp large-76 history 1 1 0 5s 60 s 300 s false prune-mark 3 days']);
-    const sec = page.slice(page.indexOf('id="event_log_unpruned_days"'));
-    assert.ok(sec.includes(`<h2>${UNPRUNED.name}</h2>`), 'the catalogue name');
-    assert.ok(txt(sec).includes(txt(UNPRUNED.definition)), 'the catalogue definition');
+    const sec = page.slice(page.indexOf('id="prune_mark_age_days"'));
+    assert.ok(sec.includes(`<h2>${MARK_AGE.name}</h2>`), 'the catalogue name');
+    assert.ok(txt(sec).includes(txt(MARK_AGE.definition)), 'the catalogue definition');
     assert.ok(txt(sec).includes(EMPTY), 'the empty state');
     assert.doesNotMatch(sec, /<table/);
+    assert.ok(!page.includes('id="event_log_unpruned_days"'), "the retired version's metric is on its own page");
+
+    // The retired version 1: listed as retired, at its own address, with its metric's text naming the replacement.
+    assert.ok(RETIRED && RETIRED.status === 'retired', 'event-log-compaction@1 is retired');
+    assert.ok(table.slice(1).some(r => r.startsWith(`event-log-compaction 1 retired ${T.dLong(RETIRED.added)} ${UNPRUNED.short} `)), table.join(' | '));
+    assert.match(ix, /<a href="\/scenarios\/event-log-compaction\/1\/"><code>event-log-compaction<\/code><\/a>/);
+    const old = s.main('scenarios/event-log-compaction/1/index.html');
+    assert.match(old, /<h1>event-log-compaction, version 1\.<\/h1>/);
+    const oldFacts = txt((/<dl class="spec[^"]*">([^]*?)<\/dl>/.exec(old) || [])[1] || '');
+    assert.ok(oldFacts.startsWith(`Suite event-log-compaction@1 Status retired Added ${T.dLong(RETIRED.added)}`), oldFacts);
+    const oldSec = old.slice(old.indexOf('id="event_log_unpruned_days"'));
+    assert.ok(txt(oldSec).includes(txt(UNPRUNED.definition)), "the retired metric's definition");
+    assert.ok(txt(oldSec).includes('replaced by prune_mark_age_days'), 'it names its replacement');
 
     const ladder = s.main('scenarios/ladder/index.html');
     assert.match(ladder, /<h1>ladder, version 1\.<\/h1>/);
@@ -112,13 +128,13 @@ test('with records: the index counts them, the row page lists nightlies newest f
     const ix = rowsOf(s.main('scenarios/index.html'));
     assert.ok(ix.some(r => r.startsWith('event-log-compaction ') && r.endsWith(`35 records, latest ${T.dLong(dates[34])}`)), ix.join(' | '));
     const page = s.main('scenarios/event-log-compaction/index.html');
-    const sec = page.slice(page.indexOf('id="event_log_unpruned_days"'));
+    const sec = page.slice(page.indexOf('id="prune_mark_age_days"'));
     assert.ok(!txt(sec).includes(EMPTY), 'no empty state');
     const nights = rowsOf(sec.slice(sec.indexOf('Nightlies.')).split('</table>')[0]);
     assert.equal(nights[0], 'Date Tag cmp');
     assert.equal(nights.length - 1, 30, 'the newest 30 only');
     assert.ok(nights[1].startsWith(T.dLong(dates[34])), 'newest first');
-    assert.ok(nights[1].endsWith(`${txt(T.fmtU(2, UNPRUNED))} (3 valid)`), nights[1]);
+    assert.ok(nights[1].endsWith(`${txt(T.fmtU(2, MARK_AGE))} (3 valid)`), nights[1]);
     assert.ok(nights[2].startsWith(T.dLong(NULL_DAY)) && nights[2].endsWith(SCENARIO_REASON_WORDS.no_event_prune), nights[2]);
     assert.ok(!nights.some(r => r.startsWith(T.dLong(dates[4]))), 'older ones left out');
     const gz = gzipSync(s.read('scenarios/event-log-compaction/index.html'), { level: 9 }).length;

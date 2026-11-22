@@ -1081,7 +1081,7 @@ const TEST_CATALOGUE = {
       platforms: ["linux-x64", "darwin-arm64"],
       fixture: "none",
       attempts: 1,
-      metrics: ["event_log_unpruned_days"],
+      metrics: ["prune_mark_age_days"],
       cells: [{ name: "cmp", mode: "fresh", sessions: 1, subscribers: 1, pollers: 0, turn_gap: "5s", warmup_s: 60, window_s: 300, seed_compacted_at: false, post: "prune-mark" }],
     },
     {
@@ -1094,7 +1094,7 @@ const TEST_CATALOGUE = {
       platforms: ["linux-x64", "darwin-arm64"],
       fixture: "large-76",
       attempts: 1,
-      metrics: ["event_log_unpruned_days"],
+      metrics: ["prune_mark_age_days"],
       cells: [{ name: "cmp", mode: "fresh", sessions: 1, subscribers: 1, pollers: 0, turn_gap: "5s", warmup_s: 60, window_s: 300, seed_compacted_at: false, post: "prune-mark", mark_age_days: 3 }],
     },
   ],
@@ -1208,7 +1208,7 @@ test("a compaction row reads the prune mark from the kept run's database, read-o
   const result = runRunner(t, { env: { ...t.env, T3CP_KEEP_RAW: "1", STUB_DB_TEMPLATE: db } });
   assert.equal(result.status, 0, result.stderr);
   const raw = JSON.parse(readFileSync(join(t.work, "raw", "cmp-1", "scenario.json"), "utf8"));
-  assert.deepEqual(raw.metrics, { event_log_unpruned_days: { value: 2, reason: null } });
+  assert.deepEqual(raw.metrics, { prune_mark_age_days: { value: 2, reason: null } });
   assert.equal(raw.detail.mark_updated_at, mark);
   // On Linux the /proc sidecar keeps the run's database for this post step (it deletes it for every other cell).
   if (process.platform === "linux") assert.match(readFileSync(join(t.work, "raw", "cmp-1", "procmon.log"), "utf8"), /procmon start .*keep_db=1/);
@@ -1234,7 +1234,7 @@ test("a compaction row's prune mark is re-dated on the migrated fixture before e
   const after = Date.now();
   assert.equal(result.status, 0, result.stderr);
   const raw = JSON.parse(readFileSync(join(t.work, "raw", "cmp-1", "scenario.json"), "utf8"));
-  assert.deepEqual(raw.metrics, { event_log_unpruned_days: { value: 2, reason: null } });
+  assert.deepEqual(raw.metrics, { prune_mark_age_days: { value: 2, reason: null } });
   const mark = Date.parse(raw.detail.mark_updated_at);
   assert.ok(mark >= before - 3 * 86_400_000 && mark <= after - 3 * 86_400_000, `mark ${raw.detail.mark_updated_at} is 3 days before the try`);
   assert.equal(createHash("sha256").update(readFileSync(spec.fixture.path)).digest("hex"), fixtureBefore, "the spec's fixture is never written");

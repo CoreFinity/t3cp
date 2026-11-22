@@ -143,6 +143,7 @@ const SCENARIO_METRICS = {
   turn_start_long_thread_ms: { era: "turn_start_span", era_start: "2026-10-20", unit: "ms" },
   get_thread_shell_long_thread_ms: { era: "thread_shell_span", era_start: "2026-10-26", unit: "ms" },
   event_log_unpruned_days: { era: "event_prune", era_start: "2026-11-04", unit: "days" },
+  prune_mark_age_days: { era: "event_prune", era_start: "2026-11-04", unit: "days" },
 };
 
 test("catalogue: the scenario metrics, their feature eras, and no other metric on the scenario lane", () => {
@@ -166,6 +167,36 @@ test("catalogue: the scenario metrics, their feature eras, and no other metric o
   // Appended after every ladder metric: the synthetic kit draws its values in catalogue order.
   const firstScenario = metrics.findIndex((m) => m.lane === "scenario");
   assert.ok(metrics.slice(firstScenario).every((m) => m.lane === "scenario"), "the scenario metrics come last");
+});
+
+// event-log-compaction@2 dates the prune mark 3 days before each try over the fixture's whole event history and starts
+// the server with no earlier compaction, so the first prune pass starts within the run and cannot complete there. The
+// row tells whether a release moves the mark as that pass starts (0) or only once it completes (2): the name and the
+// definition say that, with the value's rounding, and claim no count of unpruned days.
+test("catalogue: prune_mark_age_days says the compaction row reads where the prune mark moves, 0 or 2, not a day count", () => {
+  const m = metrics.find((x) => x.id === "prune_mark_age_days");
+  assert.ok(m, "prune_mark_age_days is in the catalogue");
+  assert.equal(m.name, "Prune mark age past the retained day");
+  assert.equal(m.short, "Prune mark age");
+  for (const part of [
+    "not a count of days of unpruned events",
+    "no record of an earlier compaction, so its first prune pass starts within the run",
+    "with the prune mark dated 3 days before the try and covering the fixture's whole event history, so no prune pass can complete within the run",
+    "minus the one retained day, floored at 0 and rounded to 0.1 days",
+    "when the pass starts reads 0",
+    "only after a completed pass",
+    "reads 2",
+  ]) assert.ok(m.definition.includes(part), `definition: ${part}`);
+  for (const claim of ["keeps up", "fallen behind", "were not pruned"]) assert.ok(!m.definition.includes(claim), `definition claims: ${claim}`);
+});
+
+// event_log_unpruned_days stays as the metric of the retired row event-log-compaction@1, which published no record.
+test("catalogue: event_log_unpruned_days is the retired event-log-compaction@1's metric and names its replacement", () => {
+  const m = metrics.find((x) => x.id === "event_log_unpruned_days");
+  for (const part of ["event-log-compaction@1", "retired before it published any record", "replaced by prune_mark_age_days", "event-log-compaction@2"]) {
+    assert.ok(m.definition.includes(part), `definition: ${part}`);
+  }
+  for (const claim of ["keeps up", "fallen behind", "were not pruned"]) assert.ok(!m.definition.includes(claim), `definition claims: ${claim}`);
 });
 
 test("catalogue: targets and mappings name catalogue metrics and say what they mean in plain words", () => {

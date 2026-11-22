@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { scenarioRaw, turnStartGap } from "./scenario-post.mjs";
+import { POST_METRICS, scenarioRaw, turnStartGap } from "./scenario-post.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = mkdtempSync(join(tmpdir(), "t3cp-scenario-post-"));
@@ -185,4 +185,24 @@ test("a try with no valid run measures nothing: every metric of the step is null
     turn_start_history_gap_ms: { value: null, reason: "no_run_window" },
     turn_start_long_thread_ms: { value: null, reason: "no_run_window" },
   });
+});
+
+test("the prune-mark post step writes prune_mark_age_days, the metric event-log-compaction@2 publishes", () => {
+  assert.deepEqual(POST_METRICS["prune-mark"], ["prune_mark_age_days"]);
+  // A valid try: the mark's age in the kept run's database, under that key.
+  const raw = join(root, "prune-valid-raw");
+  const run = join(raw, "work", "runs", "release", "attempt-1");
+  mkdirSync(join(run, "base", "userdata"), { recursive: true });
+  const end = T0 + 600_000;
+  writeFileSync(join(run, "run.json"), JSON.stringify({ valid: true, window: { start: new Date(T0).toISOString(), end: new Date(end).toISOString() } }));
+  writeFileSync(join(run, "base", "userdata", "statev2.sqlite"), readFileSync(database("prune-post", new Date(end - 3 * 86_400_000).toISOString())));
+  const out = scenarioRaw("prune-mark", raw, { id: "event-log-compaction", version: 2 });
+  assert.equal(out.window.valid, true);
+  assert.deepEqual(out.metrics, { prune_mark_age_days: { value: 2, reason: null } });
+  // A try with no valid run: the step's metric, null with no_run_window.
+  const invalid = join(root, "prune-invalid-raw");
+  const bad = join(invalid, "work", "runs", "release", "attempt-1");
+  mkdirSync(bad, { recursive: true });
+  writeFileSync(join(bad, "run.json"), JSON.stringify({ valid: false, window: { start: new Date(T0).toISOString(), end: new Date(end).toISOString() } }));
+  assert.deepEqual(scenarioRaw("prune-mark", invalid, { id: "event-log-compaction", version: 2 }).metrics, { prune_mark_age_days: { value: null, reason: "no_run_window" } });
 });

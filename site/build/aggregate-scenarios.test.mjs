@@ -24,8 +24,8 @@ const addDays = (date, n) => new Date(Date.parse(`${date}T00:00:00Z`) + n * 8640
 const LADDER_ROW = loadScenarios().rows.find((r) => r.id === "ladder" && r.version === 1);
 const cell = (name, over = {}) => ({ name, mode: "history", sessions: 1, subscribers: 1, pollers: 0, turn_gap: "5s", warmup_s: 60, window_s: 300, seed_compacted_at: true, post: "turn-start-gap", ...over });
 const COMPACTION = {
-  id: "event-log-compaction", version: 1, suite: "event-log-compaction@1", status: "active", added: "2026-11-21", harness: HARNESS.version,
-  platforms: ["linux-x64", "darwin-arm64"], fixture: "large-76", attempts: 3, metrics: ["event_log_unpruned_days"],
+  id: "event-log-compaction", version: 2, suite: "event-log-compaction@2", status: "active", added: "2026-11-22", harness: HARNESS.version,
+  platforms: ["linux-x64", "darwin-arm64"], fixture: "large-76", attempts: 3, metrics: ["prune_mark_age_days"],
   cells: [cell("cmp", { seed_compacted_at: false, post: "prune-mark", mark_age_days: 3 })],
 };
 const SECOND = {
@@ -70,10 +70,10 @@ const shard = (files, row, platform, metric) => {
 test("red first: a second suite's records are accepted and kept in their own series", () => {
   const dates = ["2026-11-10", "2026-11-11", "2026-11-12"];
   const files = build(writeTree(LADDER, dates.map((d) => compaction(d))));
-  const s = shard(files, COMPACTION, "linux-x64", "event_log_unpruned_days");
+  const s = shard(files, COMPACTION, "linux-x64", "prune_mark_age_days");
   assert.equal(s.schema, "t3cp/scenario-series/1");
   assert.deepEqual(validate(loadSchema("scenario-series-1.json"), s), []);
-  assert.equal(s.suite, "event-log-compaction@1");
+  assert.equal(s.suite, "event-log-compaction@2");
   assert.deepEqual(s.nightly.dates, dates);
   assert.deepEqual(Object.keys(s.nightly.cells), ["cmp"]);
   assert.deepEqual(s.nightly.cells.cmp.median, [1.2, 1.2, 1.2]);
@@ -83,7 +83,7 @@ test("red first: a second suite's records are accepted and kept in their own ser
   assert.deepEqual(JSON.parse(files.get(rel).toString("utf8")), compaction(dates[0]));
   const index = JSON.parse(files.get("scenarios/index.json").toString("utf8"));
   assert.deepEqual(validate(loadSchema("scenarios-index-1.json"), index), []);
-  assert.deepEqual(index.rows.map((r) => r.suite), ["event-log-compaction@1"]);
+  assert.deepEqual(index.rows.map((r) => r.suite), ["event-log-compaction@2"]);
   assert.equal(index.rows[0].platforms["linux-x64"].records, 3);
   // The ladder's outputs are the same with or without the scenario records.
   const ladderOnly = build(writeTree(LADDER));
@@ -107,7 +107,7 @@ test("a scenario's eras and segments are its own: adding another scenario's reco
   assert.deepEqual(Object.keys(s.nightly.cells), ["a", "b"]);
   assert.notEqual(s.nightly.cells.a.segment[0], s.nightly.cells.a.segment[1], "a rebuilt fixture starts a new segment");
   assert.ok(s.eras.some((e) => e.kind === "fixture" && e.date === dates[1]));
-  assert.deepEqual(shard(both, COMPACTION, "linux-x64", "event_log_unpruned_days").eras, []);
+  assert.deepEqual(shard(both, COMPACTION, "linux-x64", "prune_mark_age_days").eras, []);
   // Cells of one row with other loads never share a segment.
   assert.notEqual(s.nightly.cells.a.segment[0], s.nightly.cells.b.segment[0]);
 });
@@ -117,7 +117,7 @@ test("a metric's era starts within its own scenario's series only", () => {
   const dates = ["2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05"];
   const records = dates.map((d) => (d < "2026-11-04" ? compaction(d, () => null, { reason: () => "no_event_prune" }) : compaction(d)));
   const files = build(writeTree(LADDER, records));
-  const s = shard(files, COMPACTION, "linux-x64", "event_log_unpruned_days");
+  const s = shard(files, COMPACTION, "linux-x64", "prune_mark_age_days");
   assert.deepEqual(s.nightly.cells.cmp.median, [null, null, 1.2, 1.2]);
   assert.deepEqual(s.nightly.cells.cmp.reason, ["no_event_prune", "no_event_prune", null, null]);
   assert.deepEqual(s.eras, [{ date: "2026-11-04", kind: "metric", label: catalogue.feature_eras.find((e) => e.id === "event_prune").what }]);
@@ -135,7 +135,7 @@ test("refused: a record of no row, a record under another row's path or another 
   // A scenario record under the ladder's paths is refused, and a ladder record under scenarios/.
   assert.throws(() => build(writeTree(LADDER, [], { [`records/linux-x64/2026-11-13.${good.release.tag}.json`]: good })), (e) => e instanceof BuildError && /suite/.test(e.message));
   const ladder = LADDER[0];
-  assert.throws(() => build(writeTree(LADDER, [], { [`scenarios/event-log-compaction/1/records/linux-x64/${ladder.release.date}.${ladder.release.tag}.json`]: ladder })), BuildError);
+  assert.throws(() => build(writeTree(LADDER, [], { [`scenarios/event-log-compaction/2/records/linux-x64/${ladder.release.date}.${ladder.release.tag}.json`]: ladder })), BuildError);
   // A record that runs another harness than its row pins is refused.
   const otherHarness = fakeScenarioRecord({ row: { ...COMPACTION, harness: HARNESS_B.version }, date: "2026-11-10", harness: HARNESS_B });
   assert.throws(() => build(writeTree(LADDER, [otherHarness])), (e) => e instanceof BuildError && /harness/.test(e.message));
@@ -174,7 +174,7 @@ test("review: a scenario record must implement its row: scenario, attempts, fixt
     },
     load: (r) => (r.workload.cells.cmp = { ...r.workload.cells.cmp, sessions: 50, window_s: 10 }),
     "load missing": (r) => delete r.workload.cells.cmp,
-    "metric missing": (r) => delete r.cells.cmp.metrics.event_log_unpruned_days,
+    "metric missing": (r) => delete r.cells.cmp.metrics.prune_mark_age_days,
   };
   const narrowRow = { ...COMPACTION, platforms: ["linux-x64"] };
   for (const [what, edit] of Object.entries(variants)) {

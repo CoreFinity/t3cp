@@ -27,15 +27,15 @@ const tmp = () => {
 
 const COMPACTION = {
   id: "event-log-compaction",
-  version: 1,
-  suite: "event-log-compaction@1",
+  version: 2,
+  suite: "event-log-compaction@2",
   status: "active",
-  added: "2026-11-21",
+  added: "2026-11-22",
   harness: "t3cp-harness/2.0.2",
   platforms: ["linux-x64", "darwin-arm64"],
   fixture: "large-76",
   attempts: 3,
-  metrics: ["event_log_unpruned_days"],
+  metrics: ["prune_mark_age_days"],
   cells: [{ name: "cmp", mode: "history", sessions: 1, subscribers: 1, pollers: 0, turn_gap: "5s", warmup_s: 60, window_s: 300, seed_compacted_at: false, post: "prune-mark", mark_age_days: 3 }],
 };
 const LONG_THREAD = {
@@ -56,7 +56,7 @@ const opts = { privatePatterns: [], scenarios: SCENARIOS };
 const ok = (value) => ({ value, reason: null });
 const na = (reason) => ({ value: null, reason });
 
-function compaction({ metrics = { event_log_unpruned_days: ok(2) }, spec, edit, n = 1 } = {}) {
+function compaction({ metrics = { prune_mark_age_days: ok(2) }, spec, edit, n = 1 } = {}) {
   const root = tmp();
   const dir = writeRawScenarioAttempt(root, { row: COMPACTION, cell: "cmp", n, metrics, spec, edit });
   return { dir, spec: spec ?? fakeScenarioSpec(COMPACTION) };
@@ -78,33 +78,33 @@ test("red first: a scenario cell's raw directory exports a t3cp/scenario-attempt
   assert.deepEqual(validate(loadSchema("scenario-attempt-1.json"), a), []);
   assert.equal(a.cell, "cmp");
   assert.equal(a.n, 1);
-  assert.deepEqual(a.workload.scenario, { id: "event-log-compaction", version: 1 });
-  assert.equal(a.workload.suite, "event-log-compaction@1");
+  assert.deepEqual(a.workload.scenario, { id: "event-log-compaction", version: 2 });
+  assert.equal(a.workload.suite, "event-log-compaction@2");
   assert.equal(a.workload.attempts_per_cell, 3);
   assert.deepEqual(a.load, { sessions: 1, subscribers: 1, pollers: 0, mode: "history", turn_gap_s: 5, switch_interval_s: null, poll_interval_s: null, fixture: "era", warmup_s: 60, window_s: 300, seed_compacted_at: false, post: "prune-mark", mark_age_days: 3 });
   assert.equal(a.attempt.valid, true, a.attempt.problems.join(","));
-  assert.deepEqual(a.metrics, { event_log_unpruned_days: 2 });
+  assert.deepEqual(a.metrics, { prune_mark_age_days: 2 });
   assert.deepEqual(a.attempt.metric_reasons, {});
   assert.equal(a.fixture.id, "large-76");
 });
 
 test("a public reason publishes null with it; an internal reason makes the attempt invalid (scenario_unmeasured)", () => {
-  let { dir, spec } = compaction({ metrics: { event_log_unpruned_days: na("no_event_prune") } });
+  let { dir, spec } = compaction({ metrics: { prune_mark_age_days: na("no_event_prune") } });
   let a = exportAttempt(dir, spec, opts);
   assert.equal(a.attempt.valid, true);
-  assert.deepEqual(a.metrics, { event_log_unpruned_days: null });
-  assert.deepEqual(a.attempt.metric_reasons, { event_log_unpruned_days: "no_event_prune" });
+  assert.deepEqual(a.metrics, { prune_mark_age_days: null });
+  assert.deepEqual(a.attempt.metric_reasons, { prune_mark_age_days: "no_event_prune" });
   for (const reason of INTERNAL_SCENARIO_REASONS) {
-    ({ dir, spec } = compaction({ metrics: { event_log_unpruned_days: na(reason) } }));
+    ({ dir, spec } = compaction({ metrics: { prune_mark_age_days: na(reason) } }));
     a = exportAttempt(dir, spec, opts);
     assert.equal(a.attempt.valid, false, reason);
     assert.ok(a.attempt.problems.includes("scenario_unmeasured"), reason);
-    assert.deepEqual(a.metrics, { event_log_unpruned_days: null }, reason);
+    assert.deepEqual(a.metrics, { prune_mark_age_days: null }, reason);
     assert.deepEqual(a.attempt.metric_reasons, {}, `${reason} is never published`);
     assert.doesNotMatch(JSON.stringify(a), new RegExp(reason), `${reason} is never published`);
   }
   // A code neither list knows is never published either: the attempt is invalid.
-  ({ dir, spec } = compaction({ metrics: { event_log_unpruned_days: na("something_new") } }));
+  ({ dir, spec } = compaction({ metrics: { prune_mark_age_days: na("something_new") } }));
   a = exportAttempt(dir, spec, opts);
   assert.equal(a.attempt.valid, false);
   assert.doesNotMatch(JSON.stringify(a), /something_new/);
@@ -151,19 +151,19 @@ test("the row decides: an unknown or retired row, a cell it lacks, other load ar
   assert.throws(() => exportAttempt(dir, { ...spec, suite: { id: "nope@1", scenario: { id: "nope", version: 1 } } }, opts), /not in scenarios\.json/);
   const retired = { ...SCENARIOS, rows: [{ ...COMPACTION, status: "retired" }] };
   assert.throws(() => exportAttempt(dir, spec, { ...opts, scenarios: retired }), /retired/);
-  assert.throws(() => exportAttempt(dir, { ...spec, suite: { ...spec.suite, id: "event-log-compaction@2" } }, opts), /suite/);
+  assert.throws(() => exportAttempt(dir, { ...spec, suite: { ...spec.suite, id: "event-log-compaction@3" } }, opts), /suite/);
   const harness = compaction({ edit: (f) => (f.meta.harness.version = "t3cp-harness/1.9.9") });
   assert.throws(() => exportAttempt(harness.dir, harness.spec, opts), /harness t3cp-harness\/1\.9\.9 is not the row's/);
   const other = compaction({ edit: (f) => (f.meta.profile.subscribers = 3) });
   assert.throws(() => exportAttempt(other.dir, other.spec, opts), /load .*row's cell cmp/);
-  const extra = compaction({ metrics: { event_log_unpruned_days: ok(2), turn_start_long_thread_ms: ok(1) } });
+  const extra = compaction({ metrics: { prune_mark_age_days: ok(2), turn_start_long_thread_ms: ok(1) } });
   assert.throws(() => exportAttempt(extra.dir, extra.spec, opts), /turn_start_long_thread_ms.*not one of the row's metrics/);
   const missing = compaction({ metrics: {} });
-  assert.throws(() => exportAttempt(missing.dir, missing.spec, opts), /event_log_unpruned_days.*missing/);
-  const negative = compaction({ metrics: { event_log_unpruned_days: ok(-1) } });
+  assert.throws(() => exportAttempt(missing.dir, missing.spec, opts), /prune_mark_age_days.*missing/);
+  const negative = compaction({ metrics: { prune_mark_age_days: ok(-1) } });
   assert.throws(() => exportAttempt(negative.dir, negative.spec, opts), /negative/);
   const root = tmp();
-  const wrongCell = writeRawScenarioAttempt(root, { row: { ...COMPACTION, cells: [{ ...COMPACTION.cells[0], name: "xyz" }] }, cell: "xyz", metrics: { event_log_unpruned_days: ok(2) } });
+  const wrongCell = writeRawScenarioAttempt(root, { row: { ...COMPACTION, cells: [{ ...COMPACTION.cells[0], name: "xyz" }] }, cell: "xyz", metrics: { prune_mark_age_days: ok(2) } });
   assert.throws(() => exportAttempt(wrongCell, spec, opts), /cell xyz/);
 });
 
@@ -190,7 +190,14 @@ test("the CLI exports a scenario cell with the repository's scenarios.json", () 
   assert.equal(r.status, 0, r.stderr);
   const a = JSON.parse(fs.readFileSync(path.join(out, "o", "attempt.json"), "utf8"));
   assert.equal(a.schema, "t3cp/scenario-attempt/1");
-  assert.deepEqual(a.metrics, { event_log_unpruned_days: 2 });
+  assert.deepEqual(a.metrics, { prune_mark_age_days: 2 });
+  // The repository's event-log-compaction@1 is retired: an attempt of it is refused.
+  const v1 = { ...COMPACTION, version: 1, suite: "event-log-compaction@1", status: "retired", added: "2026-11-21", metrics: ["event_log_unpruned_days"] };
+  const old = writeRawScenarioAttempt(tmp(), { row: v1, cell: "cmp", metrics: { event_log_unpruned_days: ok(2) } });
+  fs.writeFileSync(specFile, JSON.stringify(fakeScenarioSpec(v1)));
+  const refused = spawnSync(process.execPath, [path.join(here, "export.mjs"), old, "--out", path.join(out, "o1"), "--spec", specFile, "--no-private-patterns"], { encoding: "utf8" });
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /event-log-compaction@1 is retired/);
 });
 
 test("the public scenario reasons each have plain words; the internal ones are never public", () => {
@@ -243,21 +250,21 @@ test("review: the post step's window must be the valid run the exporter chose; a
   for (const change of cases) {
     const root = tmp();
     const base = { start_ms: Date.parse("2026-11-15T10:01:00Z"), end_ms: Date.parse("2026-11-15T10:06:00Z"), run: 1, valid: true };
-    const dir = writeRawScenarioAttempt(root, { row: COMPACTION, cell: "cmp", metrics: { event_log_unpruned_days: ok(2) }, window: { ...base, ...change } });
+    const dir = writeRawScenarioAttempt(root, { row: COMPACTION, cell: "cmp", metrics: { prune_mark_age_days: ok(2) }, window: { ...base, ...change } });
     const a = exportAttempt(dir, fakeScenarioSpec(COMPACTION), opts);
     assert.equal(a.attempt.valid, false, JSON.stringify(change));
     assert.ok(a.attempt.problems.includes("scenario_unmeasured"), JSON.stringify(change));
-    assert.deepEqual(a.metrics, { event_log_unpruned_days: null });
+    assert.deepEqual(a.metrics, { prune_mark_age_days: null });
   }
 });
 
 test("review: any internal or unknown reason, or a value with a public reason, is no measurement", () => {
   for (const entry of [{ value: 2, reason: "db_unreadable" }, { value: 2, reason: "something_new" }, { value: 2, reason: "no_event_prune" }]) {
-    const { dir, spec } = compaction({ metrics: { event_log_unpruned_days: entry } });
+    const { dir, spec } = compaction({ metrics: { prune_mark_age_days: entry } });
     const a = exportAttempt(dir, spec, opts);
     assert.equal(a.attempt.valid, false, JSON.stringify(entry));
     assert.ok(a.attempt.problems.includes("scenario_unmeasured"), JSON.stringify(entry));
-    assert.deepEqual(a.metrics, { event_log_unpruned_days: null });
+    assert.deepEqual(a.metrics, { prune_mark_age_days: null });
     assert.doesNotMatch(JSON.stringify(a.attempt.metric_reasons), /db_unreadable|something_new/);
   }
 });

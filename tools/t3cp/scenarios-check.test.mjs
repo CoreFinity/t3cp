@@ -207,6 +207,89 @@ test("the lock's history fails closed: an unreadable committed lock or a git tha
   assert.match(checkLockHistory(again, rewritten).problems.join("\n"), /^test-row@1: commit [0-9a-f]{12} locked it with another hash/);
 });
 
+// A retired row stays in the catalogue and runs no more (schema/scenarios-1.json). Retiring is the one change the lock
+// takes: the status from active to retired, every other byte of the row as locked, and its lock entry as it was.
+test("retirement: a locked row goes from active to retired, every other byte as locked; retired with any other change is an edit", () => {
+  const scenarios = { ...clone(repo.scenarios), rows: [...clone(repo.scenarios.rows), testRow()] };
+  const lock = { ...repo.lock, rows: { ...repo.lock.rows, "test-row@1": rowHash(testRow()) } };
+  const retired = (edit) => {
+    const s = clone(scenarios);
+    s.rows.at(-1).status = "retired";
+    if (edit) edit(s.rows.at(-1));
+    return s;
+  };
+  assert.deepEqual(checkLock(retired(), lock), [], "active to retired, nothing else");
+  const EDITED = "test-row@1: retired with another change, but retiring a row changes its status only: publish the change as a new version";
+  for (const [what, edit] of Object.entries({
+    suite: (r) => { r.suite = "test-row@9"; },
+    added: (r) => { r.added = "2026-11-20"; },
+    harness: (r) => { r.harness = `${r.harness}-x`; },
+    platforms: (r) => { r.platforms = ["linux-x64", "darwin-arm64"]; },
+    fixture: (r) => { r.fixture = "large-76"; },
+    attempts: (r) => { r.attempts += 1; },
+    metrics: (r) => { r.metrics = []; },
+    "a cell": (r) => { r.cells[0].window_s += 1; },
+    "a new field": (r) => { r.note = "retired"; },
+  })) {
+    assert.deepEqual(checkLock(retired(edit), lock), [EDITED], what);
+  }
+  // A row locked when it was already retired is never made active: that is an edit of its locked content.
+  const lockedRetired = { ...lock, rows: { ...lock.rows, "test-row@1": rowHash(retired().rows.at(-1)) } };
+  assert.deepEqual(checkLock(retired(), lockedRetired), []);
+  assert.deepEqual(checkLock(scenarios, lockedRetired), ["test-row@1: retired when it was locked, and a retired row is never made active again"]);
+  // An edit to an active row reads as before.
+  const edited = clone(scenarios);
+  edited.rows.at(-1).attempts += 1;
+  assert.deepEqual(checkLock(edited, lock), ["test-row@1: edited, but a row is never edited: publish the change as a new version"]);
+});
+
+test("retirement is one way and keeps its lock entry: a row a commit had retired is never active again; rewriting its entry is refused", () => {
+  const scenarios = { ...clone(repo.scenarios), rows: [...clone(repo.scenarios.rows), testRow()] };
+  const root = scratch(scenarios, null);
+  writeLock(root);
+  git(root, ["init", "-q"]);
+  git(root, ["add", "-A"]);
+  git(root, ["commit", "-q", "-m", "catalogue"]);
+  const locked = JSON.parse(fs.readFileSync(path.join(root, LOCK_FILE), "utf8"));
+  // Retired, nothing else: clean before and after the commit, and --lock neither adds nor rewrites an entry.
+  scenarios.rows.at(-1).status = "retired";
+  fs.writeFileSync(path.join(root, SCENARIOS_FILE), JSON.stringify(scenarios));
+  assert.deepEqual(checkRepo(root), { problems: [], history: "checked" });
+  assert.deepEqual(writeLock(root), []);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, LOCK_FILE), "utf8")), locked, "the lock entry is as it was");
+  git(root, ["commit", "-q", "-am", "retire"]);
+  assert.deepEqual(checkRepo(root), { problems: [], history: "checked" });
+  // Made active again: the row is its locked content, but a commit had it retired.
+  scenarios.rows.at(-1).status = "active";
+  fs.writeFileSync(path.join(root, SCENARIOS_FILE), JSON.stringify(scenarios));
+  assert.deepEqual(checkLock(scenarios, locked), [], "the reverse passes the lock alone");
+  let problems = checkRepo(root).problems;
+  assert.equal(problems.length, 1, problems.join("\n"));
+  assert.match(problems[0], /^test-row@1: commit [0-9a-f]{12} had it retired, and a retired row is never made active again$/);
+  // Retired again, its entry rewritten to the retired row's hash and committed: the lock's history refuses it.
+  scenarios.rows.at(-1).status = "retired";
+  fs.writeFileSync(path.join(root, SCENARIOS_FILE), JSON.stringify(scenarios));
+  const rewritten = { ...locked, rows: { ...locked.rows, "test-row@1": rowHash(scenarios.rows.at(-1)) } };
+  fs.writeFileSync(path.join(root, LOCK_FILE), JSON.stringify(rewritten));
+  assert.deepEqual(checkLock(scenarios, rewritten), [], "the rewrite passes the lock alone");
+  git(root, ["commit", "-q", "-am", "rewrite"]);
+  problems = checkRepo(root).problems;
+  assert.equal(problems.length, 1, problems.join("\n"));
+  assert.match(problems[0], /^test-row@1: commit [0-9a-f]{12} locked it with another hash/);
+});
+
+test("the repository: event-log-compaction@1 is retired as locked, and @2 is the same row publishing prune_mark_age_days", () => {
+  const v1 = repo.scenarios.rows.find((r) => rowKey(r) === "event-log-compaction@1");
+  const v2 = repo.scenarios.rows.find((r) => rowKey(r) === "event-log-compaction@2");
+  assert.equal(v1.status, "retired");
+  assert.deepEqual(v1.metrics, ["event_log_unpruned_days"]);
+  assert.equal(repo.lock.rows["event-log-compaction@1"], "9027f6c52ac015ba5e351568c98808b8fe6c875f2bbe741a7f689c57433d89e4", "@1's entry as first locked");
+  assert.equal(rowHash({ ...v1, status: "active" }), repo.lock.rows["event-log-compaction@1"], "@1 is its locked row but for the status");
+  assert.ok(v2, "event-log-compaction@2 is in scenarios.json");
+  assert.deepEqual(v2, { ...v1, version: 2, suite: "event-log-compaction@2", status: "active", added: "2026-11-22", metrics: ["prune_mark_age_days"] });
+  assert.equal(repo.lock.rows["event-log-compaction@2"], rowHash(v2));
+});
+
 test("the validator refuses an unknown metric key", () => {
   assert.deepEqual(check([testRow()]), []);
   assert.deepEqual(check([testRow({ metrics: ["no_such_metric"] })]), ["test-row@1: unknown metric key no_such_metric"]);

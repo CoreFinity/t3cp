@@ -22,7 +22,7 @@ const tmp = () => {
   return d;
 };
 
-const ROW = loadScenarios().rows.find((r) => r.id === "event-log-compaction" && r.version === 1);
+const ROW = loadScenarios().rows.find((r) => r.id === "event-log-compaction" && r.version === 2);
 const SPEC = fakeScenarioSpec(ROW);
 const ok = (value) => ({ value, reason: null });
 const na = (reason) => ({ value: null, reason });
@@ -30,7 +30,7 @@ const na = (reason) => ({ value: null, reason });
 /** The exported attempt of cmp-<n> with the step's value (a number, a public reason, or an internal one). */
 function attempt(n, entry, { edit } = {}) {
   const root = tmp();
-  const dir = writeRawScenarioAttempt(root, { row: ROW, cell: "cmp", n, metrics: { event_log_unpruned_days: entry }, edit });
+  const dir = writeRawScenarioAttempt(root, { row: ROW, cell: "cmp", n, metrics: { prune_mark_age_days: entry }, edit });
   return exportAttempt(dir, SPEC, { privatePatterns: [] });
 }
 
@@ -51,10 +51,10 @@ test("red first: a scenario record keys its row's cells by name, each metric the
   const cmp = r.cells.cmp;
   assert.equal(cmp.valid, 2);
   assert.equal(cmp.total, 3);
-  assert.deepEqual(cmp.metrics.event_log_unpruned_days, { median: 2.5, min: 2, max: 3, n: 2, values: [2, 3] });
+  assert.deepEqual(cmp.metrics.prune_mark_age_days, { median: 2.5, min: 2, max: 3, n: 2, values: [2, 3] });
   assert.deepEqual(cmp.attempts.map((a) => [a.n, a.valid]), [[1, true], [2, true], [3, false]]);
   assert.deepEqual(r.workload.cells.cmp, attempts[0].load);
-  assert.equal(r.workload.suite, "event-log-compaction@1");
+  assert.equal(r.workload.suite, "event-log-compaction@2");
   assert.equal(r.status, "complete");
   assert.equal(r.status_reason, null);
   assert.equal(r.harness.sha, hex("harness-public", 40), "the harness is published by its public tag commit");
@@ -62,7 +62,7 @@ test("red first: a scenario record keys its row's cells by name, each metric the
 
 test("a public reason is kept where no valid attempt has a value; fewer than two valid attempts is partial", () => {
   let r = merge([attempt(1, na("no_event_prune")), attempt(2, na("no_event_prune")), attempt(3, na("no_event_prune"))]);
-  assert.deepEqual(r.cells.cmp.metrics.event_log_unpruned_days, { median: null, min: null, max: null, n: 0, values: [null, null, null], reason: "no_event_prune" });
+  assert.deepEqual(r.cells.cmp.metrics.prune_mark_age_days, { median: null, min: null, max: null, n: 0, values: [null, null, null], reason: "no_event_prune" });
   assert.equal(r.status, "complete");
   r = merge([attempt(1, ok(2)), attempt(2, na("mark_unreadable")), attempt(3, na("mark_unreadable"))]);
   assert.equal(r.cells.cmp.valid, 1);
@@ -97,7 +97,7 @@ test("mergeDirectory merges a scenario record's attempts, and refuses ladder and
   const first = JSON.parse(fs.readFileSync(path.join(out, "attempts", "cmp-1", "attempt.json"), "utf8"));
   const r = mergeDirectory(out, { publicRefs: refsFor(first), generatedAt: "2026-11-15T18:00:00Z" });
   assert.equal(r.schema, "t3cp/scenario-record/1");
-  assert.equal(r.cells.cmp.metrics.event_log_unpruned_days.median, 2);
+  assert.equal(r.cells.cmp.metrics.prune_mark_age_days.median, 2);
   // A ladder attempt in a scenario record's directory is refused.
   const raw = tmp();
   writeRawAttempt(raw, { cell: "100", n: 1 });
