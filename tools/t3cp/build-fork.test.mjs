@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -199,8 +199,9 @@ test("the tree's own resolver decides; one that cannot run fails closed", () => 
 // A record built again (a relaunch, or a preempted lease) must produce the archive an earlier attempt recorded, byte
 // for byte: upstream's build-cli-archive.ts tars the staged tree as the build left it (file order, mtimes, owner,
 // modes from the umask) and gzip stamps its own header. --normalize-archive repacks the same members with each of
-// those fixed (GNU tar, sorted by name, every mtime the source commit's time, owner and group 0, modes
-// u+rwX,go+rX,go-w, gzip -n -9), and the build runs it on the archive build-cli-archive.ts writes.
+// those fixed (GNU tar, sorted by name, every mtime the source commit's time, owner and group 0, modes 0755 for
+// directories and anything executable and 0644 for the rest, GNU gzip -n -9, nothing inherited from the environment),
+// and the build runs it on the archive build-cli-archive.ts writes.
 const gnuTar = ["tar", "gtar"].find((t) => /GNU tar/.test(spawnSync(t, ["--version"], { encoding: "utf8" }).stdout ?? ""));
 const NO_GNU_TAR = gnuTar ? false : "GNU tar is not on PATH (tar or gtar)";
 const sh = (cmd, cwd) => {
@@ -209,7 +210,9 @@ const sh = (cmd, cwd) => {
   return r.stdout;
 };
 const sha = (file) => sh(`(sha256sum "${file}" 2>/dev/null || shasum -a 256 "${file}") | cut -d' ' -f1`).trim();
-const normalize = (...args) => spawnSync("bash", [script, "--normalize-archive", ...args], { encoding: "utf8", timeout: 60_000 });
+const normalizeWith = (env, ...args) =>
+  spawnSync("bash", [script, "--normalize-archive", ...args], { encoding: "utf8", timeout: 60_000, env: { ...process.env, ...env } });
+const normalize = (...args) => normalizeWith({}, ...args);
 
 /** One release tree, staged and tarred two ways that differ in everything but the members' bytes. */
 function twoArchives(dir) {
@@ -295,6 +298,99 @@ test("--normalize-archive refuses bad arguments, and an archive that is not one 
   }
 });
 
+test("--normalize-archive clears setuid, setgid and sticky bits: only the executable bit of a member reaches the archive", { skip: NO_GNU_TAR }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "build-fork-normalize-"));
+  try {
+    const stem = "t3-0.1.9-perf.9-linux-x64";
+    const build = (name, dirMode, subMode, exeMode) => {
+      const root = join(dir, name, stem);
+      mkdirSync(join(root, "lib"), { recursive: true });
+      writeFileSync(join(root, "t3"), "#!/bin/sh\n");
+      writeFileSync(join(root, "lib", "a.so"), "elf");
+      sh(`chmod ${dirMode} "${root}" && chmod ${subMode} "${join(root, "lib")}" && chmod ${exeMode} "${join(root, "t3")}" && chmod 644 "${join(root, "lib", "a.so")}"`);
+      sh(`${gnuTar} -czf "${join(dir, `${name}.tar.gz`)}" -C "${join(dir, name)}" ${stem}`);
+      return join(dir, `${name}.tar.gz`);
+    };
+    const plain = build("plain", "755", "755", "755");
+    const special = build("special", "2755", "1777", "4755");
+    for (const [i, o] of [[plain, join(dir, "np.tar.gz")], [special, join(dir, "ns.tar.gz")]]) {
+      const r = normalize(i, o, "1795132800");
+      assert.equal(r.status, 0, r.stderr);
+    }
+    const listing = sh(`${gnuTar} --numeric-owner -tvzf "${join(dir, "ns.tar.gz")}"`).trim().split("\n");
+    for (const line of listing) assert.match(line.split(/\s+/)[0], /^(drwxr-xr-x|-rwxr-xr-x|-rw-r--r--)$/, line);
+    assert.equal(sha(join(dir, "np.tar.gz")), sha(join(dir, "ns.tar.gz")), "special bits do not reach the archive");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("--normalize-archive ignores TAR_OPTIONS and GZIP in its environment", { skip: NO_GNU_TAR }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "build-fork-normalize-"));
+  try {
+    const { A } = twoArchives(dir);
+    assert.equal(normalize(A, join(dir, "clean.tar.gz"), "1795132800").status, 0);
+    for (const env of [{ TAR_OPTIONS: "--blocking-factor=1" }, { GZIP: "-1" }, { TAR_OPTIONS: "--format=posix", GZIP: "--rsyncable" }]) {
+      const r = normalizeWith(env, A, join(dir, "env.tar.gz"), "1795132800");
+      assert.equal(r.status, 0, `${JSON.stringify(env)}: ${r.stderr}`);
+      assert.equal(sha(join(dir, "env.tar.gz")), sha(join(dir, "clean.tar.gz")), JSON.stringify(env));
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("--normalize-archive writes only a scratch file of its own, and refuses an output that is a directory", { skip: NO_GNU_TAR }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "build-fork-normalize-"));
+  try {
+    const { A } = twoArchives(dir);
+    // A directory, then a symlink to someone else's file, at the old fixed scratch name: both untouched.
+    const out = join(dir, "out.tar.gz");
+    mkdirSync(`${out}.repack`);
+    writeFileSync(join(`${out}.repack`, "keep"), "kept");
+    let r = normalize(A, out, "1795132800");
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(readFileSync(join(`${out}.repack`, "keep"), "utf8"), "kept");
+    const out2 = join(dir, "out2.tar.gz");
+    writeFileSync(join(dir, "victim"), "victim");
+    symlinkSync(join(dir, "victim"), `${out2}.repack`);
+    r = normalize(A, out2, "1795132800");
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(readFileSync(join(dir, "victim"), "utf8"), "victim");
+    assert.equal(readlinkSync(`${out2}.repack`), join(dir, "victim"));
+    assert.equal(sha(out2), sha(out));
+    // An output that is a directory is refused, and the directory is left as it was.
+    const outDir = join(dir, "outdir.tar.gz");
+    mkdirSync(outDir);
+    writeFileSync(join(outDir, "keep"), "kept");
+    r = normalize(A, outDir, "1795132800");
+    assert.equal(r.status, 1, r.stderr);
+    assert.equal(readFileSync(join(outDir, "keep"), "utf8"), "kept");
+    // No scratch file is left beside the outputs.
+    assert.deepEqual(sh(`ls -A "${dir}"`).trim().split("\n").filter((n) => /repack/.test(n) && !/^out2?\.tar\.gz\.repack$/.test(n)), []);
+    assert.ok(lstatSync(out).isFile() && existsSync(out));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("--normalize-archive refuses a gzip that is not GNU gzip: another implementation compresses differently", { skip: NO_GNU_TAR }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "build-fork-normalize-"));
+  try {
+    const { A } = twoArchives(dir);
+    const bin = join(dir, "bin");
+    mkdirSync(bin);
+    writeFileSync(join(bin, "gzip"), '#!/bin/sh\nif [ "$1" = --version ]; then echo "Apple gzip 487.0.1"; exit 0; fi\nexec /bin/gzip "$@"\n');
+    sh(`chmod 755 "${join(bin, "gzip")}"`);
+    const r = normalizeWith({ PATH: `${bin}:${process.env.PATH}` }, A, join(dir, "out.tar.gz"), "1795132800");
+    assert.equal(r.status, 3, r.stderr);
+    assert.match(r.stderr, /GNU gzip/);
+    assert.ok(!existsSync(join(dir, "out.tar.gz")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("the build fixes SOURCE_DATE_EPOCH to the commit's time and normalises the archive build-cli-archive.ts writes", () => {
   const text = readFileSync(script, "utf8");
   const epoch = text.indexOf('SOURCE_DATE_EPOCH=$(git -C "$SRC" log -1 --format=%ct HEAD)');
@@ -308,7 +404,14 @@ test("the build fixes SOURCE_DATE_EPOCH to the commit's time and normalises the 
   assert.match(text, /^m source_date_epoch "\$SOURCE_DATE_EPOCH"$/m);
 });
 
-// The spawner helper (t3-process-spawner, upstream's process-spawner-sea.ts) is built by `node --build-sea` from a
+test("the manifest names the GNU tar and GNU gzip the archive was repacked with, and the repack's mode rule", () => {
+  const text = readFileSync(script, "utf8");
+  assert.match(text, /^m archive_tools "\$\(archive_tools\)"$/m);
+  assert.match(text, /^ARCHIVE_MODE='a-st,u=rwX,go=rX'$/m);
+  assert.match(text, /^m archive_normalized ".*--mode=\$ARCHIVE_MODE; gzip -n -9"$/m);
+});
+
+// The spawner helper (t3-process-spawner, the fork's own process-spawner-sea.ts) is built by `node --build-sea` from a
 // random temporary directory, whose path the executable embeds: two builds of one source differ in it. Nothing
 // patches a built binary, so its sha256 goes in the manifest beside t3's, where such a difference is visible.
 test("the manifest records the archive's t3-process-spawner sha256 beside t3's, or none when the archive has none", () => {
