@@ -375,6 +375,8 @@ for d in client resource-monitor node_modules; do
 done
 m archive_layout "$(cd "$ROOT" && ls -1A | tr '\n' ' ' | sed 's/ $//')"
 m extracted_t3_sha256 "$(sha256 "$T3")"
+# The spawner helper embeds the random temporary path upstream builds it from: its hash shows where builds differ.
+m extracted_process_spawner_sha256 "$(if [ -f "$ROOT/t3-process-spawner" ]; then sha256 "$ROOT/t3-process-spawner"; else echo none; fi)"
 if [ "$PLATFORM" = mac ]; then
   m extracted_t3_signature "$(codesign -dv "$T3" 2>&1 | grep -E '^(Signature|TeamIdentifier|Identifier)=' | tr '\n' ' ')"
 fi
