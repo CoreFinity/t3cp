@@ -120,3 +120,23 @@ test("review: the merge binds the attempts' fixture and harness version to the r
   const refs = refsFor(other(a1));
   assert.throws(() => mergeScenarioRecord({ attempts: [other(a1), other(a2)], publicRefs: refs }), /harness t3cp-harness\/1\.9\.9 is not the row's/);
 });
+
+// From the review of retirement: a retired row runs no more, so the merge makes no record of it, whatever its attempts.
+test("a retired row merges no record: schema-valid attempts of the repository's retired event-log-compaction@1 are refused", () => {
+  const scenarios = loadScenarios();
+  const v1 = scenarios.rows.find((r) => r.id === "event-log-compaction" && r.version === 1);
+  assert.equal(v1.status, "retired");
+  // @2's exported attempts, made @1's: the same cell and load, @1's suite and metric.
+  const asV1 = (a) => {
+    const b = JSON.parse(JSON.stringify(a).replaceAll("prune_mark_age_days", "event_log_unpruned_days").replaceAll("event-log-compaction@2", "event-log-compaction@1"));
+    b.workload.scenario.version = 1;
+    return b;
+  };
+  const attempts = [attempt(1, ok(2)), attempt(2, ok(2)), attempt(3, ok(3))].map(asV1);
+  for (const a of attempts) assert.deepEqual(validate(loadSchema("scenario-attempt-1.json"), a), []);
+  // Under the row active they merge; the repository's row is retired, so the merge refuses them.
+  const active = { ...scenarios, rows: scenarios.rows.map((r) => (r === v1 ? { ...r, status: "active" } : r)) };
+  assert.equal(merge(attempts, { scenarios: active }).cells.cmp.metrics.event_log_unpruned_days.median, 2);
+  assert.throws(() => merge(attempts), (e) => e instanceof MergeError && /event-log-compaction@1 is retired/.test(e.message));
+  assert.throws(() => merge(attempts, { scenarios }), (e) => e instanceof MergeError && /event-log-compaction@1 is retired/.test(e.message));
+});

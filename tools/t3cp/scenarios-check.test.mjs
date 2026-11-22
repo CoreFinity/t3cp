@@ -279,6 +279,35 @@ test("retirement is one way and keeps its lock entry: a row a commit had retired
   assert.match(problems[0], /^test-row@1: commit [0-9a-f]{12} locked it with another hash/);
 });
 
+// From the review of retirement: a shallow clone's history stops at its boundary, so a retirement before it is unseen.
+test("the histories fail closed on a shallow clone: a retirement beyond its boundary is never read as no retirement", () => {
+  const scenarios = { ...clone(repo.scenarios), rows: [...clone(repo.scenarios.rows), testRow()] };
+  const root = scratch(scenarios, null);
+  writeLock(root);
+  git(root, ["init", "-q"]);
+  git(root, ["add", "-A"]);
+  git(root, ["commit", "-q", "-m", "catalogue"]);
+  scenarios.rows.at(-1).status = "retired";
+  fs.writeFileSync(path.join(root, SCENARIOS_FILE), JSON.stringify(scenarios));
+  git(root, ["commit", "-q", "-am", "retire"]);
+  scenarios.rows.at(-1).status = "active";
+  fs.writeFileSync(path.join(root, SCENARIOS_FILE), JSON.stringify(scenarios));
+  git(root, ["commit", "-q", "-am", "reactivate"]);
+  // The whole history sees the retirement.
+  assert.match(checkRepo(root).problems.join("\n"), /^test-row@1: commit [0-9a-f]{12} had it retired/m);
+  // A clone one commit deep holds only the reactivated row: its history is refused, never read as complete.
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "t3cp-scenarios-shallow-"));
+  temps.push(parent);
+  const shallow = path.join(parent, "clone");
+  git(parent, ["clone", "-q", "--depth", "1", `file://${root}`, shallow]);
+  assert.equal(git(shallow, ["rev-parse", "--is-shallow-repository"]), "true");
+  assert.throws(() => checkRepo(shallow), /shallow/);
+  assert.throws(() => checkLockHistory(shallow, JSON.parse(fs.readFileSync(path.join(shallow, LOCK_FILE), "utf8"))), /shallow/);
+  const r = cli(["--repo", shallow]);
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /shallow/);
+});
+
 test("the repository: event-log-compaction@1 is retired as locked, and @2 is the same row publishing prune_mark_age_days", () => {
   const v1 = repo.scenarios.rows.find((r) => rowKey(r) === "event-log-compaction@1");
   const v2 = repo.scenarios.rows.find((r) => rowKey(r) === "event-log-compaction@2");
