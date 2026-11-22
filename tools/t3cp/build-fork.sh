@@ -5,6 +5,7 @@
 # usage: build-fork.sh --src <checkout> --out <new-dir> [--node <dir>] [--archive-name <file>]
 #                      [--allow-dirty] [--no-verify] [--port <n>]
 #        build-fork.sh --print-version --src <checkout>
+#        build-fork.sh --normalize-archive <in.tar.gz> <out.tar.gz> <epoch seconds>
 #
 #   --src          git checkout of the tree to build (a public fork tag, or an upstream commit)
 #   --out          output directory; must not exist or must be empty
@@ -18,11 +19,17 @@
 #   --no-verify    skip the checks after the build (archive smoke, t3 --version, scratch t3 serve)
 #   --port         port on 127.0.0.1 for the scratch `serve` checks (default 3791)
 #   --print-version print the version the tree's build stamps (the one the checks expect) and exit
+#   --normalize-archive repack an archive so the same members give the same bytes (see below) and exit
 #
 # Builds for the host it runs on: linux-x64 (or linux-arm64) on Debian or Ubuntu, which needs
 # patchelf, ldd, dpkg-query and libatomic1; darwin-arm64 on macOS, which needs codesign (ad hoc
-# unless T3CODE_CLI_MAC_SIGN_IDENTITY is set). Needs vp (Vite+), cargo, git, tar, curl and the
-# network (npm registry, crates.io).
+# unless T3CODE_CLI_MAC_SIGN_IDENTITY is set). Needs vp (Vite+), cargo, git, tar, GNU tar (tar or
+# gtar), gzip, curl and the network (npm registry, crates.io).
+#
+# The archive is the same bytes for the same members, whichever run or machine builds it (a record
+# built again must give the archive an earlier attempt recorded): SOURCE_DATE_EPOCH is the commit's
+# time for the whole build, and the archive build-cli-archive.ts writes is repacked with GNU tar
+# sorted by name, every mtime that time, owner and group 0, modes u+rwX,go+rX,go-w, and gzip -n -9.
 #
 # Output in --out: t3-<version>-<os>-<arch>.tar.gz (or --archive-name) with t3-<version>-<os>-<arch>/{t3, client/,
 # resource-monitor/, node_modules/, ...} inside, the archive's sha256 in <archive>.sha256
@@ -32,9 +39,51 @@
 set -euo pipefail
 
 SCRIPT_PATH="${BASH_SOURCE[0]}"
-usage() { sed -n '2,31p' "$SCRIPT_PATH" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '2,38p' "$SCRIPT_PATH" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 die() { echo "build-fork: ERROR: $*" >&2; exit 1; }
 refuse() { echo "build-fork: REFUSED: $*" >&2; exit 3; }
+
+# GNU tar, by name (tar on Linux; gtar where tar is bsdtar), or nothing.
+gnu_tar() {
+  local t
+  for t in tar gtar; do
+    if command -v "$t" >/dev/null 2>&1 && "$t" --version 2>/dev/null | head -n 1 | grep -q 'GNU tar'; then
+      echo "$t"; return 0
+    fi
+  done
+}
+
+# normalize_archive <in.tar.gz> <out.tar.gz> <epoch>: the same members, repacked so that nothing but their bytes,
+# names, link targets and executable bits reaches the archive. <out> may be <in>.
+normalize_archive() {
+  local in=$1 out=$2 epoch=$3 tar_cmd work top
+  tar_cmd=$(gnu_tar)
+  [ -n "$tar_cmd" ] || refuse "a reproducible archive needs GNU tar (tar or gtar on PATH; on macOS: brew install gnu-tar)"
+  command -v gzip >/dev/null 2>&1 || refuse "required tool 'gzip' not found"
+  [ -f "$in" ] || die "--normalize-archive: no archive $in"
+  work=$(mktemp -d "${TMPDIR:-/tmp}/build-fork-repack.XXXXXX")
+  if ! LC_ALL=C "$tar_cmd" -xzpf "$in" -C "$work" --no-same-owner; then
+    rm -rf "$work"; die "--normalize-archive: cannot unpack $in"
+  fi
+  top=$(cd "$work" && ls -A)
+  if [ -z "$top" ] || [ "$(printf '%s\n' "$top" | wc -l | tr -d ' ')" != 1 ] || [ ! -d "$work/$top" ] || [ -L "$work/$top" ]; then
+    rm -rf "$work"; die "--normalize-archive: $in is not one top directory"
+  fi
+  if ! (cd "$work" && LC_ALL=C "$tar_cmd" --create --format=gnu --sort=name --hard-dereference \
+      --mtime="@$epoch" --owner=0 --group=0 --numeric-owner --mode='u+rwX,go+rX,go-w' --file=- -- "$top") \
+      | gzip -n -9 >"$out.repack"; then
+    rm -rf "$work" "$out.repack"; die "--normalize-archive: cannot repack $in"
+  fi
+  rm -rf "$work"
+  mv -f "$out.repack" "$out"
+}
+
+if [ "${1:-}" = --normalize-archive ]; then
+  [ $# -eq 4 ] || { echo "build-fork: usage: build-fork.sh --normalize-archive <in.tar.gz> <out.tar.gz> <epoch seconds>" >&2; exit 2; }
+  case "$4" in ''|*[!0-9]*) echo "build-fork: --normalize-archive: the epoch must be whole seconds: '$4'" >&2; exit 2 ;; esac
+  normalize_archive "$2" "$3" "$4"
+  exit 0
+fi
 
 SRC="" OUT="" NODE_DIR="" ARCHIVE_NAME_OPT="" ALLOW_DIRTY=0 VERIFY=1 PORT=3791 PRINT_VERSION=0
 while [ $# -gt 0 ]; do
@@ -170,7 +219,8 @@ esac
 KEY="$OSKEY-$ARCH"
 
 need() { for t in "$@"; do command -v "$t" >/dev/null 2>&1 || refuse "required tool '$t' not found"; done; }
-need git tar curl cargo
+need git tar curl cargo gzip
+[ -n "$(gnu_tar)" ] || refuse "a reproducible archive needs GNU tar (tar or gtar on PATH; on macOS: brew install gnu-tar)"
 if [ "$PLATFORM" = mac ]; then
   need codesign
 else
@@ -228,6 +278,9 @@ step() {
 
 resolve_build_version
 COMMIT=$(git -C "$SRC" rev-parse HEAD)
+# Every tool that honours it stamps the commit's time, not the build's; the archive's mtimes are this time too.
+SOURCE_DATE_EPOCH=$(git -C "$SRC" log -1 --format=%ct HEAD)
+export SOURCE_DATE_EPOCH
 TAGS_AT_COMMIT=$(git -C "$SRC" tag --points-at HEAD | tr '\n' ' ' | sed 's/ $//')
 if [ "$PLATFORM" = mac ]; then
   OS_DESC="macOS $(sw_vers -productVersion) ($(sw_vers -buildVersion))"
@@ -246,6 +299,7 @@ m build_os "$OS_DESC / $(uname -sr)"
 m build_cpus "$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo n/a)"
 m built_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 m build_script_sha256 "$SCRIPT_SHA256"
+m source_date_epoch "$SOURCE_DATE_EPOCH"
 m node "$PATH_NODE"
 m vp "$(vp --version 2>/dev/null | awk 'NR == 1')"
 m package_manager "$(node -p "require(process.argv[1]).packageManager" "$SRC/package.json")"
@@ -276,6 +330,8 @@ step archive node scripts/build-cli-archive.ts --platform "$PLATFORM" --arch "$A
   --version "$VERSION" --resource-monitor-dir "$OUT/stage/resource-monitor" --output-dir "$OUT"
 BUILT_NAME="t3-$VERSION-$KEY.tar.gz"
 [ -f "$OUT/$BUILT_NAME" ] || die "build-cli-archive.ts did not write $BUILT_NAME"
+normalize_archive "$OUT/$BUILT_NAME" "$OUT/$BUILT_NAME" "$SOURCE_DATE_EPOCH"
+m archive_normalized "GNU tar --sort=name --mtime=@$SOURCE_DATE_EPOCH --owner=0 --group=0 --mode=u+rwX,go+rX,go-w; gzip -n -9"
 ARCHIVE_NAME="${ARCHIVE_NAME_OPT:-$BUILT_NAME}"
 ARCHIVE="$OUT/$ARCHIVE_NAME"
 [ "$ARCHIVE_NAME" = "$BUILT_NAME" ] || mv "$OUT/$BUILT_NAME" "$ARCHIVE"
