@@ -6,7 +6,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { after, afterEach, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -80,6 +80,8 @@ if (process.env.STUB_HANG_CELL === cell) {
   const start = new Date(Date.now() - 2000).toISOString();
   const end = new Date().toISOString();
   fs.writeFileSync(path.join(run, "run.json"), JSON.stringify({ valid: true, window: { start, end } }));
+  // STUB_SERVER_LOG: the server's log, as run.ts leaves it in the run directory.
+  if (process.env.STUB_SERVER_LOG) fs.writeFileSync(path.join(run, "server.log"), process.env.STUB_SERVER_LOG + "\\n");
   // STUB_SCENARIO=turn-start: 10 turn starts in the window, the 4th a 400 ms block, and the loop sample over it.
   if (process.env.STUB_SCENARIO === "turn-start") {
     const logs = path.join(run, "base", "userdata", "logs");
@@ -595,7 +597,8 @@ test("a failed attempt leaves bounded, scrubbed diagnostics outside the record, 
   const result = runRunner(t, { env });
   assert.equal(result.status, 0, result.stderr + result.stdout);
   const all = filesUnder(join(t.work, "diagnostics")).map((f) => join(t.work, "diagnostics", f));
-  assert.deepEqual(readFileSync(hooked, "utf8").split("\n").filter(Boolean).sort(), [...all].sort(), "every bundle handed on");
+  const diagCalls = readFileSync(hooked, "utf8").split("\n").filter((c) => c.startsWith(`${join(t.work, "diagnostics")}/`));
+  assert.deepEqual(diagCalls.sort(), [...all].sort(), "every bundle handed on");
   // 1-1 is diagnosed only where the host guard cannot judge (no guard on this host): that is all it says.
   for (const file of all.filter((f) => !f.includes("/50-1/"))) assert.deepEqual(JSON.parse(readFileSync(file, "utf8")).reasons, ["host_guard_unavailable"], file);
   const written = all.filter((f) => f.includes("/50-1/"));
@@ -638,6 +641,30 @@ test("a clean record leaves no diagnostics, but for a host guard that could not 
   for (const f of filesUnder(join(t.work, "diagnostics"))) {
     assert.deepEqual(JSON.parse(readFileSync(join(t.work, "diagnostics", f), "utf8")).reasons, ["host_guard_unavailable"], f);
   }
+});
+
+test("every try keeps its server log and maintenance pass times in a private bundle for the diagnostics hook, never in the record", { skip, timeout: 1_800_000 }, () => {
+  const t = setup({ suite: { levels: [1, 50], attempts_per_level: 1, empty_cell: false } });
+  const hook = hookScript(t, "on-diagnostics");
+  const result = runRunner(t, { env: { ...t.env, STUB_TRACE_SPANS: "1", STUB_SERVER_LOG: "CANARY-srv-9d1e server ready", T3CP_ON_DIAGNOSTICS: hook.file } });
+  assert.equal(result.status, 0, result.stderr + result.stdout);
+  const logsRoot = join(t.work, "attempt-logs");
+  const bundles = filesUnder(logsRoot).map((f) => join(logsRoot, f)).sort();
+  assert.deepEqual([...new Set(bundles.map((f) => basename(dirname(f))))].sort(), ["1-1", "50-1"], "under <work>/attempt-logs/<cell>");
+  assert.ok(bundles.every((f) => f.endsWith(".attempt-logs.json")), bundles.join(" "));
+  assert.deepEqual(hook.calls().filter((c) => c.startsWith(`${logsRoot}/`)).sort(), bundles, "each handed to the private hook");
+  for (const cell of ["1-1", "50-1"]) {
+    const tries = bundles.filter((f) => basename(dirname(f)) === cell).map((f) => JSON.parse(readFileSync(f, "utf8")));
+    assert.deepEqual(tries.map((b) => b.try).sort(), tries.map((_, i) => i + 1), `${cell}: one bundle per try`);
+    for (const b of tries) {
+      assert.deepEqual([b.schema, b.kind, b.cell, b.record_id], ["t3cp/attempt-logs/1", "attempt_logs", cell, `2026-11-15.${platform}.nightly`]);
+      assert.ok(b.runs[0].server_log.head.includes("CANARY-srv-9d1e"), cell);
+      // The stub's trace: a pass a minute before the window and one inside it, each with its measured times.
+      assert.deepEqual(b.runs[0].maintenance_spans.map((s) => s.overlaps_window), [false, true]);
+      assert.ok(b.runs[0].maintenance_spans.every((s) => typeof s.start === "string" && typeof s.end === "string"));
+    }
+  }
+  for (const f of filesUnder(t.out)) assert.ok(!readFileSync(join(t.out, f), "utf8").includes("CANARY-srv-9d1e"), `${f}: never in the record`);
 });
 
 test("every run.ts call names the verified release archive, as run.ts requires for an upstream release", { skip, timeout: 1_800_000 }, () => {
