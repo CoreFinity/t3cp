@@ -1,0 +1,92 @@
+{
+  "schema": "t3cp/post-source/1",
+  "tag": "v0.1.9-perf.13",
+  "status": "passed",
+  "post": {
+    "bundle_sha256": "0d4dcebd1effcabe944b03b3a3ed925adb080a907acec46566099ca8d8d47a1c",
+    "summary": "{claim:reader_tx_wait_p95_ms.linux-x64.1.base}. {claim:rss_peak_mib.linux-x64.1.base}. {claim:reader_tx_wait_p95_ms.linux-x64.100.prev}.",
+    "sections": [
+      {
+        "chart_id": "fork-vs-base.main_minflt_per_s.ladder.linux-x64",
+        "caption": "{claim:main_minflt_per_s.linux-x64.50.base}."
+      },
+      {
+        "chart_id": "fork-vs-base.elu_max.ladder.linux-x64",
+        "caption": "{claim:elu_max.linux-x64.50.base}."
+      },
+      {
+        "chart_id": "fork-vs-base.elu.ladder.linux-x64",
+        "caption": "{claim:elu.linux-x64.50.base}."
+      },
+      {
+        "chart_id": "fork-vs-base.main_sys_pct.ladder.linux-x64",
+        "caption": "{claim:main_sys_pct.linux-x64.50.base}."
+      },
+      {
+        "chart_id": "fork-vs-base.main_busy_pct.ladder.linux-x64",
+        "caption": "{claim:main_busy_pct.linux-x64.50.base}."
+      },
+      {
+        "chart_id": "fork-vs-base.proc_cpu_pct.ladder.linux-x64",
+        "caption": "{claim:proc_cpu_pct.linux-x64.50.base}."
+      },
+      {
+        "chart_id": "fork-vs-base.children_cpu_pct.ladder.linux-x64",
+        "caption": "{claim:children_cpu_pct.linux-x64.50.base}."
+      },
+      {
+        "chart_id": "series.cpu_per_session_pct.linux-x64",
+        "caption": "{claim:cpu_per_session_pct.linux-x64.once.base}."
+      }
+    ]
+  },
+  "changelog": [
+    "Linear turn starts, writer priority, compaction and fewer commit-lane writes",
+    "Same upstream main as 0.1.9-perf.10 (2026-11-16). Two new migrations in the fork's own chain: 3 ThreadItemTotals and 4 EventLogPruneState (upstream's chain is unchanged at 96). Going back to 0.1.9-perf.12 is a data step first: scripts/perf-fork-004-down.sql, then scripts/perf-fork-003-down.sql.",
+    "Turn start: its synchronous planning is linear in the thread's history. On a synthetic 25,000-run thread the event-loop block per turn start fell from about 3.0 s (median) to about 0.7 s; what remains is the turn's context decode.",
+    "Migrations: the fork's migration ledger is checked before a start's first write; a gap, an unknown id or a renamed id refuses the start and the service preflight.",
+    "SQLite: background writes queue beside foreground ones, so a person's write is not stuck behind maintenance.",
+    "Bounded reads on long threads: the shell's item totals (fork migration 3), secret and link cards, turn-start messages and follow-ups.",
+    "Event log: resumable compaction with a disk headroom guard (fork migration 4). The offline filtered copy is library code only in this release; its operator script and a durability fix follow in 0.1.9-perf.14.",
+    "Effect outbox: a person's turn start is claimed ahead of automation.",
+    "Commit lane: superseded snapshots are coalesced and writer round trips are fewer. Releasing the effect slot on the lane is behind T3CODEEFFECTSLOTRELEASEONLANE (default off).",
+    "Provider commit batch: one consumer's jobs stay out of savepoints and are re-applied after a failure. T3CODEPROVIDERCOMMITJOBSAVEPOINTS=true restores a savepoint per job; it is read once at start.",
+    "Forge CLI: a permit is kept for interactive reads, and recently updated open merge requests are re-read with a backoff."
+  ],
+  "checker": {
+    "n": 1,
+    "version": "2",
+    "prompt_sha256": "616730d64fb37d824cfa6782628127ec2ba5bb948325ce37d794521b00b8e5bb",
+    "model": "claude-opus-5-5",
+    "usage": {
+      "input_tokens": 79379,
+      "output_tokens": 1312
+    },
+    "bundle_sha256": "0d4dcebd1effcabe944b03b3a3ed925adb080a907acec46566099ca8d8d47a1c",
+    "post_sha256": "66ee0abcc18d7daa2ed0f8ce7aff3192907cf4e1612fe909b65d87e4407c0211",
+    "passed": true,
+    "numbers_checked": 46,
+    "charts": 8,
+    "findings": [],
+    "checked_at": "2026-11-22T08:09:31.178Z"
+  },
+  "attempts": [
+    {
+      "n": 1,
+      "version": "2",
+      "prompt_sha256": "616730d64fb37d824cfa6782628127ec2ba5bb948325ce37d794521b00b8e5bb",
+      "model": "claude-opus-5-5",
+      "usage": {
+        "input_tokens": 79379,
+        "output_tokens": 1312
+      },
+      "bundle_sha256": "0d4dcebd1effcabe944b03b3a3ed925adb080a907acec46566099ca8d8d47a1c",
+      "post_sha256": "66ee0abcc18d7daa2ed0f8ce7aff3192907cf4e1612fe909b65d87e4407c0211",
+      "passed": true,
+      "numbers_checked": 46,
+      "charts": 8,
+      "findings": [],
+      "checked_at": "2026-11-22T08:09:31.178Z"
+    }
+  ]
+}
