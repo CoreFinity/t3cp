@@ -22,6 +22,16 @@ const LANE = { daily: 'Every record, inside the agent ladder', record: 'Once per
 // With nightly fork-head records, the caption beside the charts that draw the fork line.
 const MEET = c => (c.heads && c.heads.length ? '<p class="note mt1">When upstream merges a fix, the lines meet.</p>' : '');
 
+// The base caption: a fork release's version comes from the code's manifest, so a fork release built on an upstream
+// release commit whose version is ahead of the manifest's (base 0.1.10 under 0.1.9-perf.N) says why, in one fixed sentence
+// filled from the base record (its version, tag and sha) and the fork version's numeric prefix. '' otherwise.
+export function baseCaption(c, f) {
+  const b = f && f.base_record ? c.read(f.base_record) : null, m = f && /^v?(\d+\.\d+\.\d+)-perf\.\d+$/.exec(f.tag);
+  if (!b || !b.release || !m || b.release.version === m[1]) return '';
+  const p = esc(m[1]);
+  return `<p class="note mt1 base-cap">Base ${esc(b.release.version)} is upstream's ${esc(b.release.tag)} release commit (${esc(b.release.sha.slice(0, 12))}). Fork releases built on it are named ${p}-perf.N because their version comes from the code's manifest, which still read ${p} at that commit.</p>`;
+}
+
 // ---------- overview ----------
 // The nightlies of the window still to be measured, as one sentence ('' once the window's first nightly is published).
 export function pendingLine(c) {
@@ -78,7 +88,7 @@ ${ERR}
 <section class="sec">
   <div class="sec-h"><div><h2>The fork, against its base.</h2><p id="forksub">${esc(fk.sub)}</p></div>
   <div class="row"><a class="btn btn-p" href="/compare/" data-nav="/compare/">Compare two builds</a><a class="btn" href="/releases/" data-nav="/releases/">See the latest release</a></div></div>
-  <div id="fork">${fk.html}</div>
+  <div id="fork">${fk.html}</div>${baseCaption(c, f)}
 </section>`;
   return { path: 'index.html', title: 't3cp · T3 Code, performance over time', desc: "An independent record of T3 Code's performance over time: every upstream nightly measured at 1 to 250 agents, with the performance fork's releases on the same charts.", nav: 'Overview', page: 'overview', body };
 }
@@ -249,6 +259,7 @@ export function releases(c, frag) {
       head = `<h1 class="rel-t">${esc(lead.tag)}</h1><p class="lede rel-s">${T.dLong(lead.date)}. Measured; its post is not written yet.</p>`;
       post = '<p class="note">The release post appears here once it is written and checked.</p>';
     }
+    head += baseCaption(c, lead);
   }
   // Every release gets a tab; posts that fail their checker still render, charts only.
   F.forEach(f => { if (c.release(f.tag)) releaseHTML(T, c.release(f.tag), { catalogue: c.catalogue, headlines: c.headlines, platform: plat, level: DEF }).dropped.forEach(id => c.log(`releases: ${f.tag}: chart ${id} is not in the catalogue, section left out`)); });
@@ -303,7 +314,7 @@ export function records(c) {
   const body = `<header class="page-h"><h1>Records.</h1><p class="lede">One record per upstream nightly on ${esc(c.platName)}, and one per fork release. Each links to its JSON file, which carries every attempt's values.${c.pending ? ' ' + esc(pendingLine(c)) : ''}</p></header>
 <div class="tw"><table><thead><tr><th>Date</th><th>Tag</th><th class="hs">Commit</th><th class="hs">Archive sha256</th><th class="n hs" title="The recorded tolerance of the driver's check that sessions represent the fixture">Tolerance</th><th>Status</th><th>File</th></tr></thead><tbody>${nrows || '<tr><td colspan="7" class="mut">No records yet.</td></tr>'}</tbody></table></div>${more}${heads}
 <section class="sec mt3"><div class="sec-h"><h2>Fork releases.</h2></div>
-<div class="tw"><table><thead><tr><th>Tag</th><th>Date</th><th class="hs">Commit</th><th class="hs">Upstream base</th><th>Status</th><th>File</th></tr></thead><tbody>${frows || '<tr><td colspan="6" class="mut">No fork release measured yet.</td></tr>'}</tbody></table></div></section>`;
+<div class="tw"><table><thead><tr><th>Tag</th><th>Date</th><th class="hs">Commit</th><th class="hs">Upstream base</th><th>Status</th><th>File</th></tr></thead><tbody>${frows || '<tr><td colspan="6" class="mut">No fork release measured yet.</td></tr>'}</tbody></table></div>${[...new Set(c.forks.map(f => baseCaption(c, f)).filter(Boolean))].join('')}</section>`;
   return { path: 'records/index.html', title: 'Records · t3cp', desc: 'Every t3cp record of T3 Code: date, tag, commit, archive sha256, status and the record file.', nav: '', page: 'records', body };
 }
 
@@ -368,7 +379,7 @@ export function releaseFragments(c) {
     LEAD_OPTS.map(o => o[0]).forEach(L => {
       const r = rel ? releaseHTML(c.T, rel, { catalogue: c.catalogue, headlines: c.headlines, platform: c.plat, level: L, platName: c.platName, table: chartTable(c, rel, L) })
         : { head: `<h1 class="rel-t">${esc(f.tag)}</h1><p class="lede rel-s">${c.T.dLong(f.date)}. Measured; its post is not written yet.</p>`, body: '<p class="note">The release post appears here once it is written and checked.</p>' };
-      out.push({ tag: f.tag, L, html: `${r.head}<!--body-->${r.body}\n` });
+      out.push({ tag: f.tag, L, html: `${r.head}${baseCaption(c, f)}<!--body-->${r.body}\n` });
     });
   });
   const hash = createHash('sha256').update(out.map(f => `${f.tag}/${f.L}\n${f.html}`).join('\n')).digest('hex').slice(0, 12);
