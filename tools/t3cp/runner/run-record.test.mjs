@@ -292,9 +292,21 @@ async function runUntilHang(t, cell, { giveUpMs }) {
   return { first, orphan: Number(readFileSync(hang, "utf8")) };
 }
 
-/** Starts the runner in the background, in a process group of its own; the test's end stops it if it still runs. */
+/**
+ * Starts the runner in the background, in a process group of its own; the test's end stops it if it still runs. Its
+ * end is watched from the start (child.ended), so a runner that ends before a test waits for it is never missed.
+ */
 function startRunner(t, env = t.env) {
-  return spawnInGroup(t, "bash", t.args, { env, stdio: "ignore" });
+  const child = spawnInGroup(t, "bash", t.args, { env, stdio: "ignore" });
+  child.ended = new Promise((resolve) => child.once("exit", (code, signal) => resolve({ code, signal })));
+  return child;
+}
+
+/** A runner the test SIGKILLs must still run: a runner that ended early fails the test with that, never stalls it. */
+async function killRunner(child, what) {
+  assert.ok(child.exitCode === null && child.signalCode === null, `${what} ended before the test's SIGKILL (exit ${child.exitCode}, signal ${child.signalCode})`);
+  child.kill("SIGKILL");
+  return child.ended;
 }
 
 /** Runs the runner to its end (bounded), in a process group of its own. */
@@ -373,9 +385,7 @@ test("SIGKILL mid-attempt then restart redoes the attempt in flight and nothing 
   const t = setup({ suite: { levels: [1, 50], attempts_per_level: 3 } });
   const order = ["1-1", "50-1", "1e-1", "1-2", "50-2", "1e-2", "1-3", "50-3", "1e-3"];
   const { first, orphan } = await runUntilHang(t, "50-2", { giveUpMs: 900_000 });
-  const exited = new Promise((resolve) => first.on("exit", resolve));
-  first.kill("SIGKILL");
-  await exited;
+  await killRunner(first, "runner 1");
   const before = calls(t.log);
   assert.deepEqual(before, order.slice(0, order.indexOf("50-2") + 1));
   assert.ok(alive(orphan), "the in-flight run.ts outlives a SIGKILLed runner");
@@ -557,9 +567,7 @@ test("a runner killed by a bound while its run.ts hangs leaves nothing running o
   const reached = await eventually(() => existsSync(hang) && /^\d+$/.test(readFileSync(hang, "utf8")), 900_000);
   assert.ok(reached, "the stub hangs in 1-1");
   // What a bounded call does when its bound passes: SIGKILL to the runner, and to nothing else.
-  const exited = new Promise((resolve) => runner.on("exit", resolve));
-  runner.kill("SIGKILL");
-  await exited;
+  await killRunner(runner, "the runner");
   await endOfTest(t);
   assert.deepEqual(carrying(t), [], "nothing the test started is still running");
   assert.ok(!existsSync(t.root), "the test's root is removed");
@@ -836,9 +844,7 @@ test("a runner SIGKILLed while it migrates leaves its migration and server to th
   const first = startRunner(t, { ...env, T3CP_MIGRATION_BUDGET_S: "900" });
   assert.ok(await eventually(() => serving().length === 1, 900_000), "runner 1's migration server is up");
   const firstServer = serving()[0].split(" ")[0];
-  const exited = new Promise((resolve) => first.on("exit", resolve));
-  first.kill("SIGKILL");
-  await exited;
+  await killRunner(first, "runner 1");
   assert.equal(serving().length, 1, "the migration server outlives a SIGKILLed runner");
   const second = runRunner(t, { env: { ...env, T3CP_MIGRATION_BUDGET_S: "3" } });
   assert.equal(second.status, 4, second.stderr);
@@ -1044,9 +1050,7 @@ test("a runner killed outright leaves no deadline watchdog that could signal wha
   const pidFile = join(t.work, "pids", "watchdog.pid");
   assert.ok(await eventually(() => existsSync(pidFile) && /^\d+$/.test(readFileSync(pidFile, "utf8").trim()), 60_000), "the watchdog runs");
   const watchdog = Number(readFileSync(pidFile, "utf8").trim());
-  const exited = new Promise((resolve) => first.on("exit", resolve));
-  first.kill("SIGKILL");
-  await exited;
+  await killRunner(first, "runner 1");
   // Its parent is gone: it leaves at once, well before the deadline, so no USR1 is ever sent.
   assert.ok(await eventually(() => !alive(watchdog), 5_000), "the watchdog outlived its runner");
   assert.ok(epochS() < deadline, "checked before the deadline");
