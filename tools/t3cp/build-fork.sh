@@ -88,8 +88,12 @@ normalize_archive() {
   [ ! -d "$out" ] || die "--normalize-archive: $out is a directory"
   work=$(mktemp -d "${TMPDIR:-/tmp}/build-fork-repack.XXXXXX")
   if ! clean_env "$tar_cmd" -xzpf "$in" -C "$work" --no-same-owner; then
-    rm -rf "$work"; die "--normalize-archive: cannot unpack $in"
+    chmod -R u+rwX -- "$work" 2>/dev/null || true; rm -rf "$work"; die "--normalize-archive: cannot unpack $in"
   fi
+  # The owner may read and write every member and search every directory, so the repack can read them all and the
+  # scratch tree can be removed. chmod -R follows no symbolic link it meets, X adds no executable bit to a regular
+  # file that had none, and the mode rule below sets every mode again.
+  chmod -R u+rwX -- "$work"
   top=$(cd "$work" && ls -A)
   if [ -z "$top" ] || [ "$(printf '%s\n' "$top" | wc -l | tr -d ' ')" != 1 ] || [ ! -d "$work/$top" ] || [ -L "$work/$top" ]; then
     rm -rf "$work"; die "--normalize-archive: $in is not one top directory"
