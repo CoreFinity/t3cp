@@ -195,3 +195,115 @@ test("the tree's own resolver decides; one that cannot run fails closed", () => 
     rmSync(broken, { recursive: true, force: true });
   }
 });
+
+// A record built again (a relaunch, or a preempted lease) must produce the archive an earlier attempt recorded, byte
+// for byte: upstream's build-cli-archive.ts tars the staged tree as the build left it (file order, mtimes, owner,
+// modes from the umask) and gzip stamps its own header. --normalize-archive repacks the same members with each of
+// those fixed (GNU tar, sorted by name, every mtime the source commit's time, owner and group 0, modes
+// u+rwX,go+rX,go-w, gzip -n -9), and the build runs it on the archive build-cli-archive.ts writes.
+const gnuTar = ["tar", "gtar"].find((t) => /GNU tar/.test(spawnSync(t, ["--version"], { encoding: "utf8" }).stdout ?? ""));
+const NO_GNU_TAR = gnuTar ? false : "GNU tar is not on PATH (tar or gtar)";
+const sh = (cmd, cwd) => {
+  const r = spawnSync("bash", ["-c", cmd], { cwd, encoding: "utf8", env: { ...process.env, LC_ALL: "C", TZ: "UTC" } });
+  assert.equal(r.status, 0, `${cmd}\n${r.stderr}`);
+  return r.stdout;
+};
+const sha = (file) => sh(`(sha256sum "${file}" 2>/dev/null || shasum -a 256 "${file}") | cut -d' ' -f1`).trim();
+const normalize = (...args) => spawnSync("bash", [script, "--normalize-archive", ...args], { encoding: "utf8", timeout: 60_000 });
+
+/** One release tree, staged and tarred two ways that differ in everything but the members' bytes. */
+function twoArchives(dir) {
+  const stem = "t3-0.1.9-perf.9-linux-x64";
+  const files = [["t3", "#!/bin/sh\necho t3\n", "755"], ["client/index.html", "<html></html>\n", "644"],
+    ["node_modules/a/package.json", "{}\n", "644"], ["node_modules/a/lib/x.node", "\u0000\u0001bin", "755"], ["lib/libatomic.so.1", "elf", "644"]];
+  const stage = (name, order, mtime, extraMode) => {
+    const root = join(dir, name, stem);
+    for (const [rel, text, mode] of order === "forward" ? files : [...files].reverse()) {
+      mkdirSync(dirname(join(root, rel)), { recursive: true });
+      writeFileSync(join(root, rel), text);
+      sh(`chmod ${mode} "${join(root, rel)}" && chmod ${extraMode} "${join(root, rel)}"`);
+    }
+    sh(`ln -s t3 "${join(root, "t3-link")}" && find "${join(dir, name)}" -exec touch -h -d "${mtime}" {} +`);
+    return join(dir, name);
+  };
+  const a = stage("a", "forward", "2026-11-01T10:00:00Z", "u+r");
+  const b = stage("b", "reverse", "2026-11-20T23:59:59Z", "g+w");
+  // A: GNU tar's defaults with gzip from stdin; B: another owner, the tar gzipped as a named file (name and time in
+  // its header).
+  sh(`${gnuTar} -czf "${join(dir, "A.tar.gz")}" -C "${a}" ${stem}`);
+  sh(`${gnuTar} --owner=1234 --group=5678 -cf "${join(dir, "B.tar")}" -C "${b}" ${stem} && gzip -9 "${join(dir, "B.tar")}"`);
+  return { stem, A: join(dir, "A.tar.gz"), B: join(dir, "B.tar.gz") };
+}
+
+test("--normalize-archive makes the same members byte-identical whatever their order, times, owner, modes and gzip header", { skip: NO_GNU_TAR }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "build-fork-normalize-"));
+  try {
+    const { stem, A, B } = twoArchives(dir);
+    assert.notEqual(sha(A), sha(B), "the inputs differ");
+    const epoch = "1795132800";
+    for (const [i, o] of [[A, join(dir, "nA.tar.gz")], [B, join(dir, "nB.tar.gz")]]) {
+      const r = normalize(i, o, epoch);
+      assert.equal(r.status, 0, r.stderr);
+    }
+    assert.equal(sha(join(dir, "nA.tar.gz")), sha(join(dir, "nB.tar.gz")), "the same members give the same bytes");
+    // Every member: sorted, the commit's time, owner 0:0, a normalised mode; the bytes and the link kept.
+    const listing = sh(`${gnuTar} --numeric-owner --full-time -tvzf "${join(dir, "nA.tar.gz")}"`).trim().split("\n");
+    const names = listing.map((l) => l.split(/\s+/)[5]);
+    assert.deepEqual(names, [...names].sort());
+    for (const line of listing) {
+      const [mode, owner, , day, time] = line.split(/\s+/);
+      assert.equal(owner, "0/0", line);
+      assert.equal(`${day}T${time}Z`, new Date(Number(epoch) * 1000).toISOString().replace(".000", ""), line);
+      // Directories and executables 0755, other files 0644; a link's mode is meaningless but fixed too.
+      assert.match(mode, /^(drwxr-xr-x|-rwxr-xr-x|-rw-r--r--|lrwxr-xr-x)$/, line);
+    }
+    assert.match(listing.join("\n"), new RegExp(`${stem}/t3-link -> t3`));
+    const out = join(dir, "x");
+    mkdirSync(out);
+    sh(`${gnuTar} -xzf "${join(dir, "nB.tar.gz")}" -C "${out}"`);
+    assert.equal(readFileSync(join(out, stem, "node_modules/a/lib/x.node"), "utf8"), "\u0000\u0001bin");
+    assert.equal(sh(`stat -c %a "${join(out, stem, "t3")}" 2>/dev/null || stat -f %Lp "${join(out, stem, "t3")}"`).trim(), "755");
+    // gzip's header carries no name and no time.
+    const head = readFileSync(join(dir, "nA.tar.gz"));
+    assert.equal(head[3] & 0x08, 0, "no file name in the gzip header");
+    assert.equal(head.readUInt32LE(4), 0, "no time in the gzip header");
+    // Another commit time is another archive.
+    assert.equal(normalize(A, join(dir, "other.tar.gz"), "1795219200").status, 0);
+    assert.notEqual(sha(join(dir, "other.tar.gz")), sha(join(dir, "nA.tar.gz")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("--normalize-archive refuses bad arguments, and an archive that is not one top directory", { skip: NO_GNU_TAR }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "build-fork-normalize-"));
+  try {
+    assert.equal(normalize().status, 2);
+    assert.equal(normalize(join(dir, "in.tar.gz"), join(dir, "out.tar.gz")).status, 2);
+    assert.equal(normalize(join(dir, "in.tar.gz"), join(dir, "out.tar.gz"), "yesterday").status, 2);
+    mkdirSync(join(dir, "s", "one"), { recursive: true });
+    mkdirSync(join(dir, "s", "two"));
+    writeFileSync(join(dir, "s", "one", "f"), "x");
+    writeFileSync(join(dir, "s", "two", "g"), "y");
+    sh(`${gnuTar} -czf "${join(dir, "two.tar.gz")}" -C "${join(dir, "s")}" one two`);
+    const r = normalize(join(dir, "two.tar.gz"), join(dir, "out.tar.gz"), "1795132800");
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /one top directory/);
+    assert.equal(normalize(join(dir, "missing.tar.gz"), join(dir, "out.tar.gz"), "1795132800").status, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the build fixes SOURCE_DATE_EPOCH to the commit's time and normalises the archive build-cli-archive.ts writes", () => {
+  const text = readFileSync(script, "utf8");
+  const epoch = text.indexOf('SOURCE_DATE_EPOCH=$(git -C "$SRC" log -1 --format=%ct HEAD)');
+  const exported = text.indexOf("export SOURCE_DATE_EPOCH");
+  const install = text.indexOf("step install ");
+  const archive = text.indexOf("step archive node scripts/build-cli-archive.ts");
+  const norm = text.indexOf('normalize_archive "$OUT/$BUILT_NAME" "$OUT/$BUILT_NAME" "$SOURCE_DATE_EPOCH"');
+  const hashed = text.indexOf('ARCHIVE_SHA256=$(sha256 "$ARCHIVE")');
+  assert.ok(epoch > 0 && exported > epoch && exported < install, "SOURCE_DATE_EPOCH is the commit time, exported before the build");
+  assert.ok(norm > archive && norm < hashed, "the archive is normalised after build-cli-archive.ts and before it is hashed");
+  assert.match(text, /^m source_date_epoch "\$SOURCE_DATE_EPOCH"$/m);
+});
