@@ -1,0 +1,87 @@
+{
+  "schema": "t3cp/post-source/1",
+  "tag": "v0.1.9-perf.12",
+  "status": "passed",
+  "post": {
+    "bundle_sha256": "04fbd3ec3e7bbf3939e81089cf7d478fd11bba8e5c24558c2ad2178aea0ea230",
+    "summary": "{claim:elu.linux-x64.50.base}. {claim:reader_tx_wait_p95_ms.linux-x64.1.base}. {claim:rss_peak_mib.linux-x64.1.base}.",
+    "sections": [
+      {
+        "chart_id": "fork-vs-base.main_minflt_per_s.ladder.linux-x64",
+        "caption": "{claim:main_minflt_per_s.linux-x64.50.base}."
+      },
+      {
+        "chart_id": "fork-vs-base.elu_max.ladder.linux-x64",
+        "caption": "{claim:elu_max.linux-x64.50.base}."
+      },
+      {
+        "chart_id": "fork-vs-base.elu.ladder.linux-x64",
+        "caption": "{claim:elu.linux-x64.50.base}."
+      },
+      {
+        "chart_id": "fork-vs-base.main_sys_pct.ladder.linux-x64",
+        "caption": "{claim:main_sys_pct.linux-x64.50.base}."
+      },
+      {
+        "chart_id": "fork-vs-base.main_busy_pct.ladder.linux-x64",
+        "caption": "{claim:main_busy_pct.linux-x64.50.base}."
+      },
+      {
+        "chart_id": "fork-vs-base.proc_cpu_pct.ladder.linux-x64",
+        "caption": "{claim:proc_cpu_pct.linux-x64.50.base}."
+      },
+      {
+        "chart_id": "fork-vs-base.children_cpu_pct.ladder.linux-x64",
+        "caption": "{claim:children_cpu_pct.linux-x64.50.base}."
+      },
+      {
+        "chart_id": "series.cpu_per_session_pct.linux-x64",
+        "caption": "{claim:cpu_per_session_pct.linux-x64.once.base}."
+      }
+    ],
+    "quotes": [
+      1
+    ]
+  },
+  "changelog": [
+    "Hotfix: linear id reads for a run's provider turn and a rewind's off-branch runs",
+    "Same upstream main as 0.1.9-perf.10 (2026-11-16); no new migrations.",
+    "A run's provider turn and a rewind's off-branch runs are found in one pass over the turns and attempts instead of one per pair, with the same result for every input. A follow-up on a parent with a long history no longer blocks the event loop on this lookup."
+  ],
+  "checker": {
+    "n": 1,
+    "version": "2",
+    "prompt_sha256": "616730d64fb37d824cfa6782628127ec2ba5bb948325ce37d794521b00b8e5bb",
+    "model": "claude-opus-5-5",
+    "usage": {
+      "input_tokens": 78714,
+      "output_tokens": 1456
+    },
+    "bundle_sha256": "04fbd3ec3e7bbf3939e81089cf7d478fd11bba8e5c24558c2ad2178aea0ea230",
+    "post_sha256": "a11ac118ff416d6768c21d601edc656fad6e7bc5799d29af495530c1b1efb346",
+    "passed": true,
+    "numbers_checked": 46,
+    "charts": 8,
+    "findings": [],
+    "checked_at": "2026-11-22T08:09:28.190Z"
+  },
+  "attempts": [
+    {
+      "n": 1,
+      "version": "2",
+      "prompt_sha256": "616730d64fb37d824cfa6782628127ec2ba5bb948325ce37d794521b00b8e5bb",
+      "model": "claude-opus-5-5",
+      "usage": {
+        "input_tokens": 78714,
+        "output_tokens": 1456
+      },
+      "bundle_sha256": "04fbd3ec3e7bbf3939e81089cf7d478fd11bba8e5c24558c2ad2178aea0ea230",
+      "post_sha256": "a11ac118ff416d6768c21d601edc656fad6e7bc5799d29af495530c1b1efb346",
+      "passed": true,
+      "numbers_checked": 46,
+      "charts": 8,
+      "findings": [],
+      "checked_at": "2026-11-22T08:09:28.190Z"
+    }
+  ]
+}
