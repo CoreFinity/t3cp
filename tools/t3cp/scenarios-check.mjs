@@ -181,8 +181,9 @@ function hasGitMetadata(dir) {
 /**
  * Every committed version of `file` in `root`: {checked: true, versions: [{at, text}]}, newest first, or
  * {checked: false} when `root` is outside any git work tree. Fails closed: a git that cannot run, a repository git
- * refuses to read, or a committed version it cannot read throws (`what` names the history), so a history that was not
- * read never passes. A commit that removed the file lists no version; the commits before it are read on their own.
+ * refuses to read, a shallow clone (its history stops at its boundary, so what lies before it is unseen), or a committed
+ * version it cannot read throws (`what` names the history), so a history that was not read whole never passes. A
+ * commit that removed the file lists no version; the commits before it are read on their own.
  */
 function committedVersions(root, file, what, gitBin) {
   // Git finds the repository from the root alone: variables that point it elsewhere are dropped.
@@ -205,6 +206,9 @@ function committedVersions(root, file, what, gitBin) {
     throw fail("rev-parse", inside);
   }
   if (inside.stdout.trim() !== "true") return { checked: false };
+  if (out("rev-parse --is-shallow-repository", ["rev-parse", "--is-shallow-repository"]).trim() !== "false") {
+    throw new Error(`cannot read ${what}: the repository is a shallow clone, whose history stops at its boundary (git fetch --unshallow reads all of it)`);
+  }
   // A repository without commits has nothing committed to keep; any other HEAD that does not resolve is an error.
   const head = run(["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]);
   if (head.error) throw fail("rev-parse HEAD", head);

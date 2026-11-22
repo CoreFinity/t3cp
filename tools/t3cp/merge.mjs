@@ -345,6 +345,8 @@ export function mergeScenarioRecord({ attempts, scenarios = loadScenarios(), gen
   const { id, version } = first.workload.scenario;
   const row = scenarios.rows.find((r) => r.id === id && r.version === version);
   if (!row || row.suite !== first.workload.suite) throw new MergeError(`scenario ${first.workload.suite}: not a row of scenarios.json`);
+  // A retired row runs no more: no attempt of it becomes a record (its published records stay as they are).
+  if (row.status !== "active") throw new MergeError(`scenario ${row.suite} is retired: a retired row runs no more, so no record of it is merged`);
   if (first.workload.attempts_per_cell !== row.attempts) throw new MergeError(`scenario ${row.suite}: attempts_per_cell is not the row's`);
   if (first.harness.version !== row.harness) throw new MergeError(`scenario ${row.suite}: harness ${first.harness.version} is not the row's (${row.harness})`);
   if (first.fixture.id !== row.fixture) throw new MergeError(`scenario ${row.suite}: fixture ${first.fixture.id} is not the row's (${row.fixture})`);
