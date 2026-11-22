@@ -307,3 +307,14 @@ test("the build fixes SOURCE_DATE_EPOCH to the commit's time and normalises the 
   assert.ok(norm > archive && norm < hashed, "the archive is normalised after build-cli-archive.ts and before it is hashed");
   assert.match(text, /^m source_date_epoch "\$SOURCE_DATE_EPOCH"$/m);
 });
+
+// The spawner helper (t3-process-spawner, upstream's process-spawner-sea.ts) is built by `node --build-sea` from a
+// random temporary directory, whose path the executable embeds: two builds of one source differ in it. Nothing
+// patches a built binary, so its sha256 goes in the manifest beside t3's, where such a difference is visible.
+test("the manifest records the archive's t3-process-spawner sha256 beside t3's, or none when the archive has none", () => {
+  const text = readFileSync(script, "utf8");
+  const t3 = text.indexOf('m extracted_t3_sha256 "$(sha256 "$T3")"');
+  const spawner = text.indexOf("m extracted_process_spawner_sha256");
+  assert.ok(t3 > 0 && spawner > t3, "recorded after t3's, from the extracted archive");
+  assert.match(text, /^m extracted_process_spawner_sha256 "\$\(if \[ -f "\$ROOT\/t3-process-spawner" \]; then sha256 "\$ROOT\/t3-process-spawner"; else echo none; fi\)"$/m);
+});
