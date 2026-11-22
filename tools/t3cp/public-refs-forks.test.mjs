@@ -16,11 +16,12 @@ const AFTER_LAUNCH = {
   "v0.1.9-perf.12": "7e83bdf9c8583575b519bc8a96756015a08e8858",
   "v0.1.9-perf.13": "a453e92775c4e77e527cd9ac43f462a309daf279",
   "v0.1.9-perf.14": "17954106587be13c5766d80c249bbba2a69241b6",
+  "v0.1.11-perf.16": "1732334087c250e20852625f062f3723f8689d59",
 };
 const PINNED = [...LAUNCH_FORKS, ...Object.keys(AFTER_LAUNCH)];
 const refs = loadPublicRefs();
 
-test("public-refs.json pins exactly the published fork releases (the launch's nine, perf.10 to perf.14), each a distinct 40-hex commit", () => {
+test("public-refs.json pins exactly the published fork releases (the launch's nine, perf.10 to perf.14 and perf.16), each a distinct 40-hex commit", () => {
   assert.deepEqual(Object.keys(refs.fork).sort(), [...PINNED].sort());
   for (const [tag, sha] of Object.entries(AFTER_LAUNCH)) assert.equal(refs.fork[tag], sha, `${tag}: the commit fork-publish pushed`);
   for (const [tag, sha] of Object.entries(refs.fork)) assert.match(sha, /^[0-9a-f]{40}$/, tag);
