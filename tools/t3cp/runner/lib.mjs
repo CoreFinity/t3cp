@@ -15,6 +15,7 @@
 //   private-patterns                      exit 0 when T3CP_PRIVATE_PATTERNS is usable (the exporter's loader)
 //   diagnostics-attempt <raw> <dir> <exporter exit> [<export log>]   a failed attempt's bundle (diagnostics.mjs)
 //   diagnostics-runner <work> <dir> <record id> <reason> <detail>    a failed runner's bundle
+//   attempt-logs <raw> <dir> <record id> <cell>-<n> <try>          a try's server log and maintenance pass times
 //   inventory <out> <spec>                {attempts: [{cell, n, present}], extras: [{name, present}]} (a scenario
 //                                         record's from its row, in T3CP_SCENARIOS or the repository's scenarios.json)
 //   host <spec>                           host facts for attempt-meta.json
@@ -28,7 +29,7 @@ import { fileURLToPath } from "node:url";
 import { maintenanceClass, tryMaintenance } from "./maintenance.mjs";
 import { isMain } from "./is-main.mjs";
 import { loadCatalogue, scenarioOrder, scenarioRow } from "./scenarios.mjs";
-import { attemptDiagnostics, attemptReasons, runnerDiagnostics, scrubber } from "./diagnostics.mjs";
+import { attemptDiagnostics, attemptLogs, attemptReasons, runnerDiagnostics, scrubber } from "./diagnostics.mjs";
 import { privatePatternsFromEnv } from "../lib/scan.mjs";
 
 export const EXTRAS = ["startup", "migration", "snapshot", "first_turn"];
@@ -186,15 +187,18 @@ export function writeJsonAtomic(file, value) {
 /** UTC timestamp for file names: 20261116T003512345Z. */
 export const stamp = (date = new Date()) => date.toISOString().replace(/[-:]/g, "").replace(".", "");
 
-/** A new file <dir>/<timestamp>.json (or -1, -2 ... on a clash): created whole, never over an existing one. */
-export function writeNew(dir, value, at = new Date()) {
+/**
+ * A new file <dir>/<timestamp><suffix>.json (or <timestamp>-1<suffix>.json ... on a clash): created whole, never
+ * over an existing one.
+ */
+export function writeNew(dir, value, at = new Date(), suffix = "") {
   mkdirSync(dir, { recursive: true });
   const tmp = join(dir, `.tmp-${process.pid}-${Date.now()}`);
   writeFileSync(tmp, `${JSON.stringify(value, null, 1)}\n`);
   const name = stamp(at);
   try {
     for (let k = 0; k < 1000; k++) {
-      const file = join(dir, `${name}${k === 0 ? "" : `-${k}`}.json`);
+      const file = join(dir, `${name}${k === 0 ? "" : `-${k}`}${suffix}.json`);
       try {
         linkSync(tmp, file);
         return file;
@@ -465,6 +469,14 @@ async function main(argv) {
       if (reasons.length === 0) return 0;
       const bundle = attemptDiagnostics(raw, meta, { reasons, scrub: diagnosticsScrub(), exportLog: exportLog || null });
       process.stdout.write(`${writeNew(dir, bundle)}\n`);
+      return 0;
+    }
+    case "attempt-logs": {
+      // attempt-logs <raw> <dir> <record id> <cell>-<n> <try>: the try's server log and maintenance pass times, a new
+      // <dir>/<UTC timestamp>.attempt-logs.json (diagnostics.mjs, for the private bucket only); prints its path
+      const [raw, dir, recordId, cell, tryN] = args;
+      const bundle = await attemptLogs(raw, { record_id: recordId || null, cell: cell || null, try: Number(tryN) || null }, { scrub: diagnosticsScrub() });
+      process.stdout.write(`${writeNew(dir, bundle, new Date(), ".attempt-logs")}\n`);
       return 0;
     }
     case "diagnostics-runner": {

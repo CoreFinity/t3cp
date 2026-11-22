@@ -44,13 +44,14 @@ export async function maintenanceClass(serverBinary, { chunkSize = 8 * 1024 * 10
 }
 
 /**
- * Compaction or prune spans in the trace (and its rotated files .1, .2 ...) that overlap [startMs, endMs], each
- * counted once; null without a trace or a window.
+ * Every compaction or prune span in the trace (and its rotated files .1, .2 ...), each once, by start:
+ * {name, start_ms, end_ms, exit} (exit the span's exit tag, e.g. Success or Interrupt, else null); null without a
+ * trace. A span without a start starts at its end less its duration.
  */
-export async function maintenanceInWindow(tracePath, startMs, endMs) {
-  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || !existsSync(tracePath)) return null;
+export async function maintenanceSpans(tracePath) {
+  if (!existsSync(tracePath)) return null;
   const seen = new Set();
-  let count = 0;
+  const spans = [];
   for (let index = 0; ; index++) {
     const file = index === 0 ? tracePath : `${tracePath}.${index}`;
     if (!existsSync(file)) break;
@@ -70,10 +71,19 @@ export async function maintenanceInWindow(tracePath, startMs, endMs) {
       const key = span.spanId !== undefined ? `${span.traceId ?? ""}/${span.spanId}` : line;
       if (seen.has(key)) continue;
       seen.add(key);
-      if (start < endMs && end > startMs) count++;
+      spans.push({ name: span.name, start_ms: start, end_ms: end, exit: typeof span.exit?._tag === "string" ? span.exit._tag : null });
     }
   }
-  return count;
+  return spans.sort((a, b) => a.start_ms - b.start_ms || a.end_ms - b.end_ms);
+}
+
+/**
+ * Compaction or prune spans in the trace (and its rotated files) that overlap [startMs, endMs], each counted once;
+ * null without a trace or a window.
+ */
+export async function maintenanceInWindow(tracePath, startMs, endMs) {
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || !existsSync(tracePath)) return null;
+  return (await maintenanceSpans(tracePath)).filter((s) => s.start_ms < endMs && s.end_ms > startMs).length;
 }
 
 /**

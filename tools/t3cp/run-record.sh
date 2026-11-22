@@ -38,8 +38,11 @@
 # Layout of <out> and <work>, exit codes and reason codes: schema/record-spec-1.json ($defs). The runner knows no
 # bucket, host, region or token: storage is the launcher's, through the hooks:
 #   T3CP_ON_ATTEMPT <attempt dir>   after each attempt.json (an executable; retried 3 times, then hook_failed)
-#   T3CP_ON_DIAGNOSTICS <file>      a failed attempt's or runner's diagnostics, <work>/diagnostics/...: for PRIVATE
-#                                   storage only, never published (a failing hook is logged, never fatal)
+#   T3CP_ON_DIAGNOSTICS <file>      a failed attempt's or runner's diagnostics, <work>/diagnostics/...; and after
+#                                   every try (never inside a window) that try's attempt-logs bundle, its server log
+#                                   and maintenance pass times, <work>/attempt-logs/<cell>-<n>/<UTC stamp>
+#                                   .attempt-logs.json (runner/diagnostics.mjs): for PRIVATE storage only, never
+#                                   exported or published (a failing hook is logged, never fatal)
 #   T3CP_ON_UPDATE <file>           after each heartbeat, extras, done and failure file (every one a new name)
 # Calibration and test knobs: T3CP_GUARD_FOREIGN_PCT, T3CP_GUARD_STEAL_PCT (contamination thresholds, % of the
 # host, window means), T3CP_HEARTBEAT_S (240), T3CP_EXPORTER, T3CP_PROC_CPUINFO, T3CP_PROC_STAT (the host guard's
@@ -783,6 +786,9 @@ one_try() { # cell try fixture-arg: one run.ts invocation with its sidecars (the
     fg_step "post-$cell" "$WORK" "$NODE" "$HERE/runner/scenario-post.mjs" "$P_POST" "$raw" "$SCENARIO_REF" >> "$WORK/runner.log" 2>&1 ||
       log "$cell try $try: post step $P_POST failed"
   fi
+  # The try's server log and maintenance pass times, for PRIVATE storage only: under <work>, never <out>, read by no
+  # exporter. Kept before a retry or the end of the attempt removes the raw try.
+  diagnose "$(lib attempt-logs "$raw" "$WORK/attempt-logs/$cell" "$RECORD_ID" "$cell" "$try" 2>> "$WORK/runner.log" || true)"
 }
 
 run_attempt() {
