@@ -1,0 +1,93 @@
+{
+  "schema": "t3cp/post-source/1",
+  "tag": "v0.1.9-perf.10",
+  "status": "passed",
+  "post": {
+    "bundle_sha256": "c8a386b412f883d9d0c74b7a96ff510fd84d96d732450be8bf93cd4bdea4b459",
+    "summary": "{claim:elu.linux-x64.50.base}. {claim:reader_tx_wait_p95_ms.linux-x64.1.base}. {claim:rss_peak_mib.linux-x64.1.base}.",
+    "sections": [
+      {
+        "chart_id": "fork-vs-base.main_minflt_per_s.ladder.linux-x64",
+        "caption": "{claim:main_minflt_per_s.linux-x64.50.base}."
+      },
+      {
+        "chart_id": "fork-vs-base.elu_max.ladder.linux-x64",
+        "caption": "{claim:elu_max.linux-x64.50.base}."
+      },
+      {
+        "chart_id": "fork-vs-base.elu.ladder.linux-x64",
+        "caption": "{claim:elu.linux-x64.50.base}."
+      },
+      {
+        "chart_id": "fork-vs-base.main_sys_pct.ladder.linux-x64",
+        "caption": "{claim:main_sys_pct.linux-x64.50.base}."
+      },
+      {
+        "chart_id": "fork-vs-base.main_busy_pct.ladder.linux-x64",
+        "caption": "{claim:main_busy_pct.linux-x64.50.base}."
+      },
+      {
+        "chart_id": "fork-vs-base.proc_cpu_pct.ladder.linux-x64",
+        "caption": "{claim:proc_cpu_pct.linux-x64.50.base}."
+      },
+      {
+        "chart_id": "fork-vs-base.children_cpu_pct.ladder.linux-x64",
+        "caption": "{claim:children_cpu_pct.linux-x64.50.base}."
+      },
+      {
+        "chart_id": "series.cpu_per_session_pct.linux-x64",
+        "caption": "{claim:cpu_per_session_pct.linux-x64.once.base}."
+      }
+    ],
+    "quotes": [
+      4,
+      5
+    ]
+  },
+  "changelog": [
+    "Upstream main of 2026-11-16 and run fixes",
+    "Upstream T3 Code 0.1.9 at main of 2026-11-16, with upstream migration 96; Node 26.13.1.",
+    "Upstream: everything on upstream's main up to 2026-11-16, among it steering queued messages into a running Grok turn (upstream #37335), one busy thread's lock no longer stalling other threads' queued runs (upstream #37417) and the title repair migration 96.",
+    "A child agent's checkpoint capture skips the runs of its settled tasks.",
+    "A start whose schema is already current takes no write lock in the fork's migration chain.",
+    "A wake's lineage read no longer holds up the continuation intake.",
+    "Trace diagnostics read only the newest trace files, up to 128 MiB.",
+    "Cmd+Enter on an edited message with a fresh context starts it when the server can end the wait."
+  ],
+  "checker": {
+    "n": 1,
+    "version": "2",
+    "prompt_sha256": "616730d64fb37d824cfa6782628127ec2ba5bb948325ce37d794521b00b8e5bb",
+    "model": "claude-opus-5-5",
+    "usage": {
+      "input_tokens": 78892,
+      "output_tokens": 1327
+    },
+    "bundle_sha256": "c8a386b412f883d9d0c74b7a96ff510fd84d96d732450be8bf93cd4bdea4b459",
+    "post_sha256": "6ef2581ca8594d37244b90318af2638b089760108c427bcd6414efc95509fb05",
+    "passed": true,
+    "numbers_checked": 46,
+    "charts": 8,
+    "findings": [],
+    "checked_at": "2026-11-22T08:09:22.167Z"
+  },
+  "attempts": [
+    {
+      "n": 1,
+      "version": "2",
+      "prompt_sha256": "616730d64fb37d824cfa6782628127ec2ba5bb948325ce37d794521b00b8e5bb",
+      "model": "claude-opus-5-5",
+      "usage": {
+        "input_tokens": 78892,
+        "output_tokens": 1327
+      },
+      "bundle_sha256": "c8a386b412f883d9d0c74b7a96ff510fd84d96d732450be8bf93cd4bdea4b459",
+      "post_sha256": "6ef2581ca8594d37244b90318af2638b089760108c427bcd6414efc95509fb05",
+      "passed": true,
+      "numbers_checked": 46,
+      "charts": 8,
+      "findings": [],
+      "checked_at": "2026-11-22T08:09:22.167Z"
+    }
+  ]
+}
