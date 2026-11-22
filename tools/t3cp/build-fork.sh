@@ -24,12 +24,14 @@
 # Builds for the host it runs on: linux-x64 (or linux-arm64) on Debian or Ubuntu, which needs
 # patchelf, ldd, dpkg-query and libatomic1; darwin-arm64 on macOS, which needs codesign (ad hoc
 # unless T3CODE_CLI_MAC_SIGN_IDENTITY is set). Needs vp (Vite+), cargo, git, tar, GNU tar (tar or
-# gtar), gzip, curl and the network (npm registry, crates.io).
+# gtar), GNU gzip, curl and the network (npm registry, crates.io).
 #
-# The archive is the same bytes for the same members, whichever run or machine builds it (a record
-# built again must give the archive an earlier attempt recorded): SOURCE_DATE_EPOCH is the commit's
-# time for the whole build, and the archive build-cli-archive.ts writes is repacked with GNU tar
-# sorted by name, every mtime that time, owner and group 0, modes u+rwX,go+rX,go-w, and gzip -n -9.
+# The archive is the same bytes for the same members, whichever run or machine builds it with the same
+# GNU tar and GNU gzip (a record built again must give the archive an earlier attempt recorded; the
+# manifest names both versions): SOURCE_DATE_EPOCH is the commit's time for the whole build, and the
+# archive build-cli-archive.ts writes is repacked with GNU tar sorted by name, every mtime that time,
+# owner and group 0, modes 0755 for directories and anything executable and 0644 for the rest (no
+# setuid, setgid or sticky bit), and gzip -n -9, both run with nothing from the environment but PATH.
 #
 # Output in --out: t3-<version>-<os>-<arch>.tar.gz (or --archive-name) with t3-<version>-<os>-<arch>/{t3, client/,
 # resource-monitor/, node_modules/, ...} inside, the archive's sha256 in <archive>.sha256
@@ -39,7 +41,7 @@
 set -euo pipefail
 
 SCRIPT_PATH="${BASH_SOURCE[0]}"
-usage() { sed -n '2,38p' "$SCRIPT_PATH" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '2,40p' "$SCRIPT_PATH" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 die() { echo "build-fork: ERROR: $*" >&2; exit 1; }
 refuse() { echo "build-fork: REFUSED: $*" >&2; exit 3; }
 
@@ -53,29 +55,56 @@ gnu_tar() {
   done
 }
 
+# GNU gzip by name, or nothing. The archive's bytes are its deflate output: another implementation (Apple's gzip, for
+# one) compresses the same tar differently.
+gnu_gzip() {
+  if command -v gzip >/dev/null 2>&1 && gzip --version 2>/dev/null | head -n 1 | grep -Eq '^gzip [0-9]' \
+    && gzip --version 2>/dev/null | grep -q 'Free Software Foundation'; then
+    echo gzip
+  fi
+}
+
+# The versions the archive's bytes depend on, for the manifest: "GNU tar <v>; gzip <v>".
+archive_tools() {
+  echo "$("$(gnu_tar)" --version | head -n 1 | sed 's/^tar (GNU tar) /GNU tar /'); $(gzip --version | head -n 1)"
+}
+
+# A command with nothing from the environment but PATH, in the C locale: TAR_OPTIONS or GZIP would change the bytes.
+clean_env() { env -i PATH="$PATH" LC_ALL=C "$@"; }
+
+# Directories and anything executable 0755, the rest 0644: setuid, setgid and sticky bits cleared first.
+ARCHIVE_MODE='a-st,u=rwX,go=rX'
+
 # normalize_archive <in.tar.gz> <out.tar.gz> <epoch>: the same members, repacked so that nothing but their bytes,
-# names, link targets and executable bits reaches the archive. <out> may be <in>.
+# names, link targets and executable bits reaches the archive. <out> may be <in>; it is replaced by renaming a scratch
+# file of this run's own beside it, so nothing else at or near <out> is written or removed.
 normalize_archive() {
-  local in=$1 out=$2 epoch=$3 tar_cmd work top
+  local in=$1 out=$2 epoch=$3 tar_cmd gzip_cmd work top tmp
   tar_cmd=$(gnu_tar)
   [ -n "$tar_cmd" ] || refuse "a reproducible archive needs GNU tar (tar or gtar on PATH; on macOS: brew install gnu-tar)"
-  command -v gzip >/dev/null 2>&1 || refuse "required tool 'gzip' not found"
+  gzip_cmd=$(gnu_gzip)
+  [ -n "$gzip_cmd" ] || refuse "a reproducible archive needs GNU gzip (gzip on PATH; another gzip compresses differently; on macOS: brew install gzip)"
   [ -f "$in" ] || die "--normalize-archive: no archive $in"
+  [ ! -d "$out" ] || die "--normalize-archive: $out is a directory"
   work=$(mktemp -d "${TMPDIR:-/tmp}/build-fork-repack.XXXXXX")
-  if ! LC_ALL=C "$tar_cmd" -xzpf "$in" -C "$work" --no-same-owner; then
+  if ! clean_env "$tar_cmd" -xzpf "$in" -C "$work" --no-same-owner; then
     rm -rf "$work"; die "--normalize-archive: cannot unpack $in"
   fi
   top=$(cd "$work" && ls -A)
   if [ -z "$top" ] || [ "$(printf '%s\n' "$top" | wc -l | tr -d ' ')" != 1 ] || [ ! -d "$work/$top" ] || [ -L "$work/$top" ]; then
     rm -rf "$work"; die "--normalize-archive: $in is not one top directory"
   fi
-  if ! (cd "$work" && LC_ALL=C "$tar_cmd" --create --format=gnu --sort=name --hard-dereference \
-      --mtime="@$epoch" --owner=0 --group=0 --numeric-owner --mode='u+rwX,go+rX,go-w' --file=- -- "$top") \
-      | gzip -n -9 >"$out.repack"; then
-    rm -rf "$work" "$out.repack"; die "--normalize-archive: cannot repack $in"
+  if ! tmp=$(mktemp "$(dirname -- "$out")/.build-fork-repack.XXXXXX"); then
+    rm -rf "$work"; die "--normalize-archive: cannot create a scratch file beside $out"
+  fi
+  if ! (cd "$work" && clean_env "$tar_cmd" --create --format=gnu --sort=name --hard-dereference \
+      --mtime="@$epoch" --owner=0 --group=0 --numeric-owner --mode="$ARCHIVE_MODE" --file=- -- "$top") \
+      | clean_env "$gzip_cmd" -n -9 >"$tmp"; then
+    rm -rf "$work"; rm -f -- "$tmp"; die "--normalize-archive: cannot repack $in"
   fi
   rm -rf "$work"
-  mv -f "$out.repack" "$out"
+  chmod 0644 "$tmp"
+  mv -f -- "$tmp" "$out"
 }
 
 if [ "${1:-}" = --normalize-archive ]; then
@@ -221,6 +250,7 @@ KEY="$OSKEY-$ARCH"
 need() { for t in "$@"; do command -v "$t" >/dev/null 2>&1 || refuse "required tool '$t' not found"; done; }
 need git tar curl cargo gzip
 [ -n "$(gnu_tar)" ] || refuse "a reproducible archive needs GNU tar (tar or gtar on PATH; on macOS: brew install gnu-tar)"
+[ -n "$(gnu_gzip)" ] || refuse "a reproducible archive needs GNU gzip (gzip on PATH; another gzip compresses differently; on macOS: brew install gzip)"
 if [ "$PLATFORM" = mac ]; then
   need codesign
 else
@@ -331,7 +361,8 @@ step archive node scripts/build-cli-archive.ts --platform "$PLATFORM" --arch "$A
 BUILT_NAME="t3-$VERSION-$KEY.tar.gz"
 [ -f "$OUT/$BUILT_NAME" ] || die "build-cli-archive.ts did not write $BUILT_NAME"
 normalize_archive "$OUT/$BUILT_NAME" "$OUT/$BUILT_NAME" "$SOURCE_DATE_EPOCH"
-m archive_normalized "GNU tar --sort=name --mtime=@$SOURCE_DATE_EPOCH --owner=0 --group=0 --mode=u+rwX,go+rX,go-w; gzip -n -9"
+m archive_tools "$(archive_tools)"
+m archive_normalized "GNU tar --sort=name --mtime=@$SOURCE_DATE_EPOCH --owner=0 --group=0 --mode=$ARCHIVE_MODE; gzip -n -9"
 ARCHIVE_NAME="${ARCHIVE_NAME_OPT:-$BUILT_NAME}"
 ARCHIVE="$OUT/$ARCHIVE_NAME"
 [ "$ARCHIVE_NAME" = "$BUILT_NAME" ] || mv "$OUT/$BUILT_NAME" "$ARCHIVE"
