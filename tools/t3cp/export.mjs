@@ -909,7 +909,7 @@ export const INTERNAL_SCENARIO_REASONS = ["no_run_window", "no_loop_samples", "d
 const SCENARIO_SOURCES = {
   turn_start_history_gap_ms: "post",
   turn_start_long_thread_ms: "post",
-  event_log_unpruned_days: "post",
+  prune_mark_age_days: "post",
   get_thread_shell_long_thread_ms: "shell",
 };
 /** A feature era's public reason, for a release that predates it. */

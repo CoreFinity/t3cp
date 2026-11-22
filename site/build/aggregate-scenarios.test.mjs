@@ -130,7 +130,7 @@ test("refused: a record of no row, a record under another row's path or another 
   const stray = { ...good, workload: { ...good.workload, suite: "nope@1", scenario: { id: "nope", version: 1 } } };
   assert.throws(() => build(writeTree(LADDER, [], { [scenarioRecordPath(stray)]: stray })), (e) => e instanceof BuildError && /not a row of scenarios\.json/.test(e.message));
   const rel = scenarioRecordPath(good);
-  assert.throws(() => build(writeTree(LADDER, [], { [rel.replace("/1/", "/2/")]: good })), (e) => e instanceof BuildError && /path/.test(e.message));
+  assert.throws(() => build(writeTree(LADDER, [], { [rel.replace("/2/", "/3/")]: good })), (e) => e instanceof BuildError && /path/.test(e.message));
   assert.throws(() => build(writeTree(LADDER, [], { [rel.replace("2026-11-10.", "2026-11-11.")]: good })), (e) => e instanceof BuildError && /file name/.test(e.message));
   // A scenario record under the ladder's paths is refused, and a ladder record under scenarios/.
   assert.throws(() => build(writeTree(LADDER, [], { [`records/linux-x64/2026-11-13.${good.release.tag}.json`]: good })), (e) => e instanceof BuildError && /suite/.test(e.message));

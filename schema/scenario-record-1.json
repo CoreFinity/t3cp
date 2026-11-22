@@ -1039,6 +1039,71 @@
               "description": "no_turn_start_span: the release predates the turn-start span in the server trace, so no turn start can be timed; turn_start_incomplete: fewer than the row's 10 follow-up turn starts completed in the attempt; no_shell_span: the release predates the thread shell read as a named span, so the read cannot be timed; shell_reads_missing: fewer than 20 thread shell reads in the attempt, too few for a 95th percentile; no_event_prune: the release keeps no event-log prune mark, so there is no compaction boundary to read"
             }
           }
+        },
+        "prune_mark_age_days": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "median",
+            "min",
+            "max",
+            "n",
+            "values"
+          ],
+          "properties": {
+            "median": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 10000
+            },
+            "min": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 10000
+            },
+            "max": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 10000
+            },
+            "n": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 5
+            },
+            "values": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 10000
+              },
+              "maxItems": 5
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "no_turn_start_span",
+                "turn_start_incomplete",
+                "no_shell_span",
+                "shell_reads_missing",
+                "no_event_prune"
+              ],
+              "description": "no_turn_start_span: the release predates the turn-start span in the server trace, so no turn start can be timed; turn_start_incomplete: fewer than the row's 10 follow-up turn starts completed in the attempt; no_shell_span: the release predates the thread shell read as a named span, so the read cannot be timed; shell_reads_missing: fewer than 20 thread shell reads in the attempt, too few for a 95th percentile; no_event_prune: the release keeps no event-log prune mark, so there is no compaction boundary to read"
+            }
+          }
         }
       }
     },

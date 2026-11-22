@@ -3,7 +3,8 @@
 // the pinned harness versions and its lock file, scenarios.lock.json. A row is never edited: any change is a new
 // version. The lock holds each id@version's content hash (sha256 of the row as canonical JSON: keys sorted, no
 // whitespace), and an entry any committed lock held keeps its hash, so a row cannot be edited by rewriting its lock
-// entry in the same commit.
+// entry in the same commit. Retiring is the one change the lock takes: the status from active to retired, every other
+// byte of the row as locked, its entry unchanged; and it is one way, so a row any commit had retired stays retired.
 //
 //   node tools/t3cp/scenarios-check.mjs [--repo <dir>]           exit 0 when clean, 2 with each problem on stderr
 //   node tools/t3cp/scenarios-check.mjs --lock [--repo <dir>]    adds the lock entry of each row the lock lacks (never
@@ -131,6 +132,20 @@ export function assertLockShape(lock, what = LOCK_FILE) {
   if (!ok) throw new Error(`${what} is not a ${LOCK_SCHEMA} document mapping id@version to a sha256`);
 }
 
+/**
+ * Why a row whose hash is not its lock entry's is refused, or null when it is retired as locked: retiring is the one
+ * change the lock takes (status active to retired, every other byte of the row as locked). A row retired with any
+ * other change, or locked retired and made active, is an edit.
+ */
+function lockProblem(key, row, locked) {
+  if (row.status === "retired") {
+    if (rowHash({ ...row, status: "active" }) === locked) return null;
+    return `${key}: retired with another change, but retiring a row changes its status only: publish the change as a new version`;
+  }
+  if (rowHash({ ...row, status: "retired" }) === locked) return `${key}: retired when it was locked, and a retired row is never made active again`;
+  return `${key}: edited, but a row is never edited: publish the change as a new version`;
+}
+
 /** The problems of the catalogue against its lock: a row edited, a row removed, or a row the lock lacks. */
 export function checkLock(scenarios, lock) {
   const problems = [];
@@ -138,7 +153,10 @@ export function checkLock(scenarios, lock) {
   for (const [key, row] of rows) {
     const locked = lock.rows[key];
     if (locked === undefined) problems.push(`${key}: not in ${LOCK_FILE} (node tools/t3cp/scenarios-check.mjs --lock adds it)`);
-    else if (locked !== rowHash(row)) problems.push(`${key}: edited, but a row is never edited: publish the change as a new version`);
+    else if (locked !== rowHash(row)) {
+      const problem = lockProblem(key, row, locked);
+      if (problem !== null) problems.push(problem);
+    }
   }
   for (const key of Object.keys(lock.rows)) {
     if (!rows.has(key)) problems.push(`${key}: locked but no longer in ${SCENARIOS_FILE}: a row is never removed (retire it)`);
@@ -161,22 +179,22 @@ function hasGitMetadata(dir) {
 }
 
 /**
- * The lock's git history in `root`: every committed version of the lock must hold its entries in the current lock with
- * the same hash. Returns {checked: true, problems}, or {checked: false} when `root` is outside any git work tree. Fails
- * closed: a git that cannot run, a repository git refuses to read, or a committed lock it cannot read throws, so a
- * history that was not read never passes.
+ * Every committed version of `file` in `root`: {checked: true, versions: [{at, text}]}, newest first, or
+ * {checked: false} when `root` is outside any git work tree. Fails closed: a git that cannot run, a repository git
+ * refuses to read, or a committed version it cannot read throws (`what` names the history), so a history that was not
+ * read never passes. A commit that removed the file lists no version; the commits before it are read on their own.
  */
-export function checkLockHistory(root, lock, { gitBin = "git" } = {}) {
+function committedVersions(root, file, what, gitBin) {
   // Git finds the repository from the root alone: variables that point it elsewhere are dropped.
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !GIT_LOCATING.has(k)));
   const run = (args) => spawnSync(gitBin, ["-C", root, ...args], { encoding: "utf8", env, maxBuffer: 64 * 1024 * 1024 });
-  const fail = (what, r) => {
-    const why = r.error ? `git cannot run (${r.error.code ?? r.error.message})` : `git ${what} failed: ${(r.stderr ?? "").trim().split("\n")[0]}`;
-    return new Error(`cannot read the lock's history: ${why}`);
+  const fail = (step, r) => {
+    const why = r.error ? `git cannot run (${r.error.code ?? r.error.message})` : `git ${step} failed: ${(r.stderr ?? "").trim().split("\n")[0]}`;
+    return new Error(`cannot read ${what}: ${why}`);
   };
-  const out = (what, args) => {
+  const out = (step, args) => {
     const r = run(args);
-    if (r.error || r.status !== 0) throw fail(what, r);
+    if (r.error || r.status !== 0) throw fail(step, r);
     return r.stdout;
   };
   const inside = run(["rev-parse", "--is-inside-work-tree"]);
@@ -191,17 +209,28 @@ export function checkLockHistory(root, lock, { gitBin = "git" } = {}) {
   const head = run(["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]);
   if (head.error) throw fail("rev-parse HEAD", head);
   if (head.status !== 0) {
-    if (out("rev-list --all", ["rev-list", "-n", "1", "--all"]).trim() === "") return { checked: true, problems: [] };
+    if (out("rev-list --all", ["rev-list", "-n", "1", "--all"]).trim() === "") return { checked: true, versions: [] };
     throw fail("rev-parse HEAD", head);
   }
-  const problems = [];
-  const commits = out("log", ["log", "--full-history", "--format=%H", "HEAD", "--", LOCK_FILE]).split("\n").filter(Boolean);
-  for (const sha of commits) {
+  const versions = [];
+  for (const sha of out("log", ["log", "--full-history", "--format=%H", "HEAD", "--", file]).split("\n").filter(Boolean)) {
     const at = sha.slice(0, 12);
-    // A commit that removed the lock lists no file; the commits before it are read on their own.
-    const listed = out(`ls-tree ${at}`, ["ls-tree", "--name-only", sha, "--", LOCK_FILE]).trim();
-    if (listed === "") continue;
-    const text = out(`show ${at}:${LOCK_FILE}`, ["show", `${sha}:${LOCK_FILE}`]);
+    if (out(`ls-tree ${at}`, ["ls-tree", "--name-only", sha, "--", file]).trim() === "") continue;
+    versions.push({ at, text: out(`show ${at}:${file}`, ["show", `${sha}:${file}`]) });
+  }
+  return { checked: true, versions };
+}
+
+/**
+ * The lock's git history in `root`: every committed version of the lock must hold its entries in the current lock with
+ * the same hash. Returns {checked: true, problems}, or {checked: false} when `root` is outside any git work tree. Fails
+ * closed (committedVersions).
+ */
+export function checkLockHistory(root, lock, { gitBin = "git" } = {}) {
+  const history = committedVersions(root, LOCK_FILE, "the lock's history", gitBin);
+  if (!history.checked) return { checked: false };
+  const problems = [];
+  for (const { at, text } of history.versions) {
     let past;
     try {
       past = JSON.parse(text);
@@ -217,9 +246,43 @@ export function checkLockHistory(root, lock, { gitBin = "git" } = {}) {
   return { checked: true, problems: [...new Set(problems)] };
 }
 
+/**
+ * Retirement is one way: a row any committed scenarios.json had retired is retired in `scenarios` too (the newest such
+ * commit is named). A row gone from the catalogue is the lock's to refuse. Returns {checked: true, problems}, or
+ * {checked: false} when `root` is outside any git work tree. Fails closed (committedVersions).
+ */
+export function checkRetirementHistory(root, scenarios, { gitBin = "git" } = {}) {
+  const history = committedVersions(root, SCENARIOS_FILE, `the history of ${SCENARIOS_FILE}`, gitBin);
+  if (!history.checked) return { checked: false };
+  const now = new Map(scenarios.rows.map((r) => [rowKey(r), r]));
+  const problems = new Map();
+  for (const { at, text } of history.versions) {
+    let past;
+    try {
+      past = JSON.parse(text);
+    } catch {
+      problems.set(`parse ${at}`, `${SCENARIOS_FILE} at ${at} does not parse`);
+      continue;
+    }
+    if (!Array.isArray(past?.rows)) {
+      problems.set(`rows ${at}`, `${SCENARIOS_FILE} at ${at} has no rows`);
+      continue;
+    }
+    for (const row of past.rows) {
+      if (row?.status !== "retired") continue;
+      const key = rowKey(row);
+      const current = now.get(key);
+      if (current !== undefined && current.status !== "retired" && !problems.has(key)) {
+        problems.set(key, `${key}: commit ${at} had it retired, and a retired row is never made active again`);
+      }
+    }
+  }
+  return { checked: true, problems: [...problems.values()] };
+}
+
 const readJson = (root, rel) => JSON.parse(fs.readFileSync(path.join(root, rel), "utf8"));
 const LOCK_DESCRIPTION =
-  "The content hash of every scenarios.json row, by id@version: sha256 of the row as canonical JSON (keys sorted, no whitespace). An entry is never changed or removed; node tools/t3cp/scenarios-check.mjs --lock adds the entries of new rows.";
+  "The content hash of every scenarios.json row, by id@version: sha256 of the row as canonical JSON (keys sorted, no whitespace). An entry is never changed or removed; node tools/t3cp/scenarios-check.mjs --lock adds the entries of new rows. Retiring a row is not an edit: its status alone goes from active to retired, never back, and its entry stays the hash of the row as it was locked.";
 
 /** Reads a repository's catalogue, lock (null when it has none), references and published fixtures. */
 export function loadRepo(root = REPO_ROOT) {
@@ -244,6 +307,8 @@ export function checkRepo(root = REPO_ROOT, { history = true } = {}) {
   if (!history) return { problems, history: "not read" };
   const past = checkLockHistory(root, repo.lock);
   if (past.checked) problems.push(...past.problems);
+  const retired = checkRetirementHistory(root, repo.scenarios);
+  if (retired.checked) problems.push(...retired.problems);
   return { problems, history: past.checked ? "checked" : "not a git work tree" };
 }
 

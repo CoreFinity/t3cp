@@ -171,6 +171,16 @@
                 "shell_reads_missing",
                 "no_event_prune"
               ]
+            },
+            "prune_mark_age_days": {
+              "type": "string",
+              "enum": [
+                "no_turn_start_span",
+                "turn_start_incomplete",
+                "no_shell_span",
+                "shell_reads_missing",
+                "no_event_prune"
+              ]
             }
           }
         }
@@ -767,6 +777,14 @@
           "maximum": 100000000
         },
         "event_log_unpruned_days": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "prune_mark_age_days": {
           "type": [
             "number",
             "null"

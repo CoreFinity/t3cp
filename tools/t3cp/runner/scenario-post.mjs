@@ -10,7 +10,7 @@
 //                                               covers [t - dt_ms, t]) that overlap one; none: no_loop_samples;
 //                   turn_start_long_thread_ms   the median of their durations.
 //                   Fewer than 10 starts in the window: both turn_start_incomplete.
-//   prune-mark      event_log_unpruned_days: the event log's prune mark in the run's database at the window's end,
+//   prune-mark      prune_mark_age_days: the event log's prune mark in the run's database at the window's end,
 //                   read-only (prune-mark.py): its age past the one retained day, in days; no mark: no_event_prune.
 // No valid run.ts run with a window (an invalid run is never measured): every metric of the step null with
 // no_run_window.
@@ -30,7 +30,7 @@ export const TURN_STARTS = 10;
 /** The metrics each post step measures (data's exporter maps the raw file's metrics to the catalogue's). */
 export const POST_METRICS = {
   "turn-start-gap": ["turn_start_history_gap_ms", "turn_start_long_thread_ms"],
-  "prune-mark": ["event_log_unpruned_days"],
+  "prune-mark": ["prune_mark_age_days"],
 };
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -163,7 +163,7 @@ export function scenarioRaw(post, raw, scenario) {
   const runDir = join(raw, "work", "runs", "release", `attempt-${window.run}`);
   if (post === "prune-mark") {
     const mark = pruneMark(runDir, window);
-    return { ...out, metrics: { event_log_unpruned_days: { value: mark.value, reason: mark.reason } }, detail: mark.detail };
+    return { ...out, metrics: { prune_mark_age_days: { value: mark.value, reason: mark.reason } }, detail: mark.detail };
   }
   const gap = turnStartGap(runDir, window);
   const complete = gap.detail.starts_completed >= TURN_STARTS;

@@ -120,7 +120,8 @@ test("the CLI: --lock adds new rows' entries and never rewrites one; an edited r
   assert.equal(r.status, 0, r.stderr);
   assert.ok(r.stdout.startsWith([...repo.scenarios.rows.map(rowKey), "test-row@1"].map((k) => `locked ${k}\n`).join("")), r.stdout);
   const lock = JSON.parse(fs.readFileSync(path.join(root, LOCK_FILE), "utf8"));
-  assert.deepEqual(lock.rows, { ...repo.lock.rows, "test-row@1": rowHash(testRow()) });
+  // A lock written from nothing holds each row as it is: a retired row (event-log-compaction@1) is locked retired.
+  assert.deepEqual(lock.rows, { ...Object.fromEntries(repo.scenarios.rows.map((r) => [rowKey(r), rowHash(r)])), "test-row@1": rowHash(testRow()) });
   scenarios.rows.at(-1).attempts = 5;
   fs.writeFileSync(path.join(root, SCENARIOS_FILE), JSON.stringify(scenarios));
   r = cli(["--repo", root, "--lock"]);

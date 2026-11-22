@@ -27,13 +27,28 @@
       "id": "event-log-compaction",
       "version": 1,
       "suite": "event-log-compaction@1",
-      "status": "active",
+      "status": "retired",
       "added": "2026-11-21",
       "harness": "t3cp-harness/2.0.2",
       "platforms": ["linux-x64", "darwin-arm64"],
       "fixture": "large-76",
       "attempts": 3,
       "metrics": ["event_log_unpruned_days"],
+      "cells": [
+        { "name": "cmp", "mode": "history", "sessions": 1, "subscribers": 1, "pollers": 0, "turn_gap": "5s", "warmup_s": 60, "window_s": 300, "seed_compacted_at": false, "post": "prune-mark", "mark_age_days": 3 }
+      ]
+    },
+    {
+      "id": "event-log-compaction",
+      "version": 2,
+      "suite": "event-log-compaction@2",
+      "status": "active",
+      "added": "2026-11-22",
+      "harness": "t3cp-harness/2.0.2",
+      "platforms": ["linux-x64", "darwin-arm64"],
+      "fixture": "large-76",
+      "attempts": 3,
+      "metrics": ["prune_mark_age_days"],
       "cells": [
         { "name": "cmp", "mode": "history", "sessions": 1, "subscribers": 1, "pollers": 0, "turn_gap": "5s", "warmup_s": 60, "window_s": 300, "seed_compacted_at": false, "post": "prune-mark", "mark_age_days": 3 }
       ]
