@@ -66,17 +66,18 @@ function listeningT3(name) {
   return t3;
 }
 
-test("a release that never writes a setup span: db_ready is null with no_setup_span after a short grace, not the whole budget", { timeout: 120_000 }, () => {
+test("a release that never writes a setup span: db_ready is null with no_setup_span after a short grace, not the whole budget", { timeout: 600_000 }, () => {
   const t3 = listeningT3("t3-no-span");
   const out = join(root, "startup-no-span.json");
-  const started = Date.now();
+  // The reason says which ended each start: no_setup_span only from the grace, not_reached_within_budget from the
+  // budget. A start that waited out its 600 s budget cannot end within 540 s, so the kill below means the grace did
+  // not work - however slow the host, not a wall-clock bound on the grace (two starts of about 10 s idle).
   const result = spawnSync(
     process.execPath,
-    [join(here, "startup.mjs"), "--t3", t3, "--work", join(root, "work3"), "--out", out, "--runs", "1", "--budget-s", "300"],
-    { encoding: "utf8", timeout: 90_000, killSignal: "SIGKILL" },
+    [join(here, "startup.mjs"), "--t3", t3, "--work", join(root, "work3"), "--out", out, "--runs", "1", "--budget-s", "600"],
+    { encoding: "utf8", timeout: 540_000, killSignal: "SIGKILL" },
   );
   assert.notEqual(result.status, null, "startup.mjs waited out its budget for a mark the release never writes");
-  assert.ok(Date.now() - started < 60_000, `took ${Date.now() - started} ms`);
   const startup = JSON.parse(readFileSync(out, "utf8"));
   assert.equal(startup.starts.length, 2);
   for (const start of startup.starts) {
@@ -122,28 +123,44 @@ test("--total-budget-s caps every start together: a start it leaves no time for 
   assert.equal(startup.timed_out, true);
 });
 
-test("startup.json is written after every start, so a stop keeps the starts that finished", { timeout: 120_000 }, async () => {
-  const t3 = join(root, "t3-hangs-2");
-  writeFileSync(t3, "#!/bin/sh\nexec sleep 600\n");
+test("startup.json is written after every start, so a stop keeps the starts that finished", { timeout: 600_000 }, async () => {
+  // The first server exits at once; the second notes that it runs, then waits for the test's release. So the test
+  // reads startup.json while the second start runs, as long as it takes, not within a window of the budget's length.
+  const second = join(root, "t3-partial.second");
+  const release = join(root, "t3-partial.release");
+  const t3 = join(root, "t3-partial");
+  writeFileSync(
+    t3,
+    [
+      "#!/bin/sh",
+      `if [ -e "${second}" ] || [ -e "${second}.first" ]; then`,
+      `  : > "${second}"`,
+      `  while [ ! -e "${release}" ]; do sleep 0.1; done`,
+      "  exit 3",
+      "fi",
+      `: > "${second}.first"`,
+      "exit 3",
+      "",
+    ].join("\n"),
+  );
   chmodSync(t3, 0o755);
   const out = join(root, "startup-partial.json");
   const { spawn } = await import("node:child_process");
   const child = spawn(
     process.execPath,
-    [join(here, "startup.mjs"), "--t3", t3, "--work", join(root, "work5"), "--out", out, "--runs", "1", "--budget-s", "3"],
+    [join(here, "startup.mjs"), "--t3", t3, "--work", join(root, "work5"), "--out", out, "--runs", "1", "--budget-s", "600"],
     { stdio: "ignore" },
   );
-  const exited = new Promise((resolve) => child.on("exit", resolve));
-  let seenWhileRunning = false;
-  while (child.exitCode === null && !seenWhileRunning) {
-    try {
-      seenWhileRunning = JSON.parse(readFileSync(out, "utf8")).starts.length === 1;
-    } catch {
-      // not written yet
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100));
+  let code;
+  const exited = new Promise((resolve) => child.on("exit", resolve)).then((c) => (code = c));
+  try {
+    while (!existsSync(second) && code === undefined) await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.ok(existsSync(second), `startup.mjs exited ${code} before its second start`);
+    const during = existsSync(out) ? JSON.parse(readFileSync(out, "utf8")).starts.length : 0;
+    assert.equal(during, 1, "startup.json held the first start while the second ran");
+  } finally {
+    writeFileSync(release, "");
   }
   await exited;
-  assert.ok(seenWhileRunning, "startup.json held the first start while the second ran");
   assert.equal(JSON.parse(readFileSync(out, "utf8")).starts.length, 2);
 });
