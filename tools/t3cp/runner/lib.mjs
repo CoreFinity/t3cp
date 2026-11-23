@@ -15,13 +15,14 @@
 //   private-patterns                      exit 0 when T3CP_PRIVATE_PATTERNS is usable (the exporter's loader)
 //   diagnostics-attempt <raw> <dir> <exporter exit> [<export log>]   a failed attempt's bundle (diagnostics.mjs)
 //   diagnostics-runner <work> <dir> <record id> <reason> <detail>    a failed runner's bundle
-//   attempt-logs <raw> <dir> <record id> <cell>-<n> <try>          a try's server log and maintenance pass times
+//   attempt-logs <raw> <dir> <record id> <cell>-<n> <try>          a try's server log and maintenance pass times: the
+//                                                                   bundle, then each part, one path a line
 //   inventory <out> <spec>                {attempts: [{cell, n, present}], extras: [{name, present}]} (a scenario
 //                                         record's from its row, in T3CP_SCENARIOS or the repository's scenarios.json)
 //   host <spec>                           host facts for attempt-meta.json
 //   sha256 <file>                         hex digest, streamed
 import { createHash } from "node:crypto";
-import { createReadStream, existsSync, linkSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { createReadStream, existsSync, linkSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { cpus, release, totalmem } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,7 +30,7 @@ import { fileURLToPath } from "node:url";
 import { maintenanceClass, tryMaintenance } from "./maintenance.mjs";
 import { isMain } from "./is-main.mjs";
 import { loadCatalogue, scenarioOrder, scenarioRow } from "./scenarios.mjs";
-import { attemptDiagnostics, attemptLogs, attemptReasons, runnerDiagnostics, scrubber } from "./diagnostics.mjs";
+import { attemptDiagnostics, attemptLogsParts, attemptReasons, runnerDiagnostics, scrubber } from "./diagnostics.mjs";
 import { privatePatternsFromEnv } from "../lib/scan.mjs";
 
 export const EXTRAS = ["startup", "migration", "snapshot", "first_turn"];
@@ -207,6 +208,18 @@ export function writeNew(dir, value, at = new Date(), suffix = "") {
       }
     }
     throw new Error("no free name");
+  } finally {
+    unlinkSync(tmp);
+  }
+}
+
+/** value as a new file at exactly that path (it must not exist), written whole before it appears; returns the path. */
+export function writeAt(file, value) {
+  const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
+  writeFileSync(tmp, `${JSON.stringify(value, null, 1)}\n`, { flag: "wx" });
+  try {
+    linkSync(tmp, file);
+    return file;
   } finally {
     unlinkSync(tmp);
   }
@@ -473,10 +486,15 @@ async function main(argv) {
     }
     case "attempt-logs": {
       // attempt-logs <raw> <dir> <record id> <cell>-<n> <try>: the try's server log and maintenance pass times, a new
-      // <dir>/<UTC timestamp>.attempt-logs.json (diagnostics.mjs, for the private bucket only); prints its path
+      // <dir>/<UTC timestamp>.attempt-logs.json and, for passes that did not fit it, its parts beside it,
+      // <UTC timestamp>.attempt-logs.part-<i>.json (diagnostics.mjs, for the private bucket only); prints each path,
+      // one a line, the first bundle first
       const [raw, dir, recordId, cell, tryN] = args;
-      const bundle = await attemptLogs(raw, { record_id: recordId || null, cell: cell || null, try: Number(tryN) || null }, { scrub: diagnosticsScrub() });
-      process.stdout.write(`${writeNew(dir, bundle, new Date(), ".attempt-logs")}\n`);
+      const [head, ...parts] = await attemptLogsParts(raw, { record_id: recordId || null, cell: cell || null, try: Number(tryN) || null }, { scrub: diagnosticsScrub() });
+      // Each path is printed as soon as its file is whole, so a failure after the first still hands on what was written.
+      const file = writeNew(dir, head, new Date(), ".attempt-logs");
+      writeSync(1, `${file}\n`);
+      for (const part of parts) writeSync(1, `${writeAt(file.replace(/\.json$/, `.part-${part.part}.json`), part)}\n`);
       return 0;
     }
     case "diagnostics-runner": {

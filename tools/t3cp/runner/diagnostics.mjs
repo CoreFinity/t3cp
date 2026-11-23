@@ -6,9 +6,11 @@
 //
 // Every try also keeps, for the same PRIVATE storage, its attempt-logs bundle (t3cp/attempt-logs/1, attemptLogs):
 // each run.ts run's server log (its head and tail) and every compaction or prune pass in its trace with its own
-// start, end and exit, relative to the window, so maintenance timing is measured, not inferred. run-record.sh
-// writes it under <work>/attempt-logs/<cell>-<n>/<UTC stamp>.attempt-logs.json and hands it to T3CP_ON_DIAGNOSTICS
-// after the try (never inside a window); the exporter never reads it, and it is bounded and scrubbed as above.
+// start, end and exit, relative to the window, so maintenance timing is measured, not inferred. No pass is ever
+// dropped: those that do not fit the bundle go, in order, into its parts (attemptLogsParts), each also within the cap.
+// run-record.sh writes them under <work>/attempt-logs/<cell>-<n>/ as <UTC stamp>.attempt-logs.json and
+// <UTC stamp>.attempt-logs.part-<i>.json and hands each to T3CP_ON_DIAGNOSTICS after the try (never inside a window);
+// the exporter never reads them, and they are bounded and scrubbed as above.
 import { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync, readdirSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
@@ -237,15 +239,41 @@ export function headText(file, maxBytes) {
 const isoMs = (ms) => new Date(ms).toISOString();
 const tenths = (ms) => Math.round(ms / 100) / 10;
 
+/** The longest exit a pass keeps: one pass always fits a part. */
+const EXIT_CHARS = 256;
+/** A part number or count no real one is longer than, for sizing a bundle before the count is known. */
+const SIZING_NUMBER = Number.MAX_SAFE_INTEGER;
+
+/** The largest n in [lo, max] with fits(n), given fits(lo) and fits monotone (true, then false). */
+function most(fits, lo, max) {
+  let good = lo;
+  let step = 1;
+  while (good + step <= max && fits(good + step)) {
+    good += step;
+    step *= 2;
+  }
+  let bad = Math.min(good + step, max + 1);
+  while (bad - good > 1) {
+    const mid = Math.floor((good + bad) / 2);
+    if (fits(mid)) good = mid;
+    else bad = mid;
+  }
+  return good;
+}
+
 /**
- * A try's attempt-logs bundle (PRIVATE storage only): for each run.ts run of the try, its server log (whole when it
- * fits headBytes + tailBytes, else its head and tail) and every compaction or prune pass in its trace with its start,
- * end, duration and exit, relative to the try's window. Bounded under totalBytes: first the log budgets are halved,
- * then a log still too large is dropped (its size kept), then, only if the passes alone are over the cap, each run
- * keeps fewer passes (those overlapping the window first, then the nearest, in start order, the count it dropped in
- * maintenance_spans_dropped); a bundle that still cannot fit keeps only its identity. Scrubbed as the diagnostics are.
+ * A try's attempt-logs (PRIVATE storage only), as one or more bundles of at most totalBytes each: for each run.ts run
+ * of the try, its server log (whole when it fits headBytes + tailBytes, else its head and tail) and every compaction
+ * or prune pass in its trace with its start, end, duration and exit, relative to the try's window. No pass is dropped.
+ * The first bundle (kind attempt_logs) has the logs and as many passes as fit beside them, those overlapping the window
+ * first, then the nearest to it (the latest first without a window); each run counts the passes it left to the parts in
+ * maintenance_spans_in_parts, and `parts` is the number of bundles. The rest go, in that order, into parts (kind
+ * attempt_logs_passes, part 2..parts), each as full as the cap allows; within a bundle a run's passes are in start
+ * order. Only a log too large for the cap is cut: its budgets are halved, then it is dropped (its size kept); a first
+ * bundle that cannot fit even so keeps only its identity, and its passes all go to the parts. Scrubbed as the
+ * diagnostics are.
  */
-export async function attemptLogs(raw, { record_id = null, cell = null, try: tryN = null } = {}, { scrub = scrubber(), headBytes = LOG_HEAD_BYTES, tailBytes = LOG_TAIL_BYTES, totalBytes = TOTAL_BYTES } = {}) {
+export async function attemptLogsParts(raw, { record_id = null, cell = null, try: tryN = null } = {}, { scrub = scrubber(), headBytes = LOG_HEAD_BYTES, tailBytes = LOG_TAIL_BYTES, totalBytes = TOTAL_BYTES } = {}) {
   const w = readJson(join(raw, "try.json"))?.window ?? null;
   const hasWindow = Number.isFinite(w?.start) && Number.isFinite(w?.end);
   const window = hasWindow ? { start: isoMs(w.start), end: isoMs(w.end), run: w.run ?? null, valid: w.valid ?? null } : null;
@@ -256,29 +284,43 @@ export async function attemptLogs(raw, { record_id = null, cell = null, try: try
         .map((d) => Number(d.slice(8)))
         .sort((a, b) => a - b)
     : [];
-  // Each run's passes, with the rank a cap keeps them by: overlapping the window first, then by distance to it (the
-  // latest first without a window).
+  // Each run's passes (null without a trace), and every pass in the order the bundles take them: overlapping the
+  // window first, then by distance to it (the latest first without a window), then by start.
   const passes = new Map();
+  const order = [];
   const distance = (s) => (!hasWindow ? -s.end_ms : s.start_ms < w.end && s.end_ms > w.start ? -Infinity : Math.min(Math.abs(s.start_ms - w.end), Math.abs(w.start - s.end_ms)));
   for (const k of runIds) {
     const spans = await maintenanceSpans(join(runsDir, `attempt-${k}`, "base", "userdata", "logs", "server.trace.ndjson"));
-    passes.set(
-      k,
-      spans === null
-        ? null
-        : spans.map((s) => ({
-            rank: distance(s),
-            name: scrub(s.name),
-            start: isoMs(s.start_ms),
-            end: isoMs(s.end_ms),
-            duration_ms: Math.round(s.end_ms - s.start_ms),
-            exit: s.exit === null ? null : scrub(s.exit),
-            start_after_window_start_s: hasWindow ? tenths(s.start_ms - w.start) : null,
-            end_after_window_end_s: hasWindow ? tenths(s.end_ms - w.end) : null,
-            overlaps_window: hasWindow ? s.start_ms < w.end && s.end_ms > w.start : null,
-          })),
-    );
+    passes.set(k, spans === null ? null : spans.length);
+    for (const s of spans ?? []) {
+      order.push({
+        run: k,
+        rank: distance(s),
+        ms: s.start_ms,
+        entry: {
+          name: scrub(s.name),
+          start: isoMs(s.start_ms),
+          end: isoMs(s.end_ms),
+          duration_ms: Math.round(s.end_ms - s.start_ms),
+          exit: s.exit === null ? null : scrub(s.exit).slice(0, EXIT_CHARS),
+          start_after_window_start_s: hasWindow ? tenths(s.start_ms - w.start) : null,
+          end_after_window_end_s: hasWindow ? tenths(s.end_ms - w.end) : null,
+          overlaps_window: hasWindow ? s.start_ms < w.end && s.end_ms > w.start : null,
+        },
+      });
+    }
   }
+  order.sort((a, b) => a.rank - b.rank || a.ms - b.ms || a.run - b.run);
+  /** A slice of the order as each run's passes, in start order. */
+  const byRun = (slice) => {
+    const runs = new Map();
+    for (const p of slice) {
+      if (!runs.has(p.run)) runs.set(p.run, []);
+      runs.get(p.run).push(p);
+    }
+    for (const list of runs.values()) list.sort((a, b) => a.ms - b.ms);
+    return runs;
+  };
   const serverLog = (file, head, tail, drop) => {
     const whole = headText(file, head + tail);
     if (whole === null) return null;
@@ -287,45 +329,63 @@ export async function attemptLogs(raw, { record_id = null, cell = null, try: try
     return { bytes: whole.bytes, truncated: true, head: scrub(headText(file, head).text), tail: scrub(tailText(file, tail).text) };
   };
   const at = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-  /** At most keep of a run's passes, by rank, in start order; the rank is never written. */
-  const keptPasses = (list, keep) => {
-    if (list === null) return { spans: null, dropped: 0 };
-    const chosen = list.length <= keep ? list : [...list].sort((a, b) => a.rank - b.rank).slice(0, keep).sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
-    return { spans: chosen.map(({ rank, ...entry }) => entry), dropped: list.length - chosen.length };
+  const identity = (kind) => ({ schema: LOGS_SCHEMA, kind, record_id, cell, try: tryN, at, window });
+  // The first bundle with its first `kept` passes of the order; the logs are read once per budget.
+  const logs = new Map();
+  const logsAt = (scale, drop) => {
+    const key = `${scale}/${drop}`;
+    if (!logs.has(key)) logs.set(key, new Map(runIds.map((k) => [k, serverLog(join(runsDir, `attempt-${k}`, "server.log"), Math.floor(headBytes * scale), Math.floor(tailBytes * scale), drop)])));
+    return logs.get(key);
   };
-  const build = (scale, drop = false, keep = Infinity) => ({
-    schema: LOGS_SCHEMA,
-    kind: "attempt_logs",
-    record_id,
-    cell,
-    try: tryN,
-    at,
-    window,
-    runs: runIds.map((k) => {
-      const { spans, dropped } = keptPasses(passes.get(k), keep);
-      return {
-        run: k,
-        server_log: serverLog(join(runsDir, `attempt-${k}`, "server.log"), Math.floor(headBytes * scale), Math.floor(tailBytes * scale), drop),
-        maintenance_spans: spans,
-        ...(dropped > 0 ? { maintenance_spans_dropped: dropped } : {}),
-      };
-    }),
-    truncated: scale < 1 || drop || keep !== Infinity,
+  const first = (scale, drop, kept, parts) => {
+    const mine = byRun(order.slice(0, kept));
+    const runLogs = logsAt(scale, drop);
+    return {
+      ...identity("attempt_logs"),
+      parts,
+      runs: runIds.map((k) => {
+        const total = passes.get(k);
+        const here = mine.get(k) ?? [];
+        return {
+          run: k,
+          server_log: runLogs.get(k),
+          maintenance_spans: total === null ? null : here.map((p) => p.entry),
+          ...(total !== null && total > here.length ? { maintenance_spans_in_parts: total - here.length } : {}),
+        };
+      }),
+      truncated: scale < 1 || drop,
+    };
+  };
+  const part = (slice, n, parts) => ({
+    ...identity("attempt_logs_passes"),
+    part: n,
+    parts,
+    runs: [...byRun(slice)].sort(([a], [b]) => a - b).map(([k, list]) => ({ run: k, maintenance_spans: list.map((p) => p.entry) })),
   });
+  const fits = (bundle) => writtenBytes(bundle) <= totalBytes;
+  // The logs: halved until the first bundle fits with no pass beside them, then dropped.
   let scale = 1;
-  let bundle = build(scale);
-  while (writtenBytes(bundle) > totalBytes && (headBytes + tailBytes) * scale > 512) {
-    scale /= 2;
-    bundle = build(scale);
+  let drop = false;
+  while (!fits(first(scale, drop, 0, SIZING_NUMBER)) && (headBytes + tailBytes) * scale > 512) scale /= 2;
+  if (!fits(first(scale, drop, 0, SIZING_NUMBER))) drop = true;
+  const bare = !fits(first(scale, drop, 0, SIZING_NUMBER));
+  // As many passes as fit beside them, then the rest in parts, each as full as it can be.
+  const kept = bare ? 0 : most((n) => fits(first(scale, drop, n, SIZING_NUMBER)), 0, order.length);
+  const slices = [];
+  for (let i = kept; i < order.length; ) {
+    const n = most((c) => fits(part(order.slice(i, i + c), SIZING_NUMBER, SIZING_NUMBER)), 0, order.length - i);
+    if (n === 0) throw new Error("attempt logs: one maintenance pass is over the size cap");
+    slices.push(order.slice(i, i + n));
+    i += n;
   }
-  if (writtenBytes(bundle) > totalBytes) bundle = build(scale, true);
-  let keep = Math.max(0, ...[...passes.values()].map((list) => list?.length ?? 0));
-  while (writtenBytes(bundle) > totalBytes && keep > 0) {
-    keep = Math.floor(keep / 2);
-    bundle = build(scale, true, keep);
-  }
-  if (writtenBytes(bundle) > totalBytes) {
-    bundle = { schema: LOGS_SCHEMA, kind: "attempt_logs", record_id, cell, try: tryN, at, window, runs: [], truncated: true, dropped: "over the size cap" };
-  }
-  return bundle;
+  const parts = slices.length + 1;
+  const head = bare
+    ? { ...identity("attempt_logs"), parts, runs: [], truncated: true, dropped: "over the size cap" }
+    : first(scale, drop, kept, parts);
+  return [head, ...slices.map((slice, i) => part(slice, i + 2, parts))];
+}
+
+/** A try's first attempt-logs bundle (attemptLogsParts): the logs and the passes that fit beside them. */
+export async function attemptLogs(raw, ids = {}, options = {}) {
+  return (await attemptLogsParts(raw, ids, options))[0];
 }

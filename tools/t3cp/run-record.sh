@@ -41,8 +41,10 @@
 #   T3CP_ON_DIAGNOSTICS <file>      a failed attempt's or runner's diagnostics, <work>/diagnostics/...; and after
 #                                   every try (never inside a window) that try's attempt-logs bundle, its server log
 #                                   and maintenance pass times, <work>/attempt-logs/<cell>-<n>/<UTC stamp>
-#                                   .attempt-logs.json (runner/diagnostics.mjs): for PRIVATE storage only, never
-#                                   exported or published (a failing hook is logged, never fatal)
+#                                   .attempt-logs.json, then each of its parts (the passes that did not fit it),
+#                                   <UTC stamp>.attempt-logs.part-<i>.json (runner/diagnostics.mjs), one call each:
+#                                   for PRIVATE storage only, never exported or published (a failing hook is
+#                                   logged, never fatal)
 #   T3CP_ON_UPDATE <file>           after each heartbeat, extras, done and failure file (every one a new name)
 # Calibration and test knobs: T3CP_GUARD_FOREIGN_PCT, T3CP_GUARD_STEAL_PCT (contamination thresholds, % of the
 # host, window means), T3CP_HEARTBEAT_S (240), T3CP_EXPORTER, T3CP_PROC_CPUINFO, T3CP_PROC_STAT (the host guard's
@@ -787,8 +789,12 @@ one_try() { # cell try fixture-arg: one run.ts invocation with its sidecars (the
       log "$cell try $try: post step $P_POST failed"
   fi
   # The try's server log and maintenance pass times, for PRIVATE storage only: under <work>, never <out>, read by no
-  # exporter. Kept before a retry or the end of the attempt removes the raw try.
-  diagnose "$(lib attempt-logs "$raw" "$WORK/attempt-logs/$cell" "$RECORD_ID" "$cell" "$try" 2>> "$WORK/runner.log" || true)"
+  # exporter. Kept before a retry or the end of the attempt removes the raw try: the bundle, then each of its parts,
+  # every file the command printed (one a line), even when it failed after writing some.
+  local logs_made logs_file
+  logs_made=$(lib attempt-logs "$raw" "$WORK/attempt-logs/$cell" "$RECORD_ID" "$cell" "$try" 2>> "$WORK/runner.log") ||
+    log "$cell try $try: attempt logs failed"
+  while IFS= read -r logs_file; do diagnose "$logs_file"; done <<< "$logs_made"
 }
 
 run_attempt() {
