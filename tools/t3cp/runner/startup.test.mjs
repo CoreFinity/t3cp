@@ -50,13 +50,14 @@ test("a server that exits before it is ready says so", { timeout: 60_000 }, () =
 });
 
 /** A fake t3 that listens and accepts on its --port and says so, but never writes a database setup span. */
-function listeningT3(name) {
+function listeningT3(name, { pidFile = null } = {}) {
   const script = join(root, `${name}.mjs`);
   writeFileSync(
     script,
     [
       'import { createServer } from "node:net";',
       "const port = Number(process.argv[process.argv.indexOf('--port') + 1]);",
+      ...(pidFile ? [`(await import("node:fs")).appendFileSync(${JSON.stringify(pidFile)}, \`\${process.pid}\\n\`);`] : []),
       'createServer((s) => s.destroy()).listen(port, "127.0.0.1", () => console.log(`Listening on http://127.0.0.1:${port}`));',
       "setInterval(() => {}, 1000);",
     ].join("\n"),
@@ -86,6 +87,32 @@ test("a release that never writes a setup span: db_ready is null with no_setup_s
     assert.equal(start.db_ready_ms, null);
     assert.equal(start.reasons.db_ready_ms, "no_setup_span");
   }
+});
+
+test("a fake server ends with the startup.mjs that started it, so a run killed at its bound leaves nothing behind", { timeout: 300_000 }, async (t) => {
+  // The kill that catches a start waiting out its budget (spawnSync's SIGKILL) reaches startup.mjs alone: its servers
+  // run detached, in groups of their own. Each fake must then end by itself, or it outlives the test file.
+  const pids = join(root, "t3-orphan.pids");
+  const t3 = listeningT3("t3-orphan", { pidFile: pids });
+  const { spawn } = await import("node:child_process");
+  const child = spawn(process.execPath, [join(here, "startup.mjs"), "--t3", t3, "--work", join(root, "work6"), "--out", join(root, "startup-orphan.json"), "--runs", "1", "--budget-s", "600"], { stdio: "ignore" });
+  const exited = new Promise((resolve) => child.on("exit", resolve));
+  const fakes = () => (existsSync(pids) ? readFileSync(pids, "utf8").split("\n").filter(Boolean).map(Number) : []);
+  const running = (pid) => {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return false;
+    }
+    return !/^Z/.test(spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" }).stdout.trim());
+  };
+  while (fakes().length === 0) await delay(50, undefined, { signal: t.signal });
+  child.kill("SIGKILL");
+  await exited;
+  // Gone well within the test's own bound; a fake that stays would be there until the file's end.
+  const until = Date.now() + 120_000;
+  while (fakes().some(running) && Date.now() < until) await delay(100, undefined, { signal: t.signal });
+  assert.deepEqual(fakes().filter(running), [], "a fake server outlived the startup.mjs that started it");
 });
 
 test("--total-budget-s caps every start together: a start it leaves no time for records extra_timeout, never 0", { timeout: 120_000 }, () => {
