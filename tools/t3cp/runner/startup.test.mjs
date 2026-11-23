@@ -84,10 +84,19 @@ function listeningT3(name, { pidFile = null } = {}) {
   return t3;
 }
 
+/** The pids a fake's shell recorded: whole lines only (the file exists, empty, before its first line is written). */
+function recordedPids(pidFile) {
+  const text = existsSync(pidFile) ? readFileSync(pidFile, "utf8") : "";
+  return text
+    .split("\n")
+    .slice(0, -1)
+    .filter((line) => /^\d+$/.test(line))
+    .map(Number);
+}
+
 /** The pids in a fake's pid file still running (a zombie is not). */
 function runningFakes(pidFile) {
-  const pids = existsSync(pidFile) ? readFileSync(pidFile, "utf8").split("\n").filter(Boolean).map(Number) : [];
-  return pids.filter((pid) => {
+  return recordedPids(pidFile).filter((pid) => {
     try {
       process.kill(pid, 0);
     } catch {
@@ -156,7 +165,8 @@ test("a fake server ends with the startup.mjs that started it, so a run killed a
   const child = spawn(process.execPath, [join(here, "startup.mjs"), "--t3", t3, "--work", join(root, "work6"), "--out", join(root, "startup-orphan.json"), "--runs", "1", "--budget-s", "600"], { stdio: "ignore" });
   const exited = new Promise((resolve) => child.on("exit", resolve));
   try {
-    while (!existsSync(pids)) await delay(50, undefined, { signal: t.signal });
+    // A whole pid line: the fake's shell has begun and taken its parent.
+    while (recordedPids(pids).length === 0) await delay(50, undefined, { signal: t.signal });
     child.kill("SIGKILL");
     await exited;
     // Gone well within the test's own bound; a fake that stays would be there until the file's end.
@@ -177,7 +187,7 @@ test("a fake server whose startup.mjs is gone before the fake begins ends at onc
   const parent = spawn("sh", ["-c", '"$0" serve --port 0 --base-dir "$1" & exit 0', t3, join(root, "early-orphan-base")], { stdio: "ignore" });
   try {
     await new Promise((resolve) => parent.on("exit", resolve));
-    while (!existsSync(pids)) await delay(50, undefined, { signal: t.signal });
+    while (recordedPids(pids).length === 0) await delay(50, undefined, { signal: t.signal });
     const until = Date.now() + 120_000;
     while (runningFakes(pids).length > 0 && Date.now() < until) await delay(100, undefined, { signal: t.signal });
     assert.deepEqual(runningFakes(pids), [], "a fake server whose parent was already gone kept running");
