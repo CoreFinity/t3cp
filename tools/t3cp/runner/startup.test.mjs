@@ -1,7 +1,7 @@
 // startup.mjs against a fake server that never becomes ready: every mark is null with a reason, never 0.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, test } from "node:test";
@@ -87,22 +87,32 @@ test("a release that never writes a setup span: db_ready is null with no_setup_s
 });
 
 test("--total-budget-s caps every start together: a start it leaves no time for records extra_timeout, never 0", { timeout: 120_000 }, () => {
+  // The fake server notes each start, so the test counts the starts the budget let begin: what the cap decides. A
+  // wall-clock bound on the whole process would also count what the budget does not bound, the process's start-up and
+  // the stop and file writes after its last start (run-record.sh keeps its hard stop 30 s past the budget for them),
+  // which a loaded host stretches: one such run took 31 s.
+  const begun = join(root, "t3-hangs.starts");
   const t3 = join(root, "t3-hangs");
-  writeFileSync(t3, "#!/bin/sh\nexec sleep 600\n");
+  writeFileSync(t3, `#!/bin/sh\necho start >> "${begun}"\nexec sleep 600\n`);
   chmodSync(t3, 0o755);
   const out = join(root, "startup-total.json");
-  const started = Date.now();
   const result = spawnSync(
     process.execPath,
     [join(here, "startup.mjs"), "--t3", t3, "--work", join(root, "work4"), "--out", out, "--runs", "3", "--budget-s", "2", "--total-budget-s", "3"],
     { encoding: "utf8", timeout: 90_000, killSignal: "SIGKILL" },
   );
+  assert.notEqual(result.status, null, "startup.mjs did not end within 90 s");
   assert.equal(result.status, 1, result.stderr);
-  assert.ok(Date.now() - started < 30_000, `took ${Date.now() - started} ms`);
+  // Each start waits its whole 2 s for a server that never becomes ready: 3 s leave room for two at most, the second
+  // cut short; without the cap all six would run. (A server stopped before its shell ran is not noted, so no lower
+  // bound: the rows say the other four were never begun.)
+  const starts = existsSync(begun) ? readFileSync(begun, "utf8").split("\n").filter(Boolean).length : 0;
+  assert.ok(starts <= 2, `${starts} servers started`);
   const startup = JSON.parse(readFileSync(out, "utf8"));
   assert.equal(startup.starts.length, 6, "every planned start has a row");
   const timedOut = startup.starts.filter((s) => s.reasons.listening_ms === "extra_timeout");
   assert.ok(timedOut.length >= 4, JSON.stringify(startup.starts.map((s) => s.reasons)));
+  for (const start of startup.starts.slice(2)) assert.equal(start.reasons.listening_ms, "extra_timeout", "a start the budget left no time for");
   for (const start of timedOut) {
     for (const key of ["listening_ms", "accept_ms", "db_ready_ms"]) {
       assert.equal(start[key], null);
