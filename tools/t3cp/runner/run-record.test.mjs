@@ -395,7 +395,8 @@ test("SIGKILL mid-attempt then restart redoes the attempt in flight and nothing 
   assert.equal(second.status, 0, second.stderr + second.stdout);
   const redo = calls(t.log).slice(before.length);
   assert.deepEqual(redo, order.slice(order.indexOf("50-2")));
-  assert.ok(await eventually(() => !alive(orphan)), "the restart stops the run.ts left over from the killed runner");
+  // Stopped at the restart's start (reap_leftovers, before anything else), long before this: only its end is awaited.
+  assert.ok(await eventually(() => !alive(orphan), 300_000), "the restart stops the run.ts left over from the killed runner");
   assert.equal(JSON.parse(readFileSync(join(t.out, "done.json"), "utf8")).status, "complete");
 });
 
@@ -404,7 +405,8 @@ test("a test that gives up waiting leaves no runner and no hung stub behind", { 
   const { first, orphan } = await runUntilHang(t, "1-1", { giveUpMs: 900_000 });
   await endOfTest(t);
   assert.ok(!alive(orphan), "the hung stub is stopped");
-  assert.ok(await eventually(() => first.exitCode !== null || first.signalCode !== null, 15_000), "the runner is stopped");
+  // The teardown has signalled it: only its exit is awaited (child.ended, watched from its start).
+  assert.ok(await Promise.race([first.ended.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 300_000).unref())]), "the runner is stopped");
   assert.deepEqual(carrying(t), [], "nothing the test started is still running");
 });
 
@@ -1016,7 +1018,8 @@ test("a record still running at its deadline stops its work and fails record_tim
   const decoy = spawn("sleep", ["600"], { detached: true, stdio: "ignore" });
   try {
     const deadline = epochS() + 8;
-    const result = runRunner(t, { env: { ...t.env, STUB_HANG_CELL: "1-1", STUB_HANG_MAX_MS: "600000", T3CP_RECORD_DEADLINE: String(deadline) }, timeout: 120_000 });
+    // Wherever the deadline falls (in the hung cell, or earlier on a slow host), the record stops and fails the same way.
+    const result = runRunner(t, { env: { ...t.env, STUB_HANG_CELL: "1-1", STUB_HANG_MAX_MS: "600000", T3CP_RECORD_DEADLINE: String(deadline) }, timeout: 600_000 });
     assert.equal(result.status, 5, `status ${result.status}: ${result.stderr}`);
     const failure = failureOf(t.out);
     assert.equal(failure.reason, "record_timeout");
@@ -1063,40 +1066,60 @@ test("off a VM (development, tests) a record may run without a deadline, and say
 
 test("a runner killed outright leaves no deadline watchdog that could signal whatever later holds its pid", { skip, timeout: 1_800_000 }, async () => {
   const t = setup({ suite: { levels: [1], attempts_per_level: 1, empty_cell: false } });
-  const deadline = epochS() + 12;
+  // A deadline an hour away: the watchdog can then only leave because its runner is gone, never because the deadline
+  // passed (a near one also had to hold the runner's start, the kill and the watchdog's exit, which a loaded host
+  // stretched).
+  const deadline = epochS() + 3_600;
   const first = startRunner(t, { ...t.env, STUB_HANG_CELL: "1-1", STUB_HANG_MAX_MS: "600000", T3CP_RECORD_DEADLINE: String(deadline) });
   const pidFile = join(t.work, "pids", "watchdog.pid");
-  assert.ok(await eventually(() => existsSync(pidFile) && /^\d+$/.test(readFileSync(pidFile, "utf8").trim()), 60_000), "the watchdog runs");
+  assert.ok(await eventually(() => existsSync(pidFile) && /^\d+$/.test(readFileSync(pidFile, "utf8").trim()), 900_000), "the watchdog runs");
   const watchdog = Number(readFileSync(pidFile, "utf8").trim());
   await killRunner(first, "runner 1");
-  // Its parent is gone: it leaves at once, well before the deadline, so no USR1 is ever sent.
-  assert.ok(await eventually(() => !alive(watchdog), 5_000), "the watchdog outlived its runner");
-  assert.ok(epochS() < deadline, "checked before the deadline");
+  // Its parent is gone: it leaves within a second or two (it checks before each 1 s sleep), so no USR1 is ever sent.
+  // 300 s is a bound on that, not a time it must meet; one that never checked would stay the hour.
+  assert.ok(await eventually(() => !alive(watchdog), 300_000), "the watchdog outlived its runner");
+  assert.ok(epochS() < deadline, "it left before the deadline: because its runner was gone");
 });
 
+/**
+ * A record whose deadline falls during the step under test: run(margin) runs it with the deadline margin s away and
+ * says whether the step had begun (its marker). The steps before it take longer on a loaded host than any one margin
+ * can promise, so a run whose deadline fell before the step is no evidence either way: it runs again, with a margin
+ * three times as long, up to three times. Returns that run's result and its test state.
+ */
+function deadlineDuring(run, margins = [40, 120, 360]) {
+  for (const margin of margins) {
+    const tried = run(margin);
+    if (tried.begun) return tried;
+  }
+  assert.fail(`the deadline fell before the step under test with every margin (${margins.join(", ")} s)`);
+}
+
 test("a deadline during a hung hook stops that hook before the failure is handed on", { skip, timeout: 1_800_000 }, () => {
-  const t = setup({ suite: { levels: [1, 50], attempts_per_level: 1, empty_cell: false } });
-  const hook = join(t.root, "hung-hook.sh");
-  const started = join(t.root, "hook-started");
-  // A shell that stays (sleep is not its last word), carrying the test's root, so it is found if it outlives the run.
-  writeFileSync(hook, `#!/bin/sh\n: > '${started}'\nexec sh -c 'sleep 600; :' hung-hook '${t.root}'\n`);
-  chmodSync(hook, 0o755);
-  // Long enough for the attempt before it, so the deadline falls while the hook hangs.
-  const env = { ...t.env, T3CP_ON_ATTEMPT: hook, T3CP_HOOK_TIMEOUT_S: "600", T3CP_RECORD_DEADLINE: String(epochS() + 40) };
-  const result = runRunner(t, { env, timeout: 150_000 });
+  const { t, result } = deadlineDuring((margin) => {
+    const t = setup({ suite: { levels: [1, 50], attempts_per_level: 1, empty_cell: false } });
+    const hook = join(t.root, "hung-hook.sh");
+    const started = join(t.root, "hook-started");
+    // A shell that stays (sleep is not its last word), carrying the test's root, so it is found if it outlives the run.
+    writeFileSync(hook, `#!/bin/sh\n: > '${started}'\nexec sh -c 'sleep 600; :' hung-hook '${t.root}'\n`);
+    chmodSync(hook, 0o755);
+    const env = { ...t.env, T3CP_ON_ATTEMPT: hook, T3CP_HOOK_TIMEOUT_S: "600", T3CP_RECORD_DEADLINE: String(epochS() + margin) };
+    const result = runRunner(t, { env, timeout: (margin + 300) * 1000 });
+    return { t, result, begun: existsSync(started) };
+  });
   assert.equal(result.status, 5, `status ${result.status}: ${result.stderr}`);
-  assert.ok(existsSync(started), "the deadline fell during the hook");
   assert.equal(failureOf(t.out).reason, "record_timeout");
   assert.deepEqual(carrying(t), [], "the hung hook is stopped with the record");
 });
 
 test("a deadline during a long foreground step (an export) is handled at once, and the step is stopped", { skip, timeout: 1_800_000 }, () => {
-  const t = setup({ suite: { levels: [1], attempts_per_level: 1, empty_cell: false } });
-  // Long enough for the attempt before it, so the deadline falls while the export hangs.
-  const env = { ...t.env, STUB_EXPORT_HANG: "1", T3CP_RECORD_DEADLINE: String(epochS() + 40) };
-  const result = runRunner(t, { env, timeout: 150_000 });
+  const { t, result } = deadlineDuring((margin) => {
+    const t = setup({ suite: { levels: [1], attempts_per_level: 1, empty_cell: false } });
+    const env = { ...t.env, STUB_EXPORT_HANG: "1", T3CP_RECORD_DEADLINE: String(epochS() + margin) };
+    const result = runRunner(t, { env, timeout: (margin + 300) * 1000 });
+    return { t, result, begun: existsSync(`${t.log}.export-started`) };
+  });
   assert.equal(result.status, 5, `status ${result.status}: ${result.stderr}`);
-  assert.ok(existsSync(`${t.log}.export-started`), "the deadline fell during the export");
   assert.equal(failureOf(t.out).reason, "record_timeout");
   assert.deepEqual(carrying(t), [], "the export is stopped with the record");
 });
