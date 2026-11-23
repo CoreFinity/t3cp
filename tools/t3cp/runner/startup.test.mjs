@@ -133,6 +133,20 @@ test("a release that never writes a setup span: db_ready is null with no_setup_s
   }
 });
 
+test("a fake's pid counts once its line is whole: an empty or half-written pid file names no fake yet", () => {
+  // The shell's redirection creates the file before echo writes the line: a test that read an empty file as "no fake
+  // running" would pass without checking one.
+  const file = join(root, "pid-record-check");
+  writeFileSync(file, "");
+  assert.deepEqual(recordedPids(file), []);
+  writeFileSync(file, "12");
+  assert.deepEqual(recordedPids(file), []);
+  writeFileSync(file, "12\n3");
+  assert.deepEqual(recordedPids(file), [12]);
+  writeFileSync(file, "12\n345\n");
+  assert.deepEqual(recordedPids(file), [12, 345]);
+});
+
 test("a fake server ends with the startup.mjs that started it, so a run killed at its bound leaves nothing behind", { timeout: 300_000 }, async (t) => {
   // The kill that catches a start waiting out its budget (spawnSync's SIGKILL) reaches startup.mjs alone: its servers
   // run detached, in groups of their own. Each fake must then end by itself, or it outlives the test file.
