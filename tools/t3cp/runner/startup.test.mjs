@@ -121,6 +121,29 @@ test("a fake server ends with the startup.mjs that started it, so a run killed a
   assert.deepEqual(fakes().filter(running), [], "a fake server outlived the startup.mjs that started it");
 });
 
+test("a fake server whose startup.mjs is gone before the fake begins ends at once", { timeout: 300_000 }, async (t) => {
+  // A kill between startup.mjs's spawn and the fake's own start: the fake's first look at its parent finds it gone.
+  // Here a shell stands in for startup.mjs and exits as soon as it has started the fake.
+  const pids = join(root, "t3-early-orphan.pids");
+  const t3 = listeningT3("t3-early-orphan", { pidFile: pids });
+  const { spawn } = await import("node:child_process");
+  const parent = spawn("sh", ["-c", '"$0" serve --port 0 --base-dir "$1" & exit 0', t3, join(root, "early-orphan-base")], { stdio: "ignore" });
+  await new Promise((resolve) => parent.on("exit", resolve));
+  const fakes = () => (existsSync(pids) ? readFileSync(pids, "utf8").split("\n").filter(Boolean).map(Number) : []);
+  const running = (pid) => {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return false;
+    }
+    return !/^Z/.test(spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" }).stdout.trim());
+  };
+  while (fakes().length === 0) await delay(50, undefined, { signal: t.signal });
+  const until = Date.now() + 120_000;
+  while (fakes().some(running) && Date.now() < until) await delay(100, undefined, { signal: t.signal });
+  assert.deepEqual(fakes().filter(running), [], "a fake server whose parent was already gone kept running");
+});
+
 test("--total-budget-s caps every start together: a start it leaves no time for records extra_timeout, never 0", { timeout: 120_000 }, () => {
   // The fake server notes each start, so the test counts the starts the budget let begin: what the cap decides. A
   // wall-clock bound on the whole process would also count what the budget does not bound, the process's start-up and

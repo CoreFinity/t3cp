@@ -1095,6 +1095,18 @@ function deadlineDuring(run, margins = [40, 120, 360]) {
   assert.fail(`the deadline fell before the step under test with every margin (${margins.join(", ")} s)`);
 }
 
+test("deadlineDuring reruns only an inconclusive run: a run that ended any other way fails the test at once", () => {
+  let runs = 0;
+  const timedOut = { status: null, signal: "SIGKILL", error: Object.assign(new Error("spawnSync bash ETIMEDOUT"), { code: "ETIMEDOUT" }) };
+  assert.throws(() =>
+    deadlineDuring(() => {
+      runs += 1;
+      return runs === 1 ? { t: null, result: timedOut, begun: false } : { t: null, result: { status: 5 }, begun: true };
+    }),
+  );
+  assert.equal(runs, 1, "a run the harness had to kill was taken for an inconclusive one and run again");
+});
+
 test("a deadline during a hung hook stops that hook before the failure is handed on", { skip, timeout: 1_800_000 }, () => {
   const { t, result } = deadlineDuring((margin) => {
     const t = setup({ suite: { levels: [1, 50], attempts_per_level: 1, empty_cell: false } });
