@@ -240,8 +240,10 @@ const tenths = (ms) => Math.round(ms / 100) / 10;
 /**
  * A try's attempt-logs bundle (PRIVATE storage only): for each run.ts run of the try, its server log (whole when it
  * fits headBytes + tailBytes, else its head and tail) and every compaction or prune pass in its trace with its start,
- * end, duration and exit, relative to the try's window. Bounded under totalBytes by halving the log budgets (the
- * passes are always kept; a log still too large is dropped, its size kept) and scrubbed as the diagnostics are.
+ * end, duration and exit, relative to the try's window. Bounded under totalBytes: first the log budgets are halved,
+ * then a log still too large is dropped (its size kept), then, only if the passes alone are over the cap, each run
+ * keeps fewer passes (those overlapping the window first, then the nearest, in start order, the count it dropped in
+ * maintenance_spans_dropped); a bundle that still cannot fit keeps only its identity. Scrubbed as the diagnostics are.
  */
 export async function attemptLogs(raw, { record_id = null, cell = null, try: tryN = null } = {}, { scrub = scrubber(), headBytes = LOG_HEAD_BYTES, tailBytes = LOG_TAIL_BYTES, totalBytes = TOTAL_BYTES } = {}) {
   const w = readJson(join(raw, "try.json"))?.window ?? null;
@@ -254,7 +256,10 @@ export async function attemptLogs(raw, { record_id = null, cell = null, try: try
         .map((d) => Number(d.slice(8)))
         .sort((a, b) => a - b)
     : [];
+  // Each run's passes, with the rank a cap keeps them by: overlapping the window first, then by distance to it (the
+  // latest first without a window).
   const passes = new Map();
+  const distance = (s) => (!hasWindow ? -s.end_ms : s.start_ms < w.end && s.end_ms > w.start ? -Infinity : Math.min(Math.abs(s.start_ms - w.end), Math.abs(w.start - s.end_ms)));
   for (const k of runIds) {
     const spans = await maintenanceSpans(join(runsDir, `attempt-${k}`, "base", "userdata", "logs", "server.trace.ndjson"));
     passes.set(
@@ -262,6 +267,7 @@ export async function attemptLogs(raw, { record_id = null, cell = null, try: try
       spans === null
         ? null
         : spans.map((s) => ({
+            rank: distance(s),
             name: scrub(s.name),
             start: isoMs(s.start_ms),
             end: isoMs(s.end_ms),
@@ -281,7 +287,13 @@ export async function attemptLogs(raw, { record_id = null, cell = null, try: try
     return { bytes: whole.bytes, truncated: true, head: scrub(headText(file, head).text), tail: scrub(tailText(file, tail).text) };
   };
   const at = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-  const build = (scale, drop = false) => ({
+  /** At most keep of a run's passes, by rank, in start order; the rank is never written. */
+  const keptPasses = (list, keep) => {
+    if (list === null) return { spans: null, dropped: 0 };
+    const chosen = list.length <= keep ? list : [...list].sort((a, b) => a.rank - b.rank).slice(0, keep).sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
+    return { spans: chosen.map(({ rank, ...entry }) => entry), dropped: list.length - chosen.length };
+  };
+  const build = (scale, drop = false, keep = Infinity) => ({
     schema: LOGS_SCHEMA,
     kind: "attempt_logs",
     record_id,
@@ -289,12 +301,16 @@ export async function attemptLogs(raw, { record_id = null, cell = null, try: try
     try: tryN,
     at,
     window,
-    runs: runIds.map((k) => ({
-      run: k,
-      server_log: serverLog(join(runsDir, `attempt-${k}`, "server.log"), Math.floor(headBytes * scale), Math.floor(tailBytes * scale), drop),
-      maintenance_spans: passes.get(k),
-    })),
-    truncated: scale < 1 || drop,
+    runs: runIds.map((k) => {
+      const { spans, dropped } = keptPasses(passes.get(k), keep);
+      return {
+        run: k,
+        server_log: serverLog(join(runsDir, `attempt-${k}`, "server.log"), Math.floor(headBytes * scale), Math.floor(tailBytes * scale), drop),
+        maintenance_spans: spans,
+        ...(dropped > 0 ? { maintenance_spans_dropped: dropped } : {}),
+      };
+    }),
+    truncated: scale < 1 || drop || keep !== Infinity,
   });
   let scale = 1;
   let bundle = build(scale);
@@ -303,5 +319,13 @@ export async function attemptLogs(raw, { record_id = null, cell = null, try: try
     bundle = build(scale);
   }
   if (writtenBytes(bundle) > totalBytes) bundle = build(scale, true);
+  let keep = Math.max(0, ...[...passes.values()].map((list) => list?.length ?? 0));
+  while (writtenBytes(bundle) > totalBytes && keep > 0) {
+    keep = Math.floor(keep / 2);
+    bundle = build(scale, true, keep);
+  }
+  if (writtenBytes(bundle) > totalBytes) {
+    bundle = { schema: LOGS_SCHEMA, kind: "attempt_logs", record_id, cell, try: tryN, at, window, runs: [], truncated: true, dropped: "over the size cap" };
+  }
   return bundle;
 }
