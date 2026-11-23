@@ -163,3 +163,20 @@ test("the published export is byte-identical with and without the private bundle
     assert.ok(!readFileSync(f, "utf8").includes("CANARY-server-log-7f3a"), `${f}: no log text is published`);
   }
 });
+
+test("passes alone over the cap: the bundle still fits, keeping the window's passes first and saying how many it dropped", async () => {
+  const trace = [];
+  // 1,497 passes long before the window, three overlapping it: far over 256 KiB as spans alone.
+  for (let i = 0; i < 1_497; i++) trace.push(span("ProjectionMaintenance.pruneEventStore", WS - 10_000_000 + i * 5_000, WS - 10_000_000 + i * 5_000 + 1_000, { spanId: `old-${i}` }));
+  for (let i = 0; i < 3; i++) trace.push(span("ProjectionMaintenance.compactEventStore", WS + i * 60_000, WS + i * 60_000 + 30_000, { spanId: `win-${i}` }));
+  const { raw } = rawTry(tempDir(), { serverLog: "a short log\n", trace });
+  const bundle = await attemptLogs(raw, { record_id: "r", cell: "100-1", try: 1 }, { scrub: scrubber({ hostname: "" }) });
+  assert.ok(writtenBytes(bundle) <= 262_144, String(writtenBytes(bundle)));
+  assert.equal(bundle.truncated, true);
+  const [run] = bundle.runs;
+  assert.ok(run.maintenance_spans.length >= 3 && run.maintenance_spans.length < 1_500, String(run.maintenance_spans.length));
+  assert.equal(run.maintenance_spans.filter((s) => s.overlaps_window).length, 3, "every pass in the window is kept");
+  assert.equal(run.maintenance_spans_dropped, 1_500 - run.maintenance_spans.length);
+  const starts = run.maintenance_spans.map((s) => Date.parse(s.start));
+  assert.deepEqual(starts, [...starts].sort((a, b) => a - b), "kept in start order");
+});
