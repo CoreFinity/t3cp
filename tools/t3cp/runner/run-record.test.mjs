@@ -675,6 +675,24 @@ test("every try keeps its server log and maintenance pass times in a private bun
   for (const f of filesUnder(t.out)) assert.ok(!readFileSync(join(t.out, f), "utf8").includes("CANARY-srv-9d1e"), `${f}: never in the record`);
 });
 
+test("a try with more maintenance passes than one bundle holds hands the bundle and every part to the hook, losing none", { skip, timeout: 1_800_000 }, () => {
+  const t = setup({ suite: { levels: [1], attempts_per_level: 1, empty_cell: false } });
+  const hook = hookScript(t, "on-diagnostics");
+  const result = runRunner(t, { env: { ...t.env, STUB_TRACE_SPANS: "1500", T3CP_ON_DIAGNOSTICS: hook.file } });
+  assert.equal(result.status, 0, result.stderr + result.stdout);
+  const logsRoot = join(t.work, "attempt-logs");
+  const files = filesUnder(logsRoot).map((f) => join(logsRoot, f)).sort();
+  assert.ok(files.length > 1, files.join(" "));
+  assert.deepEqual(hook.calls().filter((c) => c.startsWith(`${logsRoot}/`)).sort(), files, "each one handed to the private hook");
+  const bundles = files.map((f) => JSON.parse(readFileSync(f, "utf8")));
+  for (const f of files) assert.ok(statSync(f).size <= 262_144, f);
+  assert.ok(bundles.every((b) => b.parts === files.length && b.cell === "1-1" && b.try === 1));
+  // The stub's trace: 1,500 passes inside the window and one before it.
+  const passes = bundles.flatMap((b) => b.runs.flatMap((r) => r.maintenance_spans ?? []));
+  assert.equal(passes.length, 1_501);
+  assert.equal(passes.filter((s) => s.overlaps_window).length, 1_500);
+});
+
 test("every run.ts call names the verified release archive, as run.ts requires for an upstream release", { skip, timeout: 1_800_000 }, () => {
   const t = setup({ suite: { levels: [1, 50], attempts_per_level: 1, empty_cell: true } });
   const result = runRunner(t);

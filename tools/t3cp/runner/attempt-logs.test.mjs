@@ -10,7 +10,7 @@ import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { fakeSpec, writeRawAttempt } from "../lib/fake-raw.mjs";
-import { attemptLogs, scrubber, writtenBytes } from "./diagnostics.mjs";
+import { attemptLogs, attemptLogsParts, scrubber, writtenBytes } from "./diagnostics.mjs";
 import { maintenanceInWindow, maintenanceSpans } from "./maintenance.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -143,6 +143,7 @@ test("the published export is byte-identical with and without the private bundle
   const logsDir = join(root, "work", "attempt-logs", "100-1");
   const made = spawnSync(process.execPath, [lib, "attempt-logs", raw, logsDir, spec.record_id, "100-1", "1"], { encoding: "utf8", env: { ...process.env, T3CP_PRIVATE_PATTERNS: "" } });
   assert.equal(made.status, 0, made.stderr);
+  assert.equal(made.stdout.trim().split("\n").length, 1, "one part for a small try");
   const bundleFile = made.stdout.trim();
   assert.equal(dirname(bundleFile), logsDir);
   assert.match(bundleFile, /\/\d{8}T\d{9}Z(-\d+)?\.attempt-logs\.json$/, "named apart from a failure bundle in the same part");
@@ -164,19 +165,59 @@ test("the published export is byte-identical with and without the private bundle
   }
 });
 
-test("passes alone over the cap: the bundle still fits, keeping the window's passes first and saying how many it dropped", async () => {
+/** Every pass across a try's parts, by start: what the private storage keeps. */
+const allPasses = (parts) => parts.flatMap((b) => b.runs.flatMap((r) => r.maintenance_spans ?? [])).sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
+
+test("passes alone over the cap: every pass is kept across bundles of at most 256 KiB, the window's in the first", async () => {
   const trace = [];
   // 1,497 passes long before the window, three overlapping it: far over 256 KiB as spans alone.
   for (let i = 0; i < 1_497; i++) trace.push(span("ProjectionMaintenance.pruneEventStore", WS - 10_000_000 + i * 5_000, WS - 10_000_000 + i * 5_000 + 1_000, { spanId: `old-${i}` }));
   for (let i = 0; i < 3; i++) trace.push(span("ProjectionMaintenance.compactEventStore", WS + i * 60_000, WS + i * 60_000 + 30_000, { spanId: `win-${i}` }));
   const { raw } = rawTry(tempDir(), { serverLog: "a short log\n", trace });
-  const bundle = await attemptLogs(raw, { record_id: "r", cell: "100-1", try: 1 }, { scrub: scrubber({ hostname: "" }) });
-  assert.ok(writtenBytes(bundle) <= 262_144, String(writtenBytes(bundle)));
-  assert.equal(bundle.truncated, true);
-  const [run] = bundle.runs;
-  assert.ok(run.maintenance_spans.length >= 3 && run.maintenance_spans.length < 1_500, String(run.maintenance_spans.length));
-  assert.equal(run.maintenance_spans.filter((s) => s.overlaps_window).length, 3, "every pass in the window is kept");
-  assert.equal(run.maintenance_spans_dropped, 1_500 - run.maintenance_spans.length);
-  const starts = run.maintenance_spans.map((s) => Date.parse(s.start));
-  assert.deepEqual(starts, [...starts].sort((a, b) => a - b), "kept in start order");
+  const parts = await attemptLogsParts(raw, { record_id: "r", cell: "100-1", try: 1 }, { scrub: scrubber({ hostname: "" }) });
+  assert.ok(parts.length > 1, String(parts.length));
+  for (const b of parts) assert.ok(writtenBytes(b) <= 262_144, String(writtenBytes(b)));
+  const [main, ...more] = parts;
+  assert.equal(main.parts, parts.length);
+  assert.deepEqual(more.map((b) => [b.kind, b.part, b.parts, b.cell, b.try]), more.map((_, i) => ["attempt_logs_passes", i + 2, parts.length, "100-1", 1]));
+  assert.equal(main.runs[0].server_log.head, "a short log\n", "the log stays in the first bundle");
+  assert.equal(main.runs[0].maintenance_spans.filter((s) => s.overlaps_window).length, 3, "the window's passes are in the first bundle");
+  assert.equal(main.runs[0].maintenance_spans_in_parts, 1_500 - main.runs[0].maintenance_spans.length);
+  const kept = allPasses(parts);
+  assert.equal(kept.length, 1_500, "no pass is lost");
+  assert.equal(new Set(kept.map((s) => s.start)).size, 1_500, "each pass once");
+  // attemptLogs is the first part.
+  assert.deepEqual((await attemptLogs(raw, { record_id: "r", cell: "100-1", try: 1 }, { scrub: scrubber({ hostname: "" }) })).runs[0].maintenance_spans, main.runs[0].maintenance_spans);
+});
+
+test("the attempt-logs command writes the bundle and each part beside it, every one within the cap, and prints each path", () => {
+  const trace = [];
+  for (let i = 0; i < 2_000; i++) trace.push(span("ProjectionMaintenance.compactEventStore", WS - 3_000_000 + i * 2_000, WS - 3_000_000 + i * 2_000 + 900, { spanId: `c-${i}` }));
+  const root = tempDir();
+  const { raw } = rawTry(root, { serverLog: "a short log\n", trace });
+  const logsDir = join(root, "work", "attempt-logs", "100-1");
+  const made = spawnSync(process.execPath, [lib, "attempt-logs", raw, logsDir, "r", "100-1", "1"], { encoding: "utf8", env: { ...process.env, T3CP_PRIVATE_PATTERNS: "" } });
+  assert.equal(made.status, 0, made.stderr);
+  const printed = made.stdout.trim().split("\n");
+  assert.ok(printed.length > 1, made.stdout);
+  assert.match(printed[0], /\/\d{8}T\d{9}Z(-\d+)?\.attempt-logs\.json$/);
+  const base = printed[0].replace(/\.json$/, "");
+  assert.deepEqual(printed.slice(1), printed.slice(1).map((_, i) => `${base}.part-${i + 2}.json`));
+  assert.deepEqual(readdirSync(logsDir).sort(), printed.map((f) => f.slice(logsDir.length + 1)).sort(), "nothing else is left there");
+  for (const f of printed) assert.ok(statSync(f).size <= 262_144, `${f}: ${statSync(f).size}`);
+  const parts = printed.map((f) => JSON.parse(readFileSync(f, "utf8")));
+  assert.equal(parts[0].parts, printed.length);
+  assert.equal(allPasses(parts).length, 2_000);
+});
+
+test("passes in the window alone over the cap: every one is kept, in start order across the parts", async () => {
+  const trace = [];
+  for (let i = 0; i < 1_200; i++) trace.push(span("ProjectionMaintenance.pruneEventStore", WS + i * 100, WS + i * 100 + 50, { spanId: `in-${i}` }));
+  const { raw } = rawTry(tempDir(), { serverLog: null, trace });
+  const parts = await attemptLogsParts(raw, { record_id: "r", cell: "100-1", try: 1 }, { scrub: scrubber({ hostname: "" }) });
+  for (const b of parts) assert.ok(writtenBytes(b) <= 262_144, String(writtenBytes(b)));
+  const kept = allPasses(parts);
+  assert.equal(kept.length, 1_200);
+  assert.ok(kept.every((s) => s.overlaps_window));
+  assert.deepEqual(parts.flatMap((b) => b.runs[0].maintenance_spans).map((s) => s.start), kept.map((s) => s.start), "parts follow start order");
 });
