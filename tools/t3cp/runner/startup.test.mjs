@@ -13,8 +13,12 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const root = mkdtempSync(join(tmpdir(), "t3cp-startup-"));
 after(() => rmSync(root, { recursive: true, force: true }));
-/** The fake server's wait, in place of a sleep: it lasts as long as the startup.mjs that started it (its parent). */
-const PARENT_GONE_SH = 'while kill -0 "$PPID" 2>/dev/null; do sleep 0.2; done';
+/**
+ * The fake server's wait, in place of a sleep: it lasts as long as the startup.mjs that started it, its parent as the
+ * shell saw it at its own start ($PPID). A parent that was already gone then (init's pid 1, or a pid that no longer
+ * answers) ends it at once.
+ */
+const PARENT_GONE_SH = '[ "$PPID" -gt 1 ] && while kill -0 "$PPID" 2>/dev/null; do sleep 0.2; done';
 
 test("a server that never reaches ready within the budget records null marks with the reason", { timeout: 60_000 }, () => {
   const t3 = join(root, "t3");
@@ -53,25 +57,59 @@ test("a server that exits before it is ready says so", { timeout: 60_000 }, () =
   assert.equal(startup.starts[0].reasons.db_ready_ms, "server_exited");
 });
 
-/** A fake t3 that listens and accepts on its --port and says so, but never writes a database setup span. */
+/**
+ * A fake t3 that listens and accepts on its --port and says so, but never writes a database setup span. Its shell
+ * takes the parent (the startup.mjs that started it) before anything else and hands it on (T3_FAKE_PARENT), and
+ * records the fake's pid (the shell's, kept across exec) in pidFile when given: the fake ends once its parent is not
+ * its parent any more, including when that was so before it began.
+ */
 function listeningT3(name, { pidFile = null } = {}) {
   const script = join(root, `${name}.mjs`);
   writeFileSync(
     script,
     [
-      'import { createServer } from "node:net";',
+      "const parent = Number(process.env.T3_FAKE_PARENT);",
+      "const orphaned = () => !(parent > 1) || process.ppid !== parent;",
+      "if (orphaned()) process.exit(0);",
+      "setInterval(() => { if (orphaned()) process.exit(0); }, 200);",
+      'const { createServer } = await import("node:net");',
       "const port = Number(process.argv[process.argv.indexOf('--port') + 1]);",
-      ...(pidFile ? [`(await import("node:fs")).appendFileSync(${JSON.stringify(pidFile)}, \`\${process.pid}\\n\`);`] : []),
       'createServer((s) => s.destroy()).listen(port, "127.0.0.1", () => console.log(`Listening on http://127.0.0.1:${port}`));',
-      // It lasts as long as the startup.mjs that started it: once that is gone, it is another process's child.
-      "const parent = process.ppid;",
-      "setInterval(() => { if (process.ppid !== parent) process.exit(0); }, 200);",
     ].join("\n"),
   );
   const t3 = join(root, name);
-  writeFileSync(t3, `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`);
+  const note = pidFile ? `echo "$$" >> "${pidFile}"\n` : "";
+  writeFileSync(t3, `#!/bin/sh\nparent=$PPID\n${note}T3_FAKE_PARENT=$parent exec "${process.execPath}" "${script}" "$@"\n`);
   chmodSync(t3, 0o755);
   return t3;
+}
+
+/** The pids in a fake's pid file still running (a zombie is not). */
+function runningFakes(pidFile) {
+  const pids = existsSync(pidFile) ? readFileSync(pidFile, "utf8").split("\n").filter(Boolean).map(Number) : [];
+  return pids.filter((pid) => {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return false;
+    }
+    return !/^Z/.test(spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" }).stdout.trim());
+  });
+}
+
+/**
+ * After a test of the fakes' own end, pass or fail: stops its startup.mjs (child, when given) and every fake in
+ * pidFile still running whose command line carries this file's root (a pid reused since is left alone).
+ */
+async function stopFakes(pidFile, child = null) {
+  if (child && child.exitCode === null && child.signalCode === null) {
+    const gone = new Promise((resolve) => child.once("exit", resolve));
+    child.kill("SIGKILL");
+    await gone;
+  }
+  for (const pid of runningFakes(pidFile)) {
+    if (spawnSync("ps", ["-ww", "-o", "args=", "-p", String(pid)], { encoding: "utf8" }).stdout.includes(root)) process.kill(pid, "SIGKILL");
+  }
 }
 
 test("a release that never writes a setup span: db_ready is null with no_setup_span after a short grace, not the whole budget", { timeout: 600_000 }, () => {
@@ -103,22 +141,17 @@ test("a fake server ends with the startup.mjs that started it, so a run killed a
   const { spawn } = await import("node:child_process");
   const child = spawn(process.execPath, [join(here, "startup.mjs"), "--t3", t3, "--work", join(root, "work6"), "--out", join(root, "startup-orphan.json"), "--runs", "1", "--budget-s", "600"], { stdio: "ignore" });
   const exited = new Promise((resolve) => child.on("exit", resolve));
-  const fakes = () => (existsSync(pids) ? readFileSync(pids, "utf8").split("\n").filter(Boolean).map(Number) : []);
-  const running = (pid) => {
-    try {
-      process.kill(pid, 0);
-    } catch {
-      return false;
-    }
-    return !/^Z/.test(spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" }).stdout.trim());
-  };
-  while (fakes().length === 0) await delay(50, undefined, { signal: t.signal });
-  child.kill("SIGKILL");
-  await exited;
-  // Gone well within the test's own bound; a fake that stays would be there until the file's end.
-  const until = Date.now() + 120_000;
-  while (fakes().some(running) && Date.now() < until) await delay(100, undefined, { signal: t.signal });
-  assert.deepEqual(fakes().filter(running), [], "a fake server outlived the startup.mjs that started it");
+  try {
+    while (!existsSync(pids)) await delay(50, undefined, { signal: t.signal });
+    child.kill("SIGKILL");
+    await exited;
+    // Gone well within the test's own bound; a fake that stays would be there until the file's end.
+    const until = Date.now() + 120_000;
+    while (runningFakes(pids).length > 0 && Date.now() < until) await delay(100, undefined, { signal: t.signal });
+    assert.deepEqual(runningFakes(pids), [], "a fake server outlived the startup.mjs that started it");
+  } finally {
+    await stopFakes(pids, child);
+  }
 });
 
 test("a fake server whose startup.mjs is gone before the fake begins ends at once", { timeout: 300_000 }, async (t) => {
@@ -128,20 +161,15 @@ test("a fake server whose startup.mjs is gone before the fake begins ends at onc
   const t3 = listeningT3("t3-early-orphan", { pidFile: pids });
   const { spawn } = await import("node:child_process");
   const parent = spawn("sh", ["-c", '"$0" serve --port 0 --base-dir "$1" & exit 0', t3, join(root, "early-orphan-base")], { stdio: "ignore" });
-  await new Promise((resolve) => parent.on("exit", resolve));
-  const fakes = () => (existsSync(pids) ? readFileSync(pids, "utf8").split("\n").filter(Boolean).map(Number) : []);
-  const running = (pid) => {
-    try {
-      process.kill(pid, 0);
-    } catch {
-      return false;
-    }
-    return !/^Z/.test(spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" }).stdout.trim());
-  };
-  while (fakes().length === 0) await delay(50, undefined, { signal: t.signal });
-  const until = Date.now() + 120_000;
-  while (fakes().some(running) && Date.now() < until) await delay(100, undefined, { signal: t.signal });
-  assert.deepEqual(fakes().filter(running), [], "a fake server whose parent was already gone kept running");
+  try {
+    await new Promise((resolve) => parent.on("exit", resolve));
+    while (!existsSync(pids)) await delay(50, undefined, { signal: t.signal });
+    const until = Date.now() + 120_000;
+    while (runningFakes(pids).length > 0 && Date.now() < until) await delay(100, undefined, { signal: t.signal });
+    assert.deepEqual(runningFakes(pids), [], "a fake server whose parent was already gone kept running");
+  } finally {
+    await stopFakes(pids);
+  }
 });
 
 test("--total-budget-s caps every start together: a start it leaves no time for records extra_timeout, never 0", { timeout: 120_000 }, () => {

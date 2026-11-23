@@ -1085,12 +1085,18 @@ test("a runner killed outright leaves no deadline watchdog that could signal wha
  * A record whose deadline falls during the step under test: run(margin) runs it with the deadline margin s away and
  * says whether the step had begun (its marker). The steps before it take longer on a loaded host than any one margin
  * can promise, so a run whose deadline fell before the step is no evidence either way: it runs again, with a margin
- * three times as long, up to three times. Returns that run's result and its test state.
+ * three times as long, up to three times. Only such a run: it must have ended as a deadline ends a record (exit 5,
+ * record_timeout) and left nothing running; a run that ended any other way (the harness's kill, a crash, another
+ * failure) fails the test at once. Returns the run whose deadline fell during the step, with its test state.
  */
 function deadlineDuring(run, margins = [40, 120, 360]) {
   for (const margin of margins) {
     const tried = run(margin);
     if (tried.begun) return tried;
+    const { t, result } = tried;
+    assert.equal(result.status, 5, `margin ${margin} s: the step never began and the run ended otherwise (status ${result.status}, signal ${result.signal}${result.error ? `, ${result.error.code ?? result.error.message}` : ""})`);
+    assert.equal(failureOf(t.out).reason, "record_timeout", `margin ${margin} s: the step never began and the record failed otherwise`);
+    assert.deepEqual(carrying(t), [], `margin ${margin} s: the run set aside left something running`);
   }
   assert.fail(`the deadline fell before the step under test with every margin (${margins.join(", ")} s)`);
 }
