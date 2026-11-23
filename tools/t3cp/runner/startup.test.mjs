@@ -1,4 +1,6 @@
-// startup.mjs against a fake server that never becomes ready: every mark is null with a reason, never 0.
+// startup.mjs against a fake server that never becomes ready: every mark is null with a reason, never 0. Every fake
+// ends by itself once the startup.mjs that started it is gone (PARENT_GONE_SH, and the listening fake's own check):
+// a test whose bound kills startup.mjs leaves no server behind, as its servers run detached in groups of their own.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -11,10 +13,12 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const root = mkdtempSync(join(tmpdir(), "t3cp-startup-"));
 after(() => rmSync(root, { recursive: true, force: true }));
+/** The fake server's wait, in place of a sleep: it lasts as long as the startup.mjs that started it (its parent). */
+const PARENT_GONE_SH = 'while kill -0 "$PPID" 2>/dev/null; do sleep 0.2; done';
 
 test("a server that never reaches ready within the budget records null marks with the reason", { timeout: 60_000 }, () => {
   const t3 = join(root, "t3");
-  writeFileSync(t3, "#!/bin/sh\nexec sleep 600\n");
+  writeFileSync(t3, `#!/bin/sh\n${PARENT_GONE_SH}\n`);
   chmodSync(t3, 0o755);
   const out = join(root, "startup.json");
   const result = spawnSync(
@@ -59,7 +63,9 @@ function listeningT3(name, { pidFile = null } = {}) {
       "const port = Number(process.argv[process.argv.indexOf('--port') + 1]);",
       ...(pidFile ? [`(await import("node:fs")).appendFileSync(${JSON.stringify(pidFile)}, \`\${process.pid}\\n\`);`] : []),
       'createServer((s) => s.destroy()).listen(port, "127.0.0.1", () => console.log(`Listening on http://127.0.0.1:${port}`));',
-      "setInterval(() => {}, 1000);",
+      // It lasts as long as the startup.mjs that started it: once that is gone, it is another process's child.
+      "const parent = process.ppid;",
+      "setInterval(() => { if (process.ppid !== parent) process.exit(0); }, 200);",
     ].join("\n"),
   );
   const t3 = join(root, name);
@@ -122,7 +128,7 @@ test("--total-budget-s caps every start together: a start it leaves no time for 
   // which a loaded host stretches: one such run took 31 s.
   const begun = join(root, "t3-hangs.starts");
   const t3 = join(root, "t3-hangs");
-  writeFileSync(t3, `#!/bin/sh\necho start >> "${begun}"\nexec sleep 600\n`);
+  writeFileSync(t3, `#!/bin/sh\necho start >> "${begun}"\n${PARENT_GONE_SH}\n`);
   chmodSync(t3, 0o755);
   const out = join(root, "startup-total.json");
   const result = spawnSync(
