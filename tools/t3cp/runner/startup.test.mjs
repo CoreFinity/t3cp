@@ -5,6 +5,7 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, test } from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -123,9 +124,10 @@ test("--total-budget-s caps every start together: a start it leaves no time for 
   assert.equal(startup.timed_out, true);
 });
 
-test("startup.json is written after every start, so a stop keeps the starts that finished", { timeout: 600_000 }, async () => {
+test("startup.json is written after every start, so a stop keeps the starts that finished", { timeout: 600_000 }, async (t) => {
   // The first server exits at once; the second notes that it runs, then waits for the test's release. So the test
   // reads startup.json while the second start runs, as long as it takes, not within a window of the budget's length.
+  // The second also ends when its marker is gone (the file's root removed), so nothing outlives the test file.
   const second = join(root, "t3-partial.second");
   const release = join(root, "t3-partial.release");
   const t3 = join(root, "t3-partial");
@@ -135,7 +137,7 @@ test("startup.json is written after every start, so a stop keeps the starts that
       "#!/bin/sh",
       `if [ -e "${second}" ] || [ -e "${second}.first" ]; then`,
       `  : > "${second}"`,
-      `  while [ ! -e "${release}" ]; do sleep 0.1; done`,
+      `  while [ ! -e "${release}" ] && [ -e "${second}" ]; do sleep 0.1; done`,
       "  exit 3",
       "fi",
       `: > "${second}.first"`,
@@ -153,14 +155,17 @@ test("startup.json is written after every start, so a stop keeps the starts that
   );
   let code;
   const exited = new Promise((resolve) => child.on("exit", resolve)).then((c) => (code = c));
+  // A test cancelled by its timeout ends its waits (t.signal), so the finally below always runs.
+  const cancelled = new Promise((_, reject) => t.signal.addEventListener("abort", () => reject(t.signal.reason), { once: true }));
   try {
-    while (!existsSync(second) && code === undefined) await new Promise((resolve) => setTimeout(resolve, 50));
+    while (!existsSync(second) && code === undefined) await delay(50, undefined, { signal: t.signal });
     assert.ok(existsSync(second), `startup.mjs exited ${code} before its second start`);
     const during = existsSync(out) ? JSON.parse(readFileSync(out, "utf8")).starts.length : 0;
     assert.equal(during, 1, "startup.json held the first start while the second ran");
   } finally {
+    // Released, and waited for, whatever happened above: its second server exits, then startup.mjs.
     writeFileSync(release, "");
+    await Promise.race([exited, cancelled]).catch(() => child.unref());
   }
-  await exited;
   assert.equal(JSON.parse(readFileSync(out, "utf8")).starts.length, 2);
 });
