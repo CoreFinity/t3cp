@@ -1,0 +1,159 @@
+{
+  "schema": "t3cp/scenario-record/1",
+  "record_id": "0.1.9-perf.14.linux-x64.fork",
+  "kind": "fork",
+  "release": {
+    "tag": "v0.1.9-perf.14",
+    "sha": "17954106587be13c5766d80c249bbba2a69241b6",
+    "date": "2026-11-21",
+    "version": "0.1.9-perf.14",
+    "archive": {
+      "name": "t3-0.1.9-perf.14-linux-x64.tar.gz",
+      "sha256": "fdd009351e1ec81c2c503bd90c6a33f760aebd494d387d6bc27d0708e6598f64",
+      "bytes": 228562759
+    },
+    "binary_sha256": "217f512696f8c2abbd16c0112eb9faf7b46e4454edfc5e9d45d541c9d47745eb",
+    "build": {
+      "source_repo": "github.com/navidnadali/t3code",
+      "script_sha256": "85f56d75ecccbab5ef6428d54aac070b1d2dd0c2de519c3f75fb30d684451f51"
+    }
+  },
+  "base": {
+    "tag": "v0.1.10-nightly.20261116.4800",
+    "date": "2026-11-16",
+    "sha": "7d32075e3757ded707914e2450c3e392a9665765"
+  },
+  "platform": {
+    "id": "linux-x64",
+    "machine": "n2d-standard-16",
+    "cpu_model": "AMD EPYC 7B13",
+    "cores": 16,
+    "memory_gib": 62.8,
+    "os": "Debian 13",
+    "kernel": "6.12.117+deb13-cloud-amd64",
+    "provisioning": "spot",
+    "runtime_node": "26.13.1"
+  },
+  "harness": {
+    "version": "t3cp-harness/2.0.2",
+    "sha": "f6dbba49a65393a52cc68c68c62746c3bcc92748",
+    "files_sha256": "a8298f52690de025cc1f5eb10f9fc296c3b7e7714d213c7d8f4f7a353b92b322",
+    "driver_sha256": "6db17895892e63d6f61ad1167a29bdbf56e71c2cb9982284c81aa3eeda62f8f4",
+    "fakes_sha256": "6af7d8b66b0338a283962645f3172629faa58f7863eecd66e8544a5accd8b07e",
+    "preload_sha256": "4261b69544fc9c77ab99ca6dac70b0eebe552f85f3da681e9ba744bbb4aaa4ec"
+  },
+  "fixture": {
+    "id": "large-76",
+    "sha256": "3d253972d0f96731f1caf32fbe26b34264adbfd87880ca3fbedee91d7e5c6fff",
+    "bytes": 26917883904,
+    "migration": 76,
+    "recipe_sha256": null
+  },
+  "workload": {
+    "suite": "event-log-compaction@2",
+    "scenario": {
+      "id": "event-log-compaction",
+      "version": 2
+    },
+    "attempts_per_cell": 3,
+    "seed": "1",
+    "now": "2026-11-22T00:00:00Z",
+    "cells": {
+      "cmp": {
+        "sessions": 1,
+        "subscribers": 1,
+        "pollers": 0,
+        "mode": "history",
+        "turn_gap_s": 5,
+        "switch_interval_s": null,
+        "poll_interval_s": null,
+        "fixture": "era",
+        "warmup_s": 60,
+        "window_s": 300,
+        "seed_compacted_at": false,
+        "post": "prune-mark",
+        "mark_age_days": 3
+      }
+    }
+  },
+  "era": {
+    "has": [
+      "effect_queue_wait",
+      "lock_wait",
+      "gauges",
+      "turn_start_span",
+      "run_metrics",
+      "thread_shell_span",
+      "event_prune",
+      "commit_batch"
+    ],
+    "missing": []
+  },
+  "cells": {
+    "cmp": {
+      "attempts": [
+        {
+          "n": 1,
+          "valid": true,
+          "problems": [],
+          "started_at": "2026-11-24T06:15:56Z",
+          "cycle_s": 427.1,
+          "contaminated": false,
+          "maintenance_in_window": 1
+        },
+        {
+          "n": 2,
+          "valid": true,
+          "problems": [],
+          "started_at": "2026-11-24T06:23:11Z",
+          "cycle_s": 415.1,
+          "contaminated": false,
+          "maintenance_in_window": 1
+        },
+        {
+          "n": 3,
+          "valid": true,
+          "problems": [],
+          "started_at": "2026-11-24T06:30:14Z",
+          "cycle_s": 415.1,
+          "contaminated": false,
+          "maintenance_in_window": 1
+        }
+      ],
+      "valid": 3,
+      "total": 3,
+      "metrics": {
+        "prune_mark_age_days": {
+          "median": 0,
+          "min": 0,
+          "max": 0,
+          "n": 3,
+          "values": [
+            0,
+            0,
+            0
+          ]
+        }
+      }
+    }
+  },
+  "host_guard": {
+    "contaminated": false,
+    "host_busy_pct_max": 7.236,
+    "host_steal_pct_max": 0,
+    "host_iowait_pct_max": 1.38,
+    "foreign_pct_mean_max": 0.343,
+    "thermal_limit_min": null
+  },
+  "status": "complete",
+  "status_reason": null,
+  "pipeline": {
+    "generated_at": "2026-11-24T06:37:15Z",
+    "run_id": null,
+    "lease": 2,
+    "exporter_version": "1.0.0",
+    "exporter_files_sha256": "1da6fadf777b0bf7f119708f8acf185b2d52fe4a94923b71a882e084ab2bbf3a",
+    "runner_version": "t3cp-runner/1.0.0",
+    "runner_files_sha256": "62b57b8593d2961932bc1ef6d4f8591ce5ecd8aa7095ec42f45b6b95e47fda14"
+  }
+}
