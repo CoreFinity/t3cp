@@ -18,7 +18,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { loadScanner } from '../../news/check.mjs';
 import { isMain } from '../../tools/t3cp/lib/repo.mjs';
-import { buildPostBundle, loadSource, pendingBundle, recordSet } from './release-bundle.mjs';
+import { buildPostBundle, loadSource, pendingBundle, pendingWhy, recordSet } from './release-bundle.mjs';
 import { BUDGET_BYTES, BudgetError, readSource, renderRelease, serialiseRelease, writeAtomic } from './release-post.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -84,7 +84,9 @@ export async function buildReleases({ inDir, outDir, postsDir = path.join(ROOT, 
       src = await loadSource({ dataDir: inDir, tag, dev });
       const set = recordSet({ dataDir: inDir, tag, prevTag: src.prev ? src.prev.tag : null, platform });
       bundle = buildPostBundle(src, { catalogue: cat, changelog, scanText, platform, bundleSha256: set.digest, pending: set.pending, baseRecord: set.baseRecord });
-      if (set.pending) log(`release-build: ${tag} pending: ${set.why.join('; ')}`);
+      // Every pending bundle states why: the records' reasons and the bundle's own (a gap in the release chain, a
+      // base from another era), from the rule buildPostBundle() applied.
+      if (bundle.pending) log(`release-build: ${tag} pending: ${pendingWhy({ release: bundle.release, metrics: bundle.metrics, digest: set.digest, pending: set.pending, why: set.why, baseRecord: set.baseRecord }).why.join('; ')}`);
     } catch (e) {
       // The aggregator could not compare the release (a missing or unreadable base, for one): pending, never a crash.
       const forkRecord = JSON.parse(readFileSync(path.join(inDir, 'fork', `${tag}.${platform}.json`), 'utf8'));

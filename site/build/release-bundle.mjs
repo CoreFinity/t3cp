@@ -268,20 +268,11 @@ export function buildPostBundle(src, { catalogue, changelog = [], scanText = nul
     }
   }
   const rows = metrics.map(({ _worse, _worse_prev, ...m }) => m);
-  // Pending: the caller says a record is not complete, there is no base, or the previous release on record is not
-  // the one before this one (perf.N needs perf.N-1; perf.1 has none).
-  const perf = (t) => Number((/-perf\.(\d+)$/.exec(t || '') || [])[1]);
-  const n = perf(release.tag);
   // bundle_sha256: the records digest (recordsDigest()); null means a record is missing, so the bundle is pending.
   // Left out (fixtures, --source), it is the sha256 of the source bundle.
   const digest = bundleSha256 === undefined ? createHash('sha256').update(JSON.stringify(src)).digest('hex') : bundleSha256;
-  const recordsPending = Boolean(pending) || !digest || !release.base || !rows.some((m) => m.text.base)
-    || (n > 1 && (!release.prev || perf(release.prev.tag) !== n - 1));
-  // A base from another era: the records are all there, but the rows compare nothing against it ("no_base" on a
-  // base whose record exists). No verdict crosses an era boundary, so the release gets no comparison at all.
-  const noBase = !recordsPending && baseRecord && rows.some((m) => m.note === 'no_base');
-  const isPending = recordsPending || noBase;
-  const pendingReason = noBase ? 'no_base' : recordsPending ? 'records' : null;
+  const { reason: pendingReason } = pendingWhy({ release, metrics: rows, digest, pending, baseRecord });
+  const isPending = pendingReason !== null;
   const draft = { release, headline_level: headline, counts, metrics: rows, pending: isPending, pending_reason: pendingReason };
   const claims = [...claimIndex(draft).entries()].map(([id, c]) => ({
     id, metric: c.row.id, platform: c.row.platform, level: c.row.level, comparison: c.comparison, verdict: c.verdict, size: claimSize.get(id) ?? 0,
@@ -318,6 +309,32 @@ export function buildPostBundle(src, { catalogue, changelog = [], scanText = nul
   const ownErrors = schemaErrors(own, out);
   if (ownErrors.length) throw new Error(`release-bundle: the bundle does not validate against t3cp/post-bundle/1: ${formatSafeErrors(ownErrors, own, 5)}`);
   return out;
+}
+
+/**
+ * Why a post bundle is pending, one clause per cause, and its pending_reason; the single rule buildPostBundle()
+ * applies, so a caller can state every reason it is pending, not only the records'. Pending ('records'): the caller
+ * says a record is not complete (`why`: recordSet()'s reasons), there is no records digest, no base, no row compared
+ * against the base, or the previous release on record is not the one before this one (perf.N needs perf.N-1;
+ * perf.1 has none). Otherwise 'no_base': a base from another era, whose record exists but which the rows compare
+ * nothing against ("no_base"); no verdict crosses an era boundary, so the release gets no comparison at all.
+ * @param {{release: object, metrics: object[], digest: string|null, pending?: boolean, why?: string[], baseRecord?: boolean}} args
+ *   release and metrics as in the post bundle
+ * @returns {{why: string[], reason: 'records'|'no_base'|null}}
+ */
+export function pendingWhy({ release, metrics, digest, pending = false, why = [], baseRecord = true }) {
+  const perf = (t) => Number((/-perf\.(\d+)$/.exec(t || '') || [])[1]);
+  const n = perf(release.tag);
+  const out = [];
+  if (pending) out.push(...(why.length ? why : ['a record is not complete']));
+  else if (!digest) out.push('no records digest');
+  if (!release.base) out.push('the release names no base');
+  else if (!metrics.some((m) => m.text.base)) out.push('no row is compared against the base');
+  if (n > 1 && !release.prev) out.push(`no previous release on record, and perf.${n} needs perf.${n - 1}`);
+  else if (n > 1 && perf(release.prev.tag) !== n - 1) out.push(`the previous release on record is ${release.prev.tag}, not perf.${n - 1}`);
+  if (out.length) return { why: out, reason: 'records' };
+  if (baseRecord && metrics.some((m) => m.note === 'no_base')) return { why: ['the base is from another era of the benchmark (no_base)'], reason: 'no_base' };
+  return { why: [], reason: null };
 }
 
 /**
@@ -460,8 +477,11 @@ async function main(argv) {
   const changelog = args.changelog ? changelogExcerpt(readFileSync(args.changelog, 'utf8'), args.tag) : [];
   const scanText = await loadScanner(ROOT);
   const set = args.source ? null : recordSet({ dataDir: args.data || path.join(ROOT, 'data', 'v1'), tag: args.tag, prevTag: src.prev ? src.prev.tag : null, platform });
-  if (set && set.pending) process.stderr.write(`release-bundle: ${args.tag} is pending: ${set.why.join('; ')}\n`);
   const bundle = buildPostBundle(src, { catalogue: readJson(path.join(ROOT, 'catalogue', 'catalogue.json')), changelog, scanText, platform, bundleSha256: set ? set.digest : undefined, pending: set ? set.pending : false, baseRecord: set ? set.baseRecord : true });
+  if (bundle.pending) {
+    const { why } = pendingWhy({ release: bundle.release, metrics: bundle.metrics, digest: set ? set.digest : bundle.bundle_sha256, pending: set ? set.pending : false, why: set ? set.why : [], baseRecord: set ? set.baseRecord : true });
+    process.stderr.write(`release-bundle: ${args.tag} is pending: ${why.join('; ')}\n`);
+  }
   const text = `${JSON.stringify(bundle, null, 2)}\n`;
   if (args.out) {
     mkdirSync(path.dirname(path.resolve(args.out)), { recursive: true });
