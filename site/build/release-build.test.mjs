@@ -417,3 +417,28 @@ test('a real build still refuses a source with no fork record: the committed dat
     new RegExp(`news/posts/${tag.replace(/\./g, '\\.')}\\.json has no fork record for ${tag.replace(/\./g, '\\.')} on linux-x64`),
   );
 });
+
+test('pending on a gap in the release chain (no record for perf.N-1) is logged with its reason, though every record is complete', async () => {
+  const dir = copyData();
+  rmSync(path.join(dir, 'fork', 'v0.1.9-perf.7.linux-x64.json'));
+  const lines = [];
+  const d = fresh();
+  const res = await buildReleases({ inDir: dir, outDir: d.outDir, postsDir: d.postsDir, dev: true, scanText: clean, tags: [PERF8], log: (l) => lines.push(l) });
+  assert.equal(res.find((r) => r.tag === PERF8).charts_only_reason, 'pending');
+  const said = lines.filter((l) => l.startsWith(`release-build: ${PERF8} pending: `));
+  assert.equal(said.length, 1, JSON.stringify(lines));
+  assert.match(said[0], /pending: the previous release on record is v0\.1\.7-perf\.6, not perf\.7$/);
+});
+
+test('no_base (a complete base record from another compaction era) is logged as pending with its reason', async () => {
+  const dir = copyData();
+  const era = json(path.join(dir, 'fork', `${PERF8}.linux-x64.json`)).compaction_schedule;
+  editJson(path.join(dir, baseRelOf(dir)), (j) => { j.compaction_schedule = era === 'unscheduled' ? 'scheduled' : 'unscheduled'; });
+  const lines = [];
+  const d = fresh();
+  const res = await buildReleases({ inDir: dir, outDir: d.outDir, postsDir: d.postsDir, dev: true, scanText: clean, tags: [PERF8], log: (l) => lines.push(l) });
+  assert.equal(res.find((r) => r.tag === PERF8).charts_only_reason, 'no_base');
+  const said = lines.filter((l) => l.startsWith(`release-build: ${PERF8} pending: `));
+  assert.equal(said.length, 1, JSON.stringify(lines));
+  assert.match(said[0], /pending: the base is from another era of the benchmark \(no_base\)$/);
+});
